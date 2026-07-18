@@ -41,7 +41,7 @@ func readFileCmd() *cobra.Command {
 			if err != nil {
 				// Check for size exceeded error and output as JSON
 				if sizeErr, ok := err.(*core.SizeExceededError); ok {
-					if jsonOutput {
+					if activeFmt == FormatJSON {
 						fmt.Println(sizeErr.ToJSON())
 						return
 					}
@@ -88,7 +88,7 @@ func readMultipleFilesCmd() *cobra.Command {
 			if err != nil {
 				// Check for size exceeded error and output as JSON
 				if sizeErr, ok := err.(*core.TotalSizeExceededError); ok {
-					if jsonOutput {
+					if activeFmt == FormatJSON {
 						fmt.Println(sizeErr.ToJSON())
 						return
 					}

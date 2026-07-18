@@ -1,3 +1,5 @@
+github.com/alpkeskin/gotoon v0.1.1 h1:GQOVwMfWKINnfEA6slrXHJaJYDwnUFmrPlXOtnuja1w=
+github.com/alpkeskin/gotoon v0.1.1/go.mod h1:XRTz8RM4tz8M2nB37MNRN8rHF4YgeYd8nIXmoU0B0+M=
 github.com/cpuguy83/go-md2man/v2 v2.0.3/go.mod h1:tgQtvFlXSQOSOSIRvRPT7W67SCa46tRHOmNcaadrF8o=
 github.com/davecgh/go-spew v1.1.0 h1:ZDRjVQ15GmhC3fiQ8ni8+OwkZQO4DARzQgrnXU1Liz8=
 github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
