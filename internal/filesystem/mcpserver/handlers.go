@@ -82,8 +82,8 @@ func ExecuteHandler(toolName string, args map[string]interface{}) (string, error
 		return "", err
 	}
 
-	// Add --json flag for machine-parseable output
-	cmdArgs = append(cmdArgs, "--json")
+	// Request token-efficient TOON output for the model.
+	cmdArgs = append(cmdArgs, "--format", "toon")
 
 	// Add allowed-dirs if configured
 	if len(AllowedDirs) > 0 {

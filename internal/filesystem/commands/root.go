@@ -14,9 +14,16 @@ var Version = "1.0.0"
 
 var (
 	// Global flags
+	formatFlag  string
 	jsonOutput  bool
 	minOutput   bool
+	fullFlag    bool
 	allowedDirs []string
+
+	// Resolved output mode, set in PersistentPreRunE from the flags above.
+	activeFmt     = FormatTOON
+	activeCompact bool
+	activeFull    bool
 )
 
 // RootCmd returns the root command for llm-filesystem
@@ -28,14 +35,30 @@ func RootCmd() *cobra.Command {
 		Long: `llm-filesystem provides fast file operations for Claude Code and CLI usage.
 
 It supports 27 commands for reading, writing, editing, and managing files.
-All commands support --json output for machine parsing.`,
+Output defaults to token-efficient TOON; use --format json for machine parsing.`,
 		SilenceErrors: true,
 		SilenceUsage:  true,
+		// Resolve the output format once, before any subcommand runs. An
+		// invalid --format fails loud here (non-zero exit) rather than
+		// silently defaulting.
+		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
+			f, compact, err := resolveFormat(formatFlag, cmd.Flags().Changed("format"), jsonOutput, minOutput)
+			if err != nil {
+				return err
+			}
+			activeFmt, activeCompact = f, compact
+			activeFull = resolveFull(cmd.Flags().Changed("full"), fullFlag, os.Getenv(FullEnvVar))
+			return nil
+		},
 	}
 
 	// Global flags
-	rootCmd.PersistentFlags().BoolVar(&jsonOutput, "json", false, "Output as JSON")
-	rootCmd.PersistentFlags().BoolVar(&minOutput, "min", false, "Minimal/token-optimized output")
+	rootCmd.PersistentFlags().StringVar(&formatFlag, "format", "toon",
+		"Output format: toon (default, token-efficient), json, or text")
+	rootCmd.PersistentFlags().BoolVar(&fullFlag, "full", false,
+		"Emit all fields instead of the minimal default (env: "+FullEnvVar+")")
+	rootCmd.PersistentFlags().BoolVar(&jsonOutput, "json", false, "Output as JSON (deprecated: use --format json)")
+	rootCmd.PersistentFlags().BoolVar(&minOutput, "min", false, "Minimal/compact output (deprecated)")
 	rootCmd.PersistentFlags().StringSliceVar(&allowedDirs, "allowed-dirs", nil,
 		"Directories the tool is allowed to access (comma-separated)")
 
@@ -66,54 +89,72 @@ func GetAllowedDirs() []string {
 	return expanded
 }
 
-// OutputResult outputs the result in JSON or text format
+// OutputResult renders the result in the active output format (toon/json/text)
+// with no minimal projection or next-step hints. Non-list commands use this.
 func OutputResult(result interface{}, textFn func() string) {
-	if jsonOutput {
-		var jsonBytes []byte
-		var err error
-		if minOutput {
-			// --json --min: single-line compact JSON
-			jsonBytes, err = json.Marshal(result)
-		} else {
-			// --json: pretty-printed JSON
-			jsonBytes, err = json.MarshalIndent(result, "", "  ")
-		}
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			os.Exit(1)
-		}
-		fmt.Println(string(jsonBytes))
-	} else {
-		fmt.Println(textFn())
-	}
+	OutputResultAXI(result, nil, nil, textFn)
 }
 
-// OutputError outputs an error in JSON or text format
+// OutputResultAXI renders result applying the AXI experience: a minimal field
+// projection (spec maps array field -> kept item keys) when not in --full mode,
+// and next-step hints (AXI #9). The full + JSON combination is kept
+// byte-identical to the pre-AXI --json output for legacy consumers.
+func OutputResultAXI(result interface{}, spec map[string][]string, steps []string, textFn func() string) {
+	// Human text: render the text body, then append hints as trailing lines.
+	if activeFmt == FormatText {
+		out := textFn()
+		if len(steps) > 0 {
+			out += "\n\nNext steps:"
+			for _, s := range steps {
+				out += "\n  - " + s
+			}
+		}
+		fmt.Println(out)
+		return
+	}
+
+	// Full + JSON: legacy byte-identical path — no projection, no hints.
+	if activeFmt == FormatJSON && activeFull {
+		var b []byte
+		if activeCompact {
+			b, _ = json.Marshal(result)
+		} else {
+			b, _ = json.MarshalIndent(result, "", "  ")
+		}
+		fmt.Println(string(b))
+		return
+	}
+
+	// Everything else renders through the generic representation so projection
+	// and hint injection can apply consistently across TOON and JSON.
+	payload, err := toGeneric(result)
+	if err != nil {
+		b, _ := json.Marshal(result)
+		fmt.Println(string(b))
+		return
+	}
+	if !activeFull && spec != nil {
+		payload = projectGeneric(payload, spec)
+	}
+	payload = injectNextSteps(payload, steps)
+
+	out, rerr := renderGeneric(activeFmt, activeCompact, payload)
+	if rerr != nil {
+		b, _ := json.Marshal(payload)
+		out = string(b)
+	}
+	fmt.Println(out)
+}
+
+// OutputError renders an error in the active output format and exits non-zero.
+// Plain text goes to stderr; structured formats (json, toon) go to stdout so
+// the caller receives a parseable body.
 func OutputError(err error) {
-	if jsonOutput {
-		if minOutput {
-			// Minimal JSON: abbreviated keys, single line
-			result := map[string]interface{}{
-				"err": true,
-				"msg": err.Error(),
-			}
-			jsonBytes, _ := json.Marshal(result)
-			fmt.Println(string(jsonBytes))
-		} else {
-			result := map[string]interface{}{
-				"error":   true,
-				"message": err.Error(),
-			}
-			jsonBytes, _ := json.MarshalIndent(result, "", "  ")
-			fmt.Println(string(jsonBytes))
-		}
+	rendered := renderError(activeFmt, activeCompact, err)
+	if activeFmt == FormatText {
+		fmt.Fprintln(os.Stderr, rendered)
 	} else {
-		if minOutput {
-			// Minimal text: just the error message
-			fmt.Fprintln(os.Stderr, err.Error())
-		} else {
-			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		}
+		fmt.Println(rendered)
 	}
 	os.Exit(1)
 }

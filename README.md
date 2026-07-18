@@ -78,7 +78,27 @@ llm-filesystem search-code --path . --pattern "func ReadFile"
 llm-filesystem --help          # full command reference
 ```
 
-All commands accept `--json` for machine-parseable output and `--allowed-dirs` for sandboxing. See [`docs/llm-filesystem-commands.md`](docs/llm-filesystem-commands.md).
+See [`docs/llm-filesystem-commands.md`](docs/llm-filesystem-commands.md) for the full command reference.
+
+## Output modes (AXI)
+
+`llm-filesystem` follows the [AXI](https://axi.md) design principles for agent-ergonomic CLIs. Output defaults to **TOON** (Token-Oriented Object Notation) with a **minimal field set**, which is roughly a 90% token reduction versus full JSON on a directory listing.
+
+| Flag | Effect |
+|------|--------|
+| *(default)* | Minimal fields, TOON format, with `next_steps` hints |
+| `--format json` | Machine-parseable JSON |
+| `--format text` | Human-readable text |
+| `--full` | All fields instead of the minimal set |
+| `--allowed-dirs` | Restrict access to the given directories |
+
+```bash
+llm-filesystem list-directory --path .              # minimal TOON (default)
+llm-filesystem list-directory --path . --full       # all fields
+llm-filesystem list-directory --path . --format json # JSON for scripts
+```
+
+Set `LLM_FILESYSTEM_FULL=1` to make full output the default for every command — useful for legacy consumers that expect all fields. `--full --format json` is byte-identical to the pre-AXI `--json` output. The deprecated `--json` and `--min` flags still work.
 
 ## Development
 
