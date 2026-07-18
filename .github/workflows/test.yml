@@ -1,0 +1,64 @@
+name: test
+
+on:
+  push:
+    branches: [main, master]
+    paths: ['**.go', 'go.mod', 'go.sum']
+  pull_request:
+    paths: ['**.go', 'go.mod', 'go.sum']
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+      - name: go vet
+        run: go vet ./...
+      - name: gofmt
+        run: |
+          unformatted=$(gofmt -s -l .)
+          if [ -n "$unformatted" ]; then
+            echo "These files need gofmt -s:"; echo "$unformatted"; exit 1
+          fi
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+      - name: test
+        run: go test -race -coverprofile=coverage.txt -covermode=atomic ./...
+      - name: coverage
+        run: |
+          pct=$(go tool cover -func=coverage.txt | tail -1 | awk '{print $3}' | tr -d '%')
+          echo "Total coverage: $pct%"
+
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        platform: [darwin/amd64, darwin/arm64, linux/amd64, linux/arm64, windows/amd64]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+      - name: cross-compile
+        run: |
+          os=${{ matrix.platform }}; os=${os%/*}
+          arch=${{ matrix.platform }}; arch=${arch#*/}
+          ext=""; [ "$os" = "windows" ] && ext=".exe"
+          GOOS=$os GOARCH=$arch go build -o /tmp/llm-filesystem-$os-$arch$ext ./cmd/llm-filesystem
+          GOOS=$os GOARCH=$arch go build -o /tmp/llm-filesystem-mcp-$os-$arch$ext ./cmd/llm-filesystem-mcp
+      - name: size gate (<20MB)
+        run: |
+          for f in /tmp/llm-filesystem-*; do
+            size=$(stat -c%s "$f")
+            echo "$f: $size bytes"
+            if [ "$size" -gt 20971520 ]; then echo "Binary exceeds 20MB"; exit 1; fi
+          done
