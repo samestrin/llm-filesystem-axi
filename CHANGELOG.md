@@ -28,6 +28,10 @@ Adopted the [AXI](https://axi.md) design principles for agent-ergonomic CLIs:
   rather than silently defaulting.
 - Backward compatible: `--full --format json` is byte-identical to the old
   `--json`; `--json`/`--min` remain as deprecated aliases.
+- **Ambient context** (`integrations/claude-code/`): a CLAUDE.md routing snippet
+  and an on-demand skill that position llm-filesystem as a complement to Claude's
+  native Read/Write/Edit — single-file work stays native, batch/specialized work
+  routes here.
 
 ### Included
 
