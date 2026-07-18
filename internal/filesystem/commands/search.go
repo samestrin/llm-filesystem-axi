@@ -34,19 +34,25 @@ func searchFilesCmd() *cobra.Command {
 			if err != nil {
 				OutputError(err)
 			}
-			OutputResult(result, func() string {
-				var sb strings.Builder
-				sb.WriteString(fmt.Sprintf("Found %d files matching '%s' in %s\n\n",
-					result.Total, result.Pattern, result.Path))
-				for _, m := range result.Matches {
-					typeIndicator := ""
-					if m.IsDir {
-						typeIndicator = " (dir)"
+			OutputResultAXI(result,
+				map[string][]string{"matches": {"path", "name", "size"}},
+				[]string{
+					"Read a match: llm-filesystem read-file --path <path>",
+					"Add --full for all fields (is_dir, mod_time).",
+				},
+				func() string {
+					var sb strings.Builder
+					sb.WriteString(fmt.Sprintf("Found %d files matching '%s' in %s\n\n",
+						result.Total, result.Pattern, result.Path))
+					for _, m := range result.Matches {
+						typeIndicator := ""
+						if m.IsDir {
+							typeIndicator = " (dir)"
+						}
+						sb.WriteString(fmt.Sprintf("%s%s  %d bytes\n", m.Path, typeIndicator, m.Size))
 					}
-					sb.WriteString(fmt.Sprintf("%s%s  %d bytes\n", m.Path, typeIndicator, m.Size))
-				}
-				return sb.String()
-			})
+					return sb.String()
+				})
 		},
 	}
 
@@ -86,21 +92,27 @@ func searchCodeCmd() *cobra.Command {
 			if err != nil {
 				OutputError(err)
 			}
-			OutputResult(result, func() string {
-				var sb strings.Builder
-				sb.WriteString(fmt.Sprintf("Found %d matches in %d files for '%s'\n\n",
-					result.TotalMatches, result.TotalFiles, result.Pattern))
-				for _, m := range result.Matches {
-					sb.WriteString(fmt.Sprintf("%s:%d: %s\n", m.File, m.Line, m.Content))
-					if len(m.Context) > 0 {
-						sb.WriteString("  Context:\n")
-						for _, c := range m.Context {
-							sb.WriteString(fmt.Sprintf("    %s\n", c))
+			OutputResultAXI(result,
+				map[string][]string{"matches": {"file", "line", "content"}},
+				[]string{
+					"Open a match: llm-filesystem read-file --path <file>",
+					"Add --full for surrounding context lines.",
+				},
+				func() string {
+					var sb strings.Builder
+					sb.WriteString(fmt.Sprintf("Found %d matches in %d files for '%s'\n\n",
+						result.TotalMatches, result.TotalFiles, result.Pattern))
+					for _, m := range result.Matches {
+						sb.WriteString(fmt.Sprintf("%s:%d: %s\n", m.File, m.Line, m.Content))
+						if len(m.Context) > 0 {
+							sb.WriteString("  Context:\n")
+							for _, c := range m.Context {
+								sb.WriteString(fmt.Sprintf("    %s\n", c))
+							}
 						}
 					}
-				}
-				return sb.String()
-			})
+					return sb.String()
+				})
 		},
 	}
 

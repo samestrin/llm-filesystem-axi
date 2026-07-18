@@ -36,22 +36,28 @@ func listDirectoryCmd() *cobra.Command {
 			if err != nil {
 				OutputError(err)
 			}
-			OutputResult(result, func() string {
-				var sb strings.Builder
-				sb.WriteString(fmt.Sprintf("Directory: %s (%d entries)\n\n", result.Path, result.Total))
-				for _, e := range result.Items {
-					typeIndicator := " "
-					if e.IsDir {
-						typeIndicator = "/"
+			OutputResultAXI(result,
+				map[string][]string{"items": {"name", "type", "size_readable"}},
+				[]string{
+					"Read a listed file: llm-filesystem read-file --path <path>",
+					"Add --full for all fields (path, mode, timestamps, ...).",
+				},
+				func() string {
+					var sb strings.Builder
+					sb.WriteString(fmt.Sprintf("Directory: %s (%d entries)\n\n", result.Path, result.Total))
+					for _, e := range result.Items {
+						typeIndicator := " "
+						if e.IsDir {
+							typeIndicator = "/"
+						}
+						sb.WriteString(fmt.Sprintf("%s%s  %d  %s\n",
+							e.Name, typeIndicator, e.Size, e.Modified))
 					}
-					sb.WriteString(fmt.Sprintf("%s%s  %d  %s\n",
-						e.Name, typeIndicator, e.Size, e.Modified))
-				}
-				if result.TotalPages > 0 {
-					sb.WriteString(fmt.Sprintf("\nPage %d/%d", result.Page, result.TotalPages))
-				}
-				return sb.String()
-			})
+					if result.TotalPages > 0 {
+						sb.WriteString(fmt.Sprintf("\nPage %d/%d", result.Page, result.TotalPages))
+					}
+					return sb.String()
+				})
 		},
 	}
 
@@ -88,14 +94,17 @@ func getDirectoryTreeCmd() *cobra.Command {
 			if err != nil {
 				OutputError(err)
 			}
-			OutputResult(result, func() string {
-				var sb strings.Builder
-				sb.WriteString(fmt.Sprintf("Tree: %s\n", result.BasePath))
-				sb.WriteString(fmt.Sprintf("Dirs: %d, Files: %d, Size: %d bytes\n\n",
-					result.TotalDirs, result.TotalFiles, result.TotalSize))
-				printTree(&sb, result.Tree, "", true)
-				return sb.String()
-			})
+			OutputResultAXI(result,
+				map[string][]string{"children": {"name", "is_dir", "size"}},
+				[]string{"Add --full for all fields (path, mode, timestamps, ...)."},
+				func() string {
+					var sb strings.Builder
+					sb.WriteString(fmt.Sprintf("Tree: %s\n", result.BasePath))
+					sb.WriteString(fmt.Sprintf("Dirs: %d, Files: %d, Size: %d bytes\n\n",
+						result.TotalDirs, result.TotalFiles, result.TotalSize))
+					printTree(&sb, result.Tree, "", true)
+					return sb.String()
+				})
 		},
 	}
 

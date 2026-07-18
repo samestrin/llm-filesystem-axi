@@ -89,6 +89,21 @@ func renderResult(f Format, compact bool, result interface{}, textFn func() stri
 	}
 }
 
+// renderGeneric renders an already-generic value (map/slice/scalar) as JSON or
+// TOON. Used after minimal projection / next-step injection, which operate on
+// the generic representation.
+func renderGeneric(f Format, compact bool, v interface{}) (string, error) {
+	if f == FormatJSON {
+		if compact {
+			b, err := json.Marshal(v)
+			return string(b), err
+		}
+		b, err := json.MarshalIndent(v, "", "  ")
+		return string(b), err
+	}
+	return gotoon.Encode(v)
+}
+
 // toGeneric marshals v to JSON and back into a tag-free generic value
 // (map/slice/scalar) so downstream encoders see exactly the JSON projection.
 func toGeneric(v interface{}) (interface{}, error) {
