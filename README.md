@@ -3,8 +3,8 @@
 > **High-performance filesystem operations for AI agents.**
 > *Native Go. Single static binary. A CLI + an MCP server.*
 
-[![Go Version](https://img.shields.io/github/go-mod/go-version/samestrin/llm-filesystem)](https://go.dev/)
-[![License](https://img.shields.io/github/license/samestrin/llm-filesystem)](LICENSE)
+[![Go Version](https://img.shields.io/github/go-mod/go-version/samestrin/llm-filesystem-axi)](https://go.dev/)
+[![License](https://img.shields.io/github/license/samestrin/llm-filesystem-axi)](LICENSE)
 
 `llm-filesystem` gives an AI agent fast, safe "hands" on the filesystem: reading, writing, editing, searching, and managing files. It ships as two statically compiled binaries with no runtime dependencies:
 
@@ -29,7 +29,7 @@ LLM agents run tight loops. Paying 85ms for a Node.js process to cold-start just
 ## Install
 
 ```bash
-git clone https://github.com/samestrin/llm-filesystem.git
+git clone https://github.com/samestrin/llm-filesystem-axi.git
 cd llm-filesystem
 sudo ./install.sh          # builds both binaries, installs to /usr/local/bin
 ```

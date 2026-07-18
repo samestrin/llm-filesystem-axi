@@ -18,7 +18,7 @@ BINARIES=(
 )
 
 VERSION="$(git describe --tags --always --dirty 2>/dev/null || echo dev)"
-CLI_LDFLAGS="-s -w -X github.com/samestrin/llm-filesystem/internal/filesystem/commands.Version=$VERSION"
+CLI_LDFLAGS="-s -w -X github.com/samestrin/llm-filesystem-axi/internal/filesystem/commands.Version=$VERSION"
 MCP_LDFLAGS="-s -w -X main.serverVersion=$VERSION"
 
 echo -e "${YELLOW}llm-filesystem installer${NC}"

@@ -8,7 +8,7 @@ DIST_DIR   := dist
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 
 # Version is stamped into each binary's own package.
-CLI_LDFLAGS := -ldflags "-s -w -X github.com/samestrin/llm-filesystem/internal/filesystem/commands.Version=$(VERSION)"
+CLI_LDFLAGS := -ldflags "-s -w -X github.com/samestrin/llm-filesystem-axi/internal/filesystem/commands.Version=$(VERSION)"
 MCP_LDFLAGS := -ldflags "-s -w -X main.serverVersion=$(VERSION)"
 
 PLATFORMS := darwin/amd64 darwin/arm64 linux/amd64 linux/arm64 windows/amd64

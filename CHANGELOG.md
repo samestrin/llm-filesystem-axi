@@ -50,7 +50,7 @@ Everything that shipped as `llm-filesystem` inside `llm-tools` through mid-2026:
 ### Notes
 
 - No behavior change from the final `llm-tools` filesystem code; this release is
-  the same engine under a new module path (`github.com/samestrin/llm-filesystem`).
+  the same engine under a new module path (`github.com/samestrin/llm-filesystem-axi`).
 - The full pre-extraction history lives in the `llm-tools` CHANGELOG under the
   `#### llm-filesystem` and `#### llm-filesystem-mcp` sections (first introduced
   in `llm-tools` v1.2.0).

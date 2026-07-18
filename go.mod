@@ -1,4 +1,4 @@
-module github.com/samestrin/llm-filesystem
+module github.com/samestrin/llm-filesystem-axi
 
 go 1.24.0
 

@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/samestrin/llm-filesystem/pkg/pathvalidation"
+	"github.com/samestrin/llm-filesystem-axi/pkg/pathvalidation"
 )
 
 // WriteFileOptions contains input parameters for WriteFile

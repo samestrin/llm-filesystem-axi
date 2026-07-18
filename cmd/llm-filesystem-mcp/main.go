@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/samestrin/llm-filesystem/internal/filesystem/mcpserver"
+	"github.com/samestrin/llm-filesystem-axi/internal/filesystem/mcpserver"
 )
 
 const (
