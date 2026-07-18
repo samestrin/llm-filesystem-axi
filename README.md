@@ -56,6 +56,8 @@ Add the server to your MCP client config:
 
 The MCP server shells out to the `llm-filesystem` CLI, so both binaries must be installed. All tools are namespaced under the `llm_filesystem_` prefix.
 
+For ambient integration — routing rules that tell Claude when to use llm-filesystem (batch/specialized) versus the native Read/Write/Edit tools (single-file), plus an on-demand skill — see [`integrations/claude-code/`](integrations/claude-code/).
+
 To restrict the tool to specific directories:
 
 ```json
