@@ -80,6 +80,13 @@ func TestHelpBlockIsSanitized(t *testing.T) {
 			func() string { return "TEXT" })
 	})
 
+	// Assert the block exists first, or the checks below pass vacuously.
+	if !strings.Contains(stdout, "help[1]: ") {
+		t.Fatalf("no help block was emitted: %q", stdout)
+	}
+	if !strings.Contains(stdout, "red.txt") {
+		t.Errorf("visible step text was lost around the stripped bytes: %q", stdout)
+	}
 	if strings.Contains(stdout, "\x1b") {
 		t.Errorf("an ANSI escape survived into the help block: %q", stdout)
 	}
@@ -133,4 +140,80 @@ func TestTextOutputKeepsItsOwnNextStepsForm(t *testing.T) {
 	if strings.Contains(stdout, "help[") {
 		t.Errorf("a TOON block leaked into text output: %q", stdout)
 	}
+}
+
+// failAfterN is a writer that accepts the first n writes and then fails, which
+// is what a consumer closing the pipe mid-document looks like.
+type failAfterN struct {
+	n       int
+	written int
+}
+
+func (w *failAfterN) Write(p []byte) (int, error) {
+	if w.written >= w.n {
+		return 0, errPipeClosed{}
+	}
+	w.written++
+	return len(p), nil
+}
+
+type errPipeClosed struct{}
+
+func (errPipeClosed) Error() string { return "pipe closed" }
+
+// The payload and the help block are one document. If the block cannot be
+// written, the caller must not additionally receive an error body appended to
+// the half-written payload — that is two conflicting documents on one stream.
+// A single write for the whole thing is what makes this impossible.
+func TestOutputIsOneWritePerDocument(t *testing.T) {
+	withFormat(t, FormatTOON, false, false)
+
+	w := &failAfterN{n: 0}
+	prevOut, prevExit := outWriter, exitFunc
+	code := -1
+	outWriter = w
+	exitFunc = func(c int) { code = c }
+	t.Cleanup(func() { outWriter, exitFunc = prevOut, prevExit })
+
+	OutputResultAXI(sample(), nil, testSteps, func() string { return "TEXT" })
+
+	if w.written != 0 {
+		t.Errorf("a failing sink accepted %d writes; the document must be attempted once", w.written)
+	}
+	if code == 0 {
+		t.Errorf("a write failure must exit non-zero, got %d", code)
+	}
+}
+
+// The same document, against a sink that works: exactly one write carries the
+// payload and the help block together.
+func TestPayloadAndHelpBlockShareOneWrite(t *testing.T) {
+	withFormat(t, FormatTOON, false, false)
+
+	w := &countingWriter{}
+	prevOut := outWriter
+	outWriter = w
+	t.Cleanup(func() { outWriter = prevOut })
+
+	OutputResultAXI(sample(), nil, testSteps, func() string { return "TEXT" })
+
+	if w.writes != 1 {
+		t.Errorf("writes = %d, want 1 for payload + help block", w.writes)
+	}
+	if !strings.Contains(w.buf.String(), "help[2]: ") {
+		t.Errorf("the single write must carry the help block: %q", w.buf.String())
+	}
+	if !strings.Contains(w.buf.String(), "items[2]") {
+		t.Errorf("the single write must carry the payload: %q", w.buf.String())
+	}
+}
+
+type countingWriter struct {
+	buf    strings.Builder
+	writes int
+}
+
+func (w *countingWriter) Write(p []byte) (int, error) {
+	w.writes++
+	return w.buf.Write(p)
 }

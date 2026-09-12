@@ -1,12 +1,14 @@
 package commands
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"strings"
 
+	goaxi "github.com/samestrin/go-axi"
 	"github.com/spf13/cobra"
 )
 
@@ -149,7 +151,16 @@ func OutputResultAXI(result interface{}, spec map[string][]string, steps []strin
 	if !activeFull && spec != nil {
 		payload = projectGeneric(payload, spec)
 	}
-	payload = injectNextSteps(payload, steps)
+
+	// Contextual disclosure (AXI principle 9) takes a different shape per
+	// format, because the formats have different rules about what one document
+	// is. TOON gets a trailing help[] block: the inline array is the only form
+	// in circulation that survives its own codec, so body and block decode as a
+	// single value. JSON cannot take an appended TOON line without ceasing to
+	// be one JSON document, so it keeps the payload field it has always had.
+	if activeFmt == FormatJSON {
+		payload = injectNextSteps(payload, steps)
+	}
 
 	out, rerr := renderGeneric(activeFmt, activeCompact, payload)
 	if rerr != nil {
@@ -158,7 +169,32 @@ func OutputResultAXI(result interface{}, spec map[string][]string, steps []strin
 		OutputError(rerr)
 		return
 	}
-	fmt.Fprintln(outWriter, out)
+
+	// The payload and the help block are ONE document, so they are assembled
+	// first and written once. Writing them separately left a window where the
+	// payload landed and the block did not; the caller then received an error
+	// body appended to a half-written document, which is two conflicting
+	// documents on one stream.
+	var doc bytes.Buffer
+	doc.WriteString(out)
+	doc.WriteByte('\n')
+
+	if activeFmt == FormatTOON {
+		// WriteHelp writes nothing for an empty list, so a command with no
+		// meaningful next step emits no stray block. It sanitizes each line,
+		// which matters because step text interpolates caller-supplied paths.
+		if err := goaxi.WriteHelp(&doc, steps); err != nil {
+			OutputError(err)
+			return
+		}
+	}
+
+	if _, err := outWriter.Write(doc.Bytes()); err != nil {
+		// The sink is gone, so a structured body cannot reach it either. Report
+		// on stderr and fail; do not retry the payload through OutputError.
+		fmt.Fprintln(errWriter, "Error: "+err.Error())
+		exitFunc(1)
+	}
 }
 
 // OutputError renders an error in the active output format and exits non-zero.
