@@ -100,14 +100,15 @@ func TestRenderGenericRefusesRatherThanWritePartialOutput(t *testing.T) {
 	}
 }
 
-// Why the empty-output trap cannot fire on the production path, asserted rather
-// than assumed: OutputResultAXI runs every result through toGeneric first, and
-// encoding/json DOES honor encoding.TextMarshaler, so the type toon-go would
-// drop arrives at the encoder already flattened to a plain string.
+// The production path has a second line of defence against the empty-output
+// trap, asserted rather than assumed: OutputResultAXI runs every result through
+// toGeneric first, and encoding/json DOES honor encoding.TextMarshaler, so the
+// type toon-go would drop arrives at the encoder already flattened to a plain
+// string.
 //
-// That makes the Check in encodeTOON defense-in-depth, not a live gate. This
-// test is what would break if toGeneric were ever removed from the path, which
-// is the moment the gate stops being redundant.
+// The guard inside encodeTOON is the first line and does not depend on this. If
+// toGeneric ever leaves the path, this test breaking is the signal — not an
+// outage, because the guard still catches it.
 func TestToGenericFlattensATypeTOONWouldDrop(t *testing.T) {
 	payload, err := toGeneric(map[string]interface{}{"at": lossyStamp{}})
 	if err != nil {

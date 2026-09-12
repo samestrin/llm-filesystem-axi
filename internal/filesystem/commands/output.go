@@ -77,39 +77,41 @@ func renderGeneric(f Format, compact bool, v interface{}) (string, error) {
 
 // encodeTOON is the single TOON encoder for the whole CLI.
 //
-// go-axi rather than a bare codec because it sanitizes. File names and file
-// contents are text this tool did not author, and toon-go passes U+2028,
-// U+2029, lone C1 bytes and invalid UTF-8 straight through, so without this a
-// payload carrying a raw escape sequence reaches whatever terminal renders the
-// output. Encode strips those and joins the surrounding visible text.
+// go-axi rather than a bare codec, for two things it adds.
 //
-// Deliberately NOT gated by goaxi.Check, which measured 2.4x slower on a
-// 2000-item listing. The two failures Check adds cannot occur on this path:
+// It sanitizes. File names and file contents are text this tool did not author,
+// and toon-go passes U+2028, U+2029, lone C1 bytes and invalid UTF-8 straight
+// through, so without this a payload carrying a raw escape sequence reaches
+// whatever terminal renders the output. Stripping joins the surrounding visible
+// text rather than dropping the field.
 //
-//   - The empty-output trap needs a defined string type or an
-//     encoding.TextMarshaler to reach the encoder. Every result goes through
-//     toGeneric first, and encoding/json honors TextMarshaler, so such a value
-//     arrives already flattened to a plain string. Pinned by
-//     TestToGenericFlattensATypeTOONWouldDrop.
-//   - Empty output for a non-empty value needs an empty payload. Every command
-//     emits scalar keys alongside its array, so the payload is never empty —
-//     an empty directory still renders "items: null" and "total: 0".
+// And it guards against silent loss. toon-go supports neither defined string
+// types nor encoding.TextMarshaler, and a violating type does not error — it
+// emits EMPTY output, so the command prints nothing and exits zero.
 //
-// Check's remaining output is a TOON-versus-JSON size comparison this tool
-// never reads, and Encode still reports a genuine encode failure. Restore the
-// gate if toGeneric ever leaves this path; that is the moment it stops being
-// redundant.
+// EncodeChecked rather than Check followed by Encode. That pair sanitizes and
+// marshals the same value twice to serve one guard; EncodeChecked derives its
+// verdict from the bytes it writes. Measured medians in go-axi, with a bare
+// Encode as the floor:
+//
+//	rows   Encode    EncodeChecked   Check+Encode
+//	100    134us     156us (+16%)    338us (+152%)
+//	2000   2.91ms    3.32ms (+14%)   7.18ms (+147%)
+//
+// The guard costs about 14% here. An earlier version of this function dropped it
+// to avoid the 2.4x that Check+Encode cost, which was the wrong trade: the cost
+// was duplicated work, not safety, and it was fixable in the library.
 //
 // Returning "" alongside the error matters: no caller may write a partial body.
 func encodeTOON(v interface{}) (string, error) {
 	var buf bytes.Buffer
-	if err := goaxi.Encode(&buf, v); err != nil {
+	if _, err := goaxi.EncodeChecked(&buf, v); err != nil {
 		return "", err
 	}
 
-	// goaxi.Encode terminates with exactly one newline; every caller here prints
-	// through fmt.Fprintln, which adds its own. Trimming keeps the string-return
-	// contract these renderers have always had.
+	// EncodeChecked terminates with exactly one newline; the caller assembles the
+	// document and writes it once. Trimming keeps the string-return contract
+	// these renderers have always had.
 	return strings.TrimSuffix(buf.String(), "\n"), nil
 }
 
