@@ -59,36 +59,6 @@ func resolveFormat(formatFlag string, formatSet, jsonFlag, minFlag bool) (Format
 	}
 }
 
-// renderResult renders a result value in the given format. JSON output is kept
-// byte-identical to the pre-AXI behavior. A TOON encode failure is surfaced as
-// an error so the caller can fall back defensively.
-func renderResult(f Format, compact bool, result interface{}, textFn func() string) (string, error) {
-	switch f {
-	case FormatText:
-		return textFn(), nil
-	case FormatJSON:
-		if compact {
-			b, err := json.Marshal(result)
-			return string(b), err
-		}
-		b, err := json.MarshalIndent(result, "", "  ")
-		return string(b), err
-	case FormatTOON:
-		// Round-trip through encoding/json so struct json tags — including
-		// ,omitempty and json:"-" — are honored exactly as in --format json,
-		// then re-encode the resulting generic value as TOON. Encoding the
-		// struct directly would leak Go field names and omitempty options.
-		generic, err := toGeneric(result)
-		if err != nil {
-			return "", err
-		}
-		return gotoon.Encode(generic)
-	default:
-		b, err := json.MarshalIndent(result, "", "  ")
-		return string(b), err
-	}
-}
-
 // renderGeneric renders an already-generic value (map/slice/scalar) as JSON or
 // TOON. Used after minimal projection / next-step injection, which operate on
 // the generic representation.

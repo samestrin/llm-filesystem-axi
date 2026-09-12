@@ -80,12 +80,14 @@ func TestResolveFormatInvalidFailsLoud(t *testing.T) {
 	}
 }
 
-// renderResult JSON output must remain byte-identical to the pre-AXI behavior
-// so existing --json consumers do not break.
-func TestRenderResultJSONBackCompat(t *testing.T) {
+// renderGeneric is the encoder the CLI actually calls, so the back-compat
+// assertions live on it. They used to target renderResult, which had no
+// production caller — the suite could stay green through a codec swap that
+// changed every shipped byte.
+func TestRenderGenericJSONBackCompat(t *testing.T) {
 	result := map[string]interface{}{"path": "/x", "total": 2}
 
-	pretty, err := renderResult(FormatJSON, false, result, func() string { return "TEXT" })
+	pretty, err := renderGeneric(FormatJSON, false, result)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,7 +96,7 @@ func TestRenderResultJSONBackCompat(t *testing.T) {
 		t.Errorf("pretty json = %q, want %q", pretty, wantPretty)
 	}
 
-	compact, err := renderResult(FormatJSON, true, result, func() string { return "TEXT" })
+	compact, err := renderGeneric(FormatJSON, true, result)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,17 +106,7 @@ func TestRenderResultJSONBackCompat(t *testing.T) {
 	}
 }
 
-func TestRenderResultText(t *testing.T) {
-	out, err := renderResult(FormatText, false, map[string]interface{}{"a": 1}, func() string { return "hello text" })
-	if err != nil {
-		t.Fatal(err)
-	}
-	if out != "hello text" {
-		t.Errorf("text render = %q, want %q", out, "hello text")
-	}
-}
-
-func TestRenderResultTOON(t *testing.T) {
+func TestRenderGenericTOONIsTabular(t *testing.T) {
 	result := map[string]interface{}{
 		"items": []map[string]interface{}{
 			{"name": "a.go", "type": "file"},
@@ -122,7 +114,7 @@ func TestRenderResultTOON(t *testing.T) {
 		},
 		"total": 2,
 	}
-	out, err := renderResult(FormatTOON, false, result, func() string { return "TEXT" })
+	out, err := renderGeneric(FormatTOON, false, result)
 	if err != nil {
 		t.Fatalf("toon render error: %v", err)
 	}
@@ -141,7 +133,7 @@ func TestRenderResultTOON(t *testing.T) {
 // TOON must represent the same data as JSON: struct json tags are honored and
 // ,omitempty fields with zero values are dropped. Guards against an encoder
 // that treats the raw tag ("name,omitempty") as the column name.
-func TestRenderResultTOONHonorsJSONTags(t *testing.T) {
+func TestRenderGenericTOONHonorsJSONTags(t *testing.T) {
 	type item struct {
 		Name  string `json:"name"`
 		Size  int    `json:"size,omitempty"`
@@ -156,7 +148,11 @@ func TestRenderResultTOONHonorsJSONTags(t *testing.T) {
 		Total: 1,
 	}
 
-	out, err := renderResult(FormatTOON, false, result, func() string { return "TEXT" })
+	payload, err := toGeneric(result)
+	if err != nil {
+		t.Fatalf("toGeneric: %v", err)
+	}
+	out, err := renderGeneric(FormatTOON, false, payload)
 	if err != nil {
 		t.Fatalf("toon render error: %v", err)
 	}

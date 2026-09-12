@@ -3,6 +3,7 @@ package commands
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
@@ -24,6 +25,17 @@ var (
 	activeFmt     = FormatTOON
 	activeCompact bool
 	activeFull    bool
+)
+
+// Output sinks and the exit hook, indirected so the paths that actually ship can
+// be tested. OutputResultAXI and OutputError used to write straight to
+// os.Stdout/os.Stderr and call os.Exit, which left the live render path with no
+// test at all while every output test exercised a function production never
+// called.
+var (
+	outWriter io.Writer = os.Stdout
+	errWriter io.Writer = os.Stderr
+	exitFunc            = os.Exit
 )
 
 // RootCmd returns the root command for llm-filesystem
@@ -109,7 +121,7 @@ func OutputResultAXI(result interface{}, spec map[string][]string, steps []strin
 				out += "\n  - " + s
 			}
 		}
-		fmt.Println(out)
+		fmt.Fprintln(outWriter, out)
 		return
 	}
 
@@ -121,7 +133,7 @@ func OutputResultAXI(result interface{}, spec map[string][]string, steps []strin
 		} else {
 			b, _ = json.MarshalIndent(result, "", "  ")
 		}
-		fmt.Println(string(b))
+		fmt.Fprintln(outWriter, string(b))
 		return
 	}
 
@@ -130,7 +142,7 @@ func OutputResultAXI(result interface{}, spec map[string][]string, steps []strin
 	payload, err := toGeneric(result)
 	if err != nil {
 		b, _ := json.Marshal(result)
-		fmt.Println(string(b))
+		fmt.Fprintln(outWriter, string(b))
 		return
 	}
 	if !activeFull && spec != nil {
@@ -143,7 +155,7 @@ func OutputResultAXI(result interface{}, spec map[string][]string, steps []strin
 		b, _ := json.Marshal(payload)
 		out = string(b)
 	}
-	fmt.Println(out)
+	fmt.Fprintln(outWriter, out)
 }
 
 // OutputError renders an error in the active output format and exits non-zero.
@@ -152,11 +164,11 @@ func OutputResultAXI(result interface{}, spec map[string][]string, steps []strin
 func OutputError(err error) {
 	rendered := renderError(activeFmt, activeCompact, err)
 	if activeFmt == FormatText {
-		fmt.Fprintln(os.Stderr, rendered)
+		fmt.Fprintln(errWriter, rendered)
 	} else {
-		fmt.Println(rendered)
+		fmt.Fprintln(outWriter, rendered)
 	}
-	os.Exit(1)
+	exitFunc(1)
 }
 
 // Execute runs the root command
