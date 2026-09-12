@@ -71,25 +71,51 @@ var AllowedDirs []string
 // CommandTimeout is the default timeout for command execution
 var CommandTimeout = 60 * time.Second
 
+// hasFlag reports whether args already carries the named flag, in either the
+// "--flag value" or "--flag=value" form.
+func hasFlag(args []string, name string) bool {
+	for _, a := range args {
+		if a == name || strings.HasPrefix(a, name+"=") {
+			return true
+		}
+	}
+	return false
+}
+
+// buildCommandArgs assembles the full CLI argument list for a tool: the
+// per-command args, the TOON output request, and any allowed-dirs.
+//
+// The TOON request is added ONLY when the command does not already supply a
+// --format of its own. compress-files defines --format for the ARCHIVE type, and
+// appending "--format toon" after it made the later value win, so the archive
+// format became "toon" — which no archiver supports, and compress_files was dead
+// over MCP. Leaving the flag off costs nothing, because TOON is already the
+// CLI's default output format.
+func buildCommandArgs(cmdName string, args map[string]interface{}) ([]string, error) {
+	cmdArgs, err := buildArgs(cmdName, args)
+	if err != nil {
+		return nil, err
+	}
+
+	if !hasFlag(cmdArgs, "--format") {
+		cmdArgs = append(cmdArgs, "--format", "toon")
+	}
+
+	for _, dir := range AllowedDirs {
+		cmdArgs = append(cmdArgs, "--allowed-dirs", dir)
+	}
+
+	return cmdArgs, nil
+}
+
 // ExecuteHandler executes the appropriate command for a tool
 func ExecuteHandler(toolName string, args map[string]interface{}) (string, error) {
 	// Strip prefix to get command name
 	cmdName := strings.TrimPrefix(toolName, ToolPrefix)
 
-	// Build command args
-	cmdArgs, err := buildArgs(cmdName, args)
+	cmdArgs, err := buildCommandArgs(cmdName, args)
 	if err != nil {
 		return "", err
-	}
-
-	// Request token-efficient TOON output for the model.
-	cmdArgs = append(cmdArgs, "--format", "toon")
-
-	// Add allowed-dirs if configured
-	if len(AllowedDirs) > 0 {
-		for _, dir := range AllowedDirs {
-			cmdArgs = append(cmdArgs, "--allowed-dirs", dir)
-		}
 	}
 
 	// Execute command
@@ -104,11 +130,13 @@ func ExecuteHandler(toolName string, args map[string]interface{}) (string, error
 	}
 
 	if err != nil {
-		// Return output even on error (may contain useful error message)
-		if len(output) > 0 {
-			return string(output), nil
-		}
-		return "", fmt.Errorf("command failed: %w", err)
+		// The body is returned ALONGSIDE the error, never instead of it. This
+		// used to return (output, nil) whenever the child produced any output,
+		// so a genuine tool failure reached the model reported as a SUCCESS, and
+		// the only calls flagged as errors were the ones that exited silently.
+		// The caller needs both: the error so IsError is true, and the body
+		// because it carries the structured error payload.
+		return string(output), fmt.Errorf("command failed: %w", err)
 	}
 
 	return string(output), nil
