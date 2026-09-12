@@ -193,7 +193,7 @@ func OutputResultAXI(result interface{}, spec map[string][]string, steps []strin
 		// The sink is gone, so a structured body cannot reach it either. Report
 		// on stderr and fail; do not retry the payload through OutputError.
 		fmt.Fprintln(errWriter, "Error: "+err.Error())
-		exitFunc(1)
+		exitFunc(int(goaxi.ExitError))
 	}
 }
 
@@ -207,12 +207,39 @@ func OutputError(err error) {
 	} else {
 		fmt.Fprintln(outWriter, rendered)
 	}
-	exitFunc(1)
+	exitFunc(int(goaxi.ExitError))
 }
 
-// Execute runs the root command
+// Execute runs the CLI against the real process arguments.
 func Execute() {
-	if err := RootCmd().Execute(); err != nil {
-		os.Exit(1)
+	execute(os.Args[1:])
+}
+
+// execute runs the root command with the given args and selects the exit status.
+//
+// Any error arriving here is a USAGE error, and that is structural rather than a
+// guess: every subcommand uses cobra's Run rather than RunE and reports its own
+// failures through OutputError, which exits before returning. So the only errors
+// that can reach this point are cobra's own parse and resolution failures —
+// unknown subcommand, unknown flag, missing required flag, invalid --format.
+//
+// The error used to be discarded. SilenceErrors is set on the root command so
+// cobra does not print it either, which meant all four classes exited 1 with
+// nothing on either stream — a bare non-zero status and nothing to act on. The
+// parseFormat message was built and thrown away. AXI principle 6 asks a tool to
+// fail loud on unknown input.
+//
+// ExitUsage is deliberately distinct from ExitError. A typo and a broken tool
+// are different situations, and an agent cannot decide whether a retry is
+// worthwhile if they share a code.
+func execute(args []string) {
+	cmd := RootCmd()
+	cmd.SetArgs(args)
+	cmd.SetOut(outWriter)
+	cmd.SetErr(errWriter)
+
+	if err := cmd.Execute(); err != nil {
+		fmt.Fprintln(errWriter, "Error: "+err.Error())
+		exitFunc(int(goaxi.ExitUsage))
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	goaxi "github.com/samestrin/go-axi"
 	"github.com/samestrin/llm-filesystem-axi/internal/filesystem/mcpserver"
 )
 
@@ -36,7 +37,7 @@ func main() {
 	if _, err := os.Stat(mcpserver.BinaryPath); os.IsNotExist(err) {
 		fmt.Fprintf(os.Stderr, "ERROR: llm-filesystem binary not found at %s\n", mcpserver.BinaryPath)
 		fmt.Fprintf(os.Stderr, "Set %s or install llm-filesystem alongside llm-filesystem-mcp or on your PATH.\n", mcpserver.BinaryEnvVar)
-		os.Exit(1)
+		os.Exit(int(goaxi.ExitError))
 	}
 
 	// Create MCP server using official SDK
@@ -94,6 +95,6 @@ func main() {
 	// Run server on stdio
 	if err := server.Run(context.Background(), &mcp.StdioTransport{}); err != nil {
 		fmt.Fprintf(os.Stderr, "Server error: %v\n", err)
-		os.Exit(1)
+		os.Exit(int(goaxi.ExitError))
 	}
 }
