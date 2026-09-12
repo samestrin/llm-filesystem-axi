@@ -86,13 +86,25 @@ See [`docs/llm-filesystem-commands.md`](docs/llm-filesystem-commands.md) for the
 
 `llm-filesystem` follows the [AXI](https://axi.md) design principles for agent-ergonomic CLIs. Output defaults to **TOON** (Token-Oriented Object Notation) with a **minimal field set**, which is roughly a 90% token reduction versus full JSON on a directory listing.
 
+TOON output is produced by [go-axi](https://github.com/samestrin/go-axi), which sanitizes it on the way out. File names and file contents are text this tool did not author and prints verbatim, and the raw codec passes ANSI escapes, `U+2028`/`U+2029`, lone C1 bytes and invalid UTF-8 straight through to whatever terminal renders them. go-axi also refuses a value the codec would silently emit as empty output, and supplies the exit codes below.
+
 | Flag | Effect |
 |------|--------|
-| *(default)* | Minimal fields, TOON format, with `next_steps` hints |
+| *(default)* | Minimal fields, TOON format, with a trailing `help[]` block |
 | `--format json` | Machine-parseable JSON |
 | `--format text` | Human-readable text |
 | `--full` | All fields instead of the minimal set |
 | `--allowed-dirs` | Restrict access to the given directories |
+
+### Exit codes
+
+| Code | Meaning |
+|------|---------|
+| `0` | Success |
+| `1` | The tool failed — the operation was attempted and did not work |
+| `2` | Usage error — unknown subcommand, unknown flag, missing required flag, invalid `--format` |
+
+`2` is distinct from `1` on purpose. A typo and a broken tool are different situations, and an agent cannot judge whether a retry is worthwhile if they share a code. Every non-zero exit prints a diagnostic.
 
 ```bash
 llm-filesystem list-directory --path .              # minimal TOON (default)

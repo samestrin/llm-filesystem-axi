@@ -1,11 +1,12 @@
 package commands
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"strings"
 
-	"github.com/alpkeskin/gotoon"
+	goaxi "github.com/samestrin/go-axi"
 )
 
 // Format is an output rendering mode.
@@ -59,36 +60,6 @@ func resolveFormat(formatFlag string, formatSet, jsonFlag, minFlag bool) (Format
 	}
 }
 
-// renderResult renders a result value in the given format. JSON output is kept
-// byte-identical to the pre-AXI behavior. A TOON encode failure is surfaced as
-// an error so the caller can fall back defensively.
-func renderResult(f Format, compact bool, result interface{}, textFn func() string) (string, error) {
-	switch f {
-	case FormatText:
-		return textFn(), nil
-	case FormatJSON:
-		if compact {
-			b, err := json.Marshal(result)
-			return string(b), err
-		}
-		b, err := json.MarshalIndent(result, "", "  ")
-		return string(b), err
-	case FormatTOON:
-		// Round-trip through encoding/json so struct json tags — including
-		// ,omitempty and json:"-" — are honored exactly as in --format json,
-		// then re-encode the resulting generic value as TOON. Encoding the
-		// struct directly would leak Go field names and omitempty options.
-		generic, err := toGeneric(result)
-		if err != nil {
-			return "", err
-		}
-		return gotoon.Encode(generic)
-	default:
-		b, err := json.MarshalIndent(result, "", "  ")
-		return string(b), err
-	}
-}
-
 // renderGeneric renders an already-generic value (map/slice/scalar) as JSON or
 // TOON. Used after minimal projection / next-step injection, which operate on
 // the generic representation.
@@ -101,7 +72,47 @@ func renderGeneric(f Format, compact bool, v interface{}) (string, error) {
 		b, err := json.MarshalIndent(v, "", "  ")
 		return string(b), err
 	}
-	return gotoon.Encode(v)
+	return encodeTOON(v)
+}
+
+// encodeTOON is the single TOON encoder for the whole CLI.
+//
+// go-axi rather than a bare codec, for two things it adds.
+//
+// It sanitizes. File names and file contents are text this tool did not author,
+// and toon-go passes U+2028, U+2029, lone C1 bytes and invalid UTF-8 straight
+// through, so without this a payload carrying a raw escape sequence reaches
+// whatever terminal renders the output. Stripping joins the surrounding visible
+// text rather than dropping the field.
+//
+// And it guards against silent loss. toon-go supports neither defined string
+// types nor encoding.TextMarshaler, and a violating type does not error — it
+// emits EMPTY output, so the command prints nothing and exits zero.
+//
+// EncodeChecked rather than Check followed by Encode. That pair sanitizes and
+// marshals the same value twice to serve one guard; EncodeChecked derives its
+// verdict from the bytes it writes. Measured medians in go-axi, with a bare
+// Encode as the floor:
+//
+//	rows   Encode    EncodeChecked   Check+Encode
+//	100    134us     156us (+16%)    338us (+152%)
+//	2000   2.91ms    3.32ms (+14%)   7.18ms (+147%)
+//
+// The guard costs about 14% here. An earlier version of this function dropped it
+// to avoid the 2.4x that Check+Encode cost, which was the wrong trade: the cost
+// was duplicated work, not safety, and it was fixable in the library.
+//
+// Returning "" alongside the error matters: no caller may write a partial body.
+func encodeTOON(v interface{}) (string, error) {
+	var buf bytes.Buffer
+	if _, err := goaxi.EncodeChecked(&buf, v); err != nil {
+		return "", err
+	}
+
+	// EncodeChecked terminates with exactly one newline; the caller assembles the
+	// document and writes it once. Trimming keeps the string-return contract
+	// these renderers have always had.
+	return strings.TrimSuffix(buf.String(), "\n"), nil
 }
 
 // toGeneric marshals v to JSON and back into a tag-free generic value
@@ -136,7 +147,7 @@ func renderError(f Format, compact bool, err error) string {
 		b, _ := json.MarshalIndent(map[string]interface{}{"error": true, "message": err.Error()}, "", "  ")
 		return string(b)
 	case FormatTOON:
-		s, encErr := gotoon.Encode(map[string]interface{}{"error": true, "message": err.Error()})
+		s, encErr := encodeTOON(map[string]interface{}{"error": true, "message": err.Error()})
 		if encErr != nil {
 			b, _ := json.Marshal(map[string]interface{}{"error": true, "message": err.Error()})
 			return string(b)

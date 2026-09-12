@@ -1,11 +1,14 @@
 package commands
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
+	goaxi "github.com/samestrin/go-axi"
 	"github.com/spf13/cobra"
 )
 
@@ -24,6 +27,17 @@ var (
 	activeFmt     = FormatTOON
 	activeCompact bool
 	activeFull    bool
+)
+
+// Output sinks and the exit hook, indirected so the paths that actually ship can
+// be tested. OutputResultAXI and OutputError used to write straight to
+// os.Stdout/os.Stderr and call os.Exit, which left the live render path with no
+// test at all while every output test exercised a function production never
+// called.
+var (
+	outWriter io.Writer = os.Stdout
+	errWriter io.Writer = os.Stderr
+	exitFunc            = os.Exit
 )
 
 // RootCmd returns the root command for llm-filesystem
@@ -109,7 +123,7 @@ func OutputResultAXI(result interface{}, spec map[string][]string, steps []strin
 				out += "\n  - " + s
 			}
 		}
-		fmt.Println(out)
+		fmt.Fprintln(outWriter, out)
 		return
 	}
 
@@ -121,7 +135,7 @@ func OutputResultAXI(result interface{}, spec map[string][]string, steps []strin
 		} else {
 			b, _ = json.MarshalIndent(result, "", "  ")
 		}
-		fmt.Println(string(b))
+		fmt.Fprintln(outWriter, string(b))
 		return
 	}
 
@@ -129,21 +143,58 @@ func OutputResultAXI(result interface{}, spec map[string][]string, steps []strin
 	// and hint injection can apply consistently across TOON and JSON.
 	payload, err := toGeneric(result)
 	if err != nil {
-		b, _ := json.Marshal(result)
-		fmt.Println(string(b))
+		// This used to print raw json.Marshal(result) and return zero, so a
+		// caller that asked for TOON silently received JSON with no marker.
+		OutputError(fmt.Errorf("cannot represent result: %w", err))
 		return
 	}
 	if !activeFull && spec != nil {
 		payload = projectGeneric(payload, spec)
 	}
-	payload = injectNextSteps(payload, steps)
+
+	// Contextual disclosure (AXI principle 9) takes a different shape per
+	// format, because the formats have different rules about what one document
+	// is. TOON gets a trailing help[] block: the inline array is the only form
+	// in circulation that survives its own codec, so body and block decode as a
+	// single value. JSON cannot take an appended TOON line without ceasing to
+	// be one JSON document, so it keeps the payload field it has always had.
+	if activeFmt == FormatJSON {
+		payload = injectNextSteps(payload, steps)
+	}
 
 	out, rerr := renderGeneric(activeFmt, activeCompact, payload)
 	if rerr != nil {
-		b, _ := json.Marshal(payload)
-		out = string(b)
+		// Same reasoning as above: refuse rather than emit a payload in a
+		// format the caller did not ask for and cannot detect.
+		OutputError(rerr)
+		return
 	}
-	fmt.Println(out)
+
+	// The payload and the help block are ONE document, so they are assembled
+	// first and written once. Writing them separately left a window where the
+	// payload landed and the block did not; the caller then received an error
+	// body appended to a half-written document, which is two conflicting
+	// documents on one stream.
+	var doc bytes.Buffer
+	doc.WriteString(out)
+	doc.WriteByte('\n')
+
+	if activeFmt == FormatTOON {
+		// WriteHelp writes nothing for an empty list, so a command with no
+		// meaningful next step emits no stray block. It sanitizes each line,
+		// which matters because step text interpolates caller-supplied paths.
+		if err := goaxi.WriteHelp(&doc, steps); err != nil {
+			OutputError(err)
+			return
+		}
+	}
+
+	if _, err := outWriter.Write(doc.Bytes()); err != nil {
+		// The sink is gone, so a structured body cannot reach it either. Report
+		// on stderr and fail; do not retry the payload through OutputError.
+		fmt.Fprintln(errWriter, "Error: "+err.Error())
+		exitFunc(int(goaxi.ExitError))
+	}
 }
 
 // OutputError renders an error in the active output format and exits non-zero.
@@ -152,16 +203,43 @@ func OutputResultAXI(result interface{}, spec map[string][]string, steps []strin
 func OutputError(err error) {
 	rendered := renderError(activeFmt, activeCompact, err)
 	if activeFmt == FormatText {
-		fmt.Fprintln(os.Stderr, rendered)
+		fmt.Fprintln(errWriter, rendered)
 	} else {
-		fmt.Println(rendered)
+		fmt.Fprintln(outWriter, rendered)
 	}
-	os.Exit(1)
+	exitFunc(int(goaxi.ExitError))
 }
 
-// Execute runs the root command
+// Execute runs the CLI against the real process arguments.
 func Execute() {
-	if err := RootCmd().Execute(); err != nil {
-		os.Exit(1)
+	execute(os.Args[1:])
+}
+
+// execute runs the root command with the given args and selects the exit status.
+//
+// Any error arriving here is a USAGE error, and that is structural rather than a
+// guess: every subcommand uses cobra's Run rather than RunE and reports its own
+// failures through OutputError, which exits before returning. So the only errors
+// that can reach this point are cobra's own parse and resolution failures —
+// unknown subcommand, unknown flag, missing required flag, invalid --format.
+//
+// The error used to be discarded. SilenceErrors is set on the root command so
+// cobra does not print it either, which meant all four classes exited 1 with
+// nothing on either stream — a bare non-zero status and nothing to act on. The
+// parseFormat message was built and thrown away. AXI principle 6 asks a tool to
+// fail loud on unknown input.
+//
+// ExitUsage is deliberately distinct from ExitError. A typo and a broken tool
+// are different situations, and an agent cannot decide whether a retry is
+// worthwhile if they share a code.
+func execute(args []string) {
+	cmd := RootCmd()
+	cmd.SetArgs(args)
+	cmd.SetOut(outWriter)
+	cmd.SetErr(errWriter)
+
+	if err := cmd.Execute(); err != nil {
+		fmt.Fprintln(errWriter, "Error: "+err.Error())
+		exitFunc(int(goaxi.ExitUsage))
 	}
 }
