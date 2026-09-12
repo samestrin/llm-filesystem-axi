@@ -141,8 +141,9 @@ func OutputResultAXI(result interface{}, spec map[string][]string, steps []strin
 	// and hint injection can apply consistently across TOON and JSON.
 	payload, err := toGeneric(result)
 	if err != nil {
-		b, _ := json.Marshal(result)
-		fmt.Fprintln(outWriter, string(b))
+		// This used to print raw json.Marshal(result) and return zero, so a
+		// caller that asked for TOON silently received JSON with no marker.
+		OutputError(fmt.Errorf("cannot represent result: %w", err))
 		return
 	}
 	if !activeFull && spec != nil {
@@ -152,8 +153,10 @@ func OutputResultAXI(result interface{}, spec map[string][]string, steps []strin
 
 	out, rerr := renderGeneric(activeFmt, activeCompact, payload)
 	if rerr != nil {
-		b, _ := json.Marshal(payload)
-		out = string(b)
+		// Same reasoning as above: refuse rather than emit a payload in a
+		// format the caller did not ask for and cannot detect.
+		OutputError(rerr)
+		return
 	}
 	fmt.Fprintln(outWriter, out)
 }

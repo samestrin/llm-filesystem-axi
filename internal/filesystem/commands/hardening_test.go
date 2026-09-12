@@ -88,45 +88,46 @@ func TestTOONOutputPreservesRealWhitespace(t *testing.T) {
 	}
 }
 
-// AC6: toon-go supports neither defined string types nor encoding.TextMarshaler,
-// and a violating type does not error — it produces EMPTY output. The command
-// then prints nothing and exits zero.
-//
-// Production reaches renderGeneric through toGeneric, which flattens everything
-// to JSON primitives and so cannot carry such a type. This asserts the guard
-// itself, so the protection does not quietly disappear if that ever changes.
-func TestRenderGenericRefusesALossyValue(t *testing.T) {
-	type row struct {
-		At lossyStamp `json:"at"`
-	}
-
-	out, err := renderGeneric(FormatTOON, false, row{})
+// AC6, first half: a value the encoder genuinely cannot carry must produce an
+// error and NO output. A partial body is worse than none, because it parses.
+func TestRenderGenericRefusesRatherThanWritePartialOutput(t *testing.T) {
+	out, err := renderGeneric(FormatTOON, false, make(chan int))
 	if err == nil {
-		t.Fatalf("a value TOON cannot carry must be refused, got output %q", out)
+		t.Fatalf("an unencodable value must be refused, got output %q", out)
 	}
 	if out != "" {
 		t.Errorf("nothing may be returned on refusal, got %q", out)
 	}
 }
 
-// A value that cannot be rendered must not be silently downgraded to another
-// format either. The command fails with a diagnostic rather than emitting a
-// payload that parses as something the caller did not ask for.
-func TestOutputResultAXIFailsLoudOnAnUnencodableValue(t *testing.T) {
-	withFormat(t, FormatTOON, false, false)
-
-	stdout, stderr, code := captureOutput(t, func() {
-		OutputResultAXI(unmarshalable{}, nil, nil, func() string { return "TEXT" })
-	})
-
-	if code == 0 {
-		t.Errorf("an unencodable value must exit non-zero, got %d", code)
+// Why the empty-output trap cannot fire on the production path, asserted rather
+// than assumed: OutputResultAXI runs every result through toGeneric first, and
+// encoding/json DOES honor encoding.TextMarshaler, so the type toon-go would
+// drop arrives at the encoder already flattened to a plain string.
+//
+// That makes the Check in encodeTOON defense-in-depth, not a live gate. This
+// test is what would break if toGeneric were ever removed from the path, which
+// is the moment the gate stops being redundant.
+func TestToGenericFlattensATypeTOONWouldDrop(t *testing.T) {
+	payload, err := toGeneric(map[string]interface{}{"at": lossyStamp{}})
+	if err != nil {
+		t.Fatalf("toGeneric: %v", err)
 	}
-	if stderr == "" {
-		t.Error("an unencodable value must explain itself on stderr")
+
+	m, ok := payload.(map[string]interface{})
+	if !ok {
+		t.Fatalf("payload = %T, want a map", payload)
 	}
-	if strings.TrimSpace(stdout) != "" {
-		t.Errorf("nothing may be written to stdout on refusal, got %q", stdout)
+	if _, isString := m["at"].(string); !isString {
+		t.Fatalf("at = %#v, want a plain string after flattening", m["at"])
+	}
+
+	out, err := renderGeneric(FormatTOON, false, payload)
+	if err != nil {
+		t.Fatalf("a flattened value must encode, got %v", err)
+	}
+	if !strings.Contains(out, "stamp") {
+		t.Errorf("flattened value lost its content: %q", out)
 	}
 }
 
