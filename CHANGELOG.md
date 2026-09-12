@@ -23,19 +23,9 @@ Adopted the [AXI](https://axi.md) design principles for agent-ergonomic CLIs:
 - **Minimal default field sets** with a `--full` escape hatch. Listings, trees,
   and searches emit 3-4 fields by default; `--full` (or `LLM_FILESYSTEM_FULL=1`)
   restores every field.
-- **Contextual disclosure** as a trailing `help[]` block on TOON output, written
-  by go-axi. `--format json` keeps the `next_steps` payload field instead, since
-  an appended TOON line would stop the output being one JSON document.
-- **Structured errors that fail loud**, with exit codes from go-axi's shared
-  constants: `0` success, `1` tool failure, `2` usage error. An unknown
-  subcommand, an unknown flag, a missing required flag and an invalid `--format`
-  each exit `2` with a diagnostic — previously all four exited `1` printing
-  nothing at all.
-- **Hardened TOON output** via [go-axi](https://github.com/samestrin/go-axi),
-  replacing the raw codec. File names and contents are sanitized of ANSI
-  escapes, `U+2028`/`U+2029`, lone C1 bytes and invalid UTF-8 before they reach a
-  terminal, and a value the codec would emit as empty output is refused rather
-  than printed as nothing with a zero exit.
+- **Contextual disclosure** as a trailing `help[]` block on TOON output, written by go-axi. `--format json` keeps the `next_steps` payload field instead, since an appended TOON line would stop the output being one JSON document.
+- **Structured errors that fail loud**, with exit codes from go-axi's shared constants: `0` success, `1` tool failure, `2` usage error. An unknown subcommand, an unknown flag, a missing required flag and an invalid `--format` each exit `2` with a diagnostic — previously all four exited `1` printing nothing at all.
+- **Hardened TOON output** via [go-axi](https://github.com/samestrin/go-axi), replacing the raw codec. File names and contents are sanitized of ANSI escapes, `U+2028`/`U+2029`, lone C1 bytes and invalid UTF-8 before they reach a terminal, and a value the codec would emit as empty output is refused rather than printed as nothing with a zero exit.
 - Backward compatible: `--full --format json` is byte-identical to the old
   `--json`; `--json`/`--min` remain as deprecated aliases.
 - **Ambient context** (`integrations/claude-code/`): a CLAUDE.md routing snippet
