@@ -142,3 +142,39 @@ func TestExecuteHandlerReportsSuccessNormally(t *testing.T) {
 		t.Errorf("body = %q, want the file contents", body)
 	}
 }
+
+// Sandbox restrictions have to survive the arg assembly, and they are appended
+// after the format handling, so a regression there would silently drop them.
+func TestBuildCommandArgsCarriesAllowedDirs(t *testing.T) {
+	prev := AllowedDirs
+	AllowedDirs = []string{"/srv/one", "/srv/two"}
+	t.Cleanup(func() { AllowedDirs = prev })
+
+	args, err := buildCommandArgs("read_file", map[string]interface{}{"path": "/srv/one/x.txt"})
+	if err != nil {
+		t.Fatalf("buildCommandArgs: %v", err)
+	}
+
+	joined := strings.Join(args, " ")
+	for _, dir := range AllowedDirs {
+		if !strings.Contains(joined, "--allowed-dirs "+dir) {
+			t.Errorf("args = %v, want --allowed-dirs %s", args, dir)
+		}
+	}
+	// The sandbox flags must not disturb the format request.
+	if !strings.Contains(joined, "--format toon") {
+		t.Errorf("args = %v, want the TOON request preserved", args)
+	}
+}
+
+// An unknown tool must fail before anything is executed.
+func TestBuildCommandArgsRejectsAnUnknownCommand(t *testing.T) {
+	args, err := buildCommandArgs("no_such_command", map[string]interface{}{})
+
+	if err == nil {
+		t.Fatalf("an unknown command must be rejected, got args %v", args)
+	}
+	if args != nil {
+		t.Errorf("args = %v, want nil on refusal", args)
+	}
+}

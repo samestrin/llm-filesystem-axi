@@ -74,9 +74,16 @@ func main() {
 			// Execute the tool using the handler
 			output, err := mcpserver.ExecuteHandler(td.Name, args)
 			if err != nil {
+				// Prefer the command's own structured error body; it names the
+				// cause in the model's output format. The wrapper message is the
+				// fallback for a command that failed without printing anything.
+				text := strings.TrimSpace(output)
+				if text == "" {
+					text = "Error: " + err.Error()
+				}
 				return &mcp.CallToolResult{
 					Content: []mcp.Content{
-						&mcp.TextContent{Text: "Error: " + err.Error()},
+						&mcp.TextContent{Text: text},
 					},
 					IsError: true,
 				}, nil
