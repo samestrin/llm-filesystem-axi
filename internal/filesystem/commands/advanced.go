@@ -31,6 +31,7 @@ func getDiskUsageCmd() *cobra.Command {
 			})
 			if err != nil {
 				OutputError(err)
+				return
 			}
 			OutputResult(result, func() string {
 				return fmt.Sprintf("Path: %s\nTotal Size: %d bytes\nFiles: %d\nDirectories: %d",
@@ -63,6 +64,7 @@ func findLargeFilesCmd() *cobra.Command {
 			})
 			if err != nil {
 				OutputError(err)
+				return
 			}
 			OutputResult(result, func() string {
 				var sb strings.Builder
@@ -101,6 +103,7 @@ func compressFilesCmd() *cobra.Command {
 			})
 			if err != nil {
 				OutputError(err)
+				return
 			}
 			OutputResult(result, func() string {
 				return fmt.Sprintf("Created %s (%s format)\n%d files added, %d bytes",
@@ -133,6 +136,7 @@ func extractArchiveCmd() *cobra.Command {
 			})
 			if err != nil {
 				OutputError(err)
+				return
 			}
 			OutputResult(result, func() string {
 				return fmt.Sprintf("Extracted %s to %s\n%d files extracted",

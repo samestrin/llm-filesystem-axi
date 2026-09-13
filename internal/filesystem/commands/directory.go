@@ -35,6 +35,7 @@ func listDirectoryCmd() *cobra.Command {
 			})
 			if err != nil {
 				OutputError(err)
+				return
 			}
 			OutputResultAXI(result,
 				map[string][]string{"items": {"name", "type", "size_readable"}},
@@ -103,6 +104,7 @@ func getDirectoryTreeCmd() *cobra.Command {
 			})
 			if err != nil {
 				OutputError(err)
+				return
 			}
 			OutputResultAXI(result,
 				map[string][]string{"children": {"name", "is_dir", "size"}},

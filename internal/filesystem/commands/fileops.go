@@ -32,6 +32,7 @@ func copyFileCmd() *cobra.Command {
 			})
 			if err != nil {
 				OutputError(err)
+				return
 			}
 			OutputResult(result, func() string {
 				return fmt.Sprintf("Copied %s to %s", result.Source, result.Destination)
@@ -62,6 +63,7 @@ func moveFileCmd() *cobra.Command {
 			})
 			if err != nil {
 				OutputError(err)
+				return
 			}
 			OutputResult(result, func() string {
 				return fmt.Sprintf("Moved %s to %s", result.Source, result.Destination)

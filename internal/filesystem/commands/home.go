@@ -14,6 +14,12 @@ import (
 // landing page the tokens the minimal field set exists to save.
 const homePageSize = 50
 
+// getwd is indirected for the same reason outWriter and exitFunc are: the
+// degraded path is otherwise untestable. Deleting the working directory does not
+// make os.Getwd fail on macOS — the process keeps resolving the deleted path —
+// so substituting it is the only way to exercise the clause on every platform.
+var getwd = os.Getwd
+
 // homeView is the content-first landing payload (AXI principle 6): identity,
 // one line of orientation, and live data from the working directory.
 //
@@ -52,10 +58,9 @@ func tildePath(p string) string {
 // are still returned, with guidance pointing at the restriction. A landing page
 // that exits non-zero because the cwd happens to be unreadable would tell an
 // agent less than the usage screen it replaces.
-func buildHomeView(cwd string) (homeView, []string) {
+func buildHomeView(cwd string, cwdErr error) (homeView, []string) {
 	view := homeView{
 		About: "Fast filesystem operations for an AI agent: read, write, edit, search and manage files.",
-		Cwd:   tildePath(cwd),
 		Items: []core.DirectoryEntry{},
 	}
 
@@ -67,6 +72,19 @@ func buildHomeView(cwd string) (homeView, []string) {
 	if home, err := os.UserHomeDir(); err == nil && home != "" {
 		view.Home = tildePath(home)
 	}
+
+	// WHERE we are can be unknowable while WHAT this binary is still is. Failing
+	// here would leave the agent with less than the usage screen this replaced —
+	// not even the name of the tool it is holding.
+	if cwdErr != nil {
+		return view, []string{
+			"The working directory could not be determined: " + cwdErr.Error(),
+			"Name a directory explicitly: llm-filesystem list-directory --path <path>",
+			"Full command reference: llm-filesystem --help",
+		}
+	}
+
+	view.Cwd = tildePath(cwd)
 
 	res, err := core.ListDirectory(core.ListDirectoryOptions{
 		Path:        cwd,
@@ -96,15 +114,12 @@ func buildHomeView(cwd string) (homeView, []string) {
 // inherits TOON, sanitization, the help[] block, the minimal projection and
 // --fields without re-implementing any of them.
 func runHome(_ *cobra.Command, _ []string) {
-	cwd, err := os.Getwd()
-	if err != nil {
-		// Nothing live can be shown and the location is unknowable, so this is
-		// the one case that is a genuine failure rather than a degraded view.
-		OutputError(fmt.Errorf("cannot determine the working directory: %w", err))
-		return
-	}
+	// A failure here is passed through rather than raised. There is no state of
+	// the machine in which the correct answer to "what is this tool" is a
+	// non-zero exit and no output.
+	cwd, cwdErr := getwd()
 
-	view, steps := buildHomeView(cwd)
+	view, steps := buildHomeView(cwd, cwdErr)
 
 	OutputResultAXI(view,
 		// The same spec list-directory uses, so the landing listing is minimal

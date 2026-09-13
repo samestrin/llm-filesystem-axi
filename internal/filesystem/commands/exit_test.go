@@ -23,6 +23,7 @@ func runCLI(t *testing.T, args ...string) (stdout, stderr string, code int) {
 	var outBuf, errBuf strings.Builder
 	prevOut, prevErr, prevExit := outWriter, errWriter, exitFunc
 	prevFmt, prevCompact, prevFull, prevFields := activeFmt, activeCompact, activeFull, activeFields
+	prevListKey, prevCmdPath := activeListKey, activeCmdPath
 
 	got := -1
 	outWriter, errWriter = &outBuf, &errBuf
@@ -30,6 +31,7 @@ func runCLI(t *testing.T, args ...string) (stdout, stderr string, code int) {
 	t.Cleanup(func() {
 		outWriter, errWriter, exitFunc = prevOut, prevErr, prevExit
 		activeFmt, activeCompact, activeFull, activeFields = prevFmt, prevCompact, prevFull, prevFields
+		activeListKey, activeCmdPath = prevListKey, prevCmdPath
 	})
 
 	execute(args)

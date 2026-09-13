@@ -416,6 +416,41 @@ func TestStepsFnIsResolvedOnceAndNilIsSafe(t *testing.T) {
 	}
 }
 
+// AC7 requires EVERY error to say what to try next, and only usage errors did.
+// A real tool failure — a missing file, a sandbox refusal, a bad archive — came
+// back with a message and nothing else, which is the moment an agent is most
+// stuck and least able to guess.
+//
+// The step has to be one that is always takeable. The command's own --help
+// always is, and unlike an invented per-error suggestion it can never point
+// somewhere that does not exist, which is what AC10 forbids.
+func TestToolFailuresCarryRecoveryGuidance(t *testing.T) {
+	cases := []struct {
+		name string
+		args []string
+	}{
+		{"missing file", []string{"read-file", "--path", "/definitely/not/here.txt"}},
+		{"missing search path", []string{"search-code", "--path", "/nope/zz", "--pattern", "x"}},
+		{"sandbox refusal", []string{"--allowed-dirs", "/tmp", "list-directory", "--path", "/etc"}},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			stdout, _, code := runCLI(t, c.args...)
+
+			if code != int(goaxi.ExitError) {
+				t.Errorf("exit = %d, want ExitError (%d)", code, goaxi.ExitError)
+			}
+			if !strings.Contains(stdout, "error: true") {
+				t.Fatalf("no structured error body: %q", stdout)
+			}
+			if !strings.Contains(stdout, "help[") {
+				t.Errorf("a tool failure gave the agent no next step: %q", stdout)
+			}
+		})
+	}
+}
+
 // A tool failure with nothing useful to suggest must emit no block at all.
 // AC10 forbids a help line an agent cannot act on, and an empty block costs
 // tokens to read and teaches nothing.

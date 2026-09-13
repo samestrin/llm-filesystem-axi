@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -150,6 +151,40 @@ func TestTildePath(t *testing.T) {
 				t.Errorf("tildePath(%q) = %q, want %q", c.in, got, c.want)
 			}
 		})
+	}
+}
+
+// AC13's degradation clause, exercised for real.
+//
+// The test below it named this clause but reached it through --allowed-dirs,
+// which is the SANDBOX refusing a listing — a path that already degraded
+// correctly. The clause that mattered was os.Getwd() failing, and that exits 1:
+// runHome treats it as fatal. A landing page that dies because the working
+// directory is unknowable tells an agent less than the usage screen it replaced,
+// including what binary it is holding.
+//
+// The first version of this test deleted the working directory and hoped
+// os.Getwd would fail. On macOS it does not — the process keeps resolving the
+// deleted path — so the test SKIPPED, and the clause went unexercised while
+// looking covered. A skipped test is not coverage.
+//
+// getwd is indirected for exactly the reason outWriter and exitFunc are: the
+// path that actually ships is otherwise untestable.
+func TestBareInvocationSurvivesAnUnknowableCwd(t *testing.T) {
+	prev := getwd
+	getwd = func() (string, error) { return "", errors.New("getwd: permission denied") }
+	t.Cleanup(func() { getwd = prev })
+
+	stdout, _, code := runCLI(t, []string{}...)
+
+	if code != int(goaxi.ExitOK) && code != -1 {
+		t.Errorf("a home view with an unknowable cwd must still exit 0, got %d", code)
+	}
+	if !strings.Contains(stdout, "bin:") || !strings.Contains(stdout, "about:") {
+		t.Errorf("identity must survive an unknowable cwd: %q", stdout)
+	}
+	if !strings.Contains(stdout, "help[") {
+		t.Errorf("a degraded home view must still say what to do next: %q", stdout)
 	}
 }
 

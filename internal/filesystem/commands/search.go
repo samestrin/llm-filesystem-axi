@@ -33,6 +33,7 @@ func searchFilesCmd() *cobra.Command {
 			})
 			if err != nil {
 				OutputError(err)
+				return
 			}
 			OutputResultAXI(result,
 				map[string][]string{"matches": {"path", "name", "size"}},
@@ -101,6 +102,7 @@ func searchCodeCmd() *cobra.Command {
 			})
 			if err != nil {
 				OutputError(err)
+				return
 			}
 			OutputResultAXI(result,
 				map[string][]string{"matches": {"file", "line", "content"}},

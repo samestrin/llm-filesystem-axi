@@ -175,6 +175,7 @@ func extractLinesCmd() *cobra.Command {
 			})
 			if err != nil {
 				OutputError(err)
+				return
 			}
 			OutputResult(result, func() string {
 				return result.Content

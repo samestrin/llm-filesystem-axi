@@ -30,6 +30,7 @@ var (
 	activeFull    bool
 	activeFields  []string
 	activeListKey string
+	activeCmdPath string
 )
 
 // listAnnotation marks a command whose output contains a list, and names the key
@@ -99,6 +100,9 @@ Output defaults to token-efficient TOON; use --format json for machine parsing.`
 			// the same command. Doing it here also means the answer no longer
 			// depends on the output format: the text branch returned before the
 			// old check and silently ignored --fields entirely.
+			// Recorded so a tool failure can name the command that produced it.
+			activeCmdPath = cmd.CommandPath()
+
 			activeListKey = cmd.Annotations[listAnnotation]
 			if len(activeFields) > 0 && activeListKey == "" {
 				return fmt.Errorf("--fields is not supported by %s (it returns no list)", cmd.CommandPath())
@@ -401,12 +405,27 @@ func emitDiagnostic(f Format, compact bool, err error, code goaxi.ExitCode, step
 
 // OutputError renders a TOOL failure in the active output format and exits
 // ExitError: the operation was attempted and it did not work.
-//
-// It supplies no guidance. What to try after a failed operation depends on what
-// failed, so a generic line here would be a guess — and AC10 forbids a help line
-// the agent cannot act on. Call sites that know the recovery pass their own.
 func OutputError(err error) {
-	emitDiagnostic(activeFmt, activeCompact, err, goaxi.ExitError, nil)
+	emitDiagnostic(activeFmt, activeCompact, err, goaxi.ExitError, toolFailureSteps())
+}
+
+// toolFailureSteps is the guidance carried by every tool failure.
+//
+// It names the failing command's own --help rather than guessing at the cause.
+// An invented per-error suggestion — "try --allowed-dirs", "check the path" —
+// is wrong for some of the errors it would be attached to, and AC10 forbids a
+// help line the agent cannot act on. --help is always valid and always exists,
+// which is what makes it safe to attach unconditionally.
+//
+// Errors that know their own recovery still pass better steps directly through
+// emitDiagnostic; this is the floor, not the ceiling.
+func toolFailureSteps() []string {
+	path := activeCmdPath
+	if path == "" {
+		// No subcommand resolved, so the root is the honest answer.
+		path = "llm-filesystem"
+	}
+	return []string{"Check the flags and what they mean: " + path + " --help"}
 }
 
 // Execute runs the CLI against the real process arguments.
