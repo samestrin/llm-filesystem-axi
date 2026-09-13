@@ -382,6 +382,81 @@ func TestResumeAtTheTailIsNotTruncated(t *testing.T) {
 	}
 }
 
+// The counters must account for every file the caller asked for.
+//
+// A file whose greedy budget was 0 landed in Files but was incremented into
+// neither success nor failed, so success+failed summed to less than the number
+// of files. Its record was indistinguishable from an empty file except by
+// truncated, which reads as "this was cut" rather than "this was never opened",
+// and it carried no next_offset. A caller checking failed == 0 concluded
+// everything had been read.
+func TestReadMultipleFilesCountersAccountForEveryFile(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	big := filepath.Join(tmpDir, "big.txt")
+	if err := os.WriteFile(big, []byte(strings.Repeat("x", 90000)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	small := filepath.Join(tmpDir, "small.txt")
+	if err := os.WriteFile(small, []byte("tiny"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	missing := filepath.Join(tmpDir, "not-here.txt")
+
+	res, err := ReadMultipleFiles(ReadMultipleFilesOptions{
+		Paths:       []string{big, missing, small},
+		AllowedDirs: []string{tmpDir},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if got := res.Success + res.Failed + res.Skipped; got != len(res.Files) {
+		t.Errorf("success(%d) + failed(%d) + skipped(%d) = %d, want %d files accounted for",
+			res.Success, res.Failed, res.Skipped, got, len(res.Files))
+	}
+	if res.Skipped == 0 {
+		t.Error("the file past the budget was never opened, but nothing reports it as skipped")
+	}
+}
+
+// The budget is spent in raw bytes but measured in encoded characters, so
+// escape-heavy content overruns the cap several times over.
+//
+// remaining was decremented by info.Size() while each file's cap is an
+// estimated-JSON character budget. A control byte costs 1 raw and 6 encoded, so
+// eight small files blew through the limit by more than 3x while later files got
+// nothing — the "N evenly shrunken fragments" outcome the greedy design exists
+// to avoid.
+func TestMultiFileBudgetIsChargedInEncodedCharacters(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	var paths []string
+	for i := 0; i < 8; i++ {
+		p := filepath.Join(tmpDir, "f"+string(rune('a'+i))+".txt")
+		if err := os.WriteFile(p, []byte(strings.Repeat("\x01", 12000)), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		paths = append(paths, p)
+	}
+
+	res, err := ReadMultipleFiles(ReadMultipleFilesOptions{
+		Paths:       paths,
+		AllowedDirs: []string{tmpDir},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var cost int64
+	for _, f := range res.Files {
+		cost += int64(EstimateJSONStringSize(f.Content))
+	}
+	if cost > DefaultMaxSize {
+		t.Errorf("combined content costs %d encoded chars, over the %d budget", cost, DefaultMaxSize)
+	}
+}
+
 // fitToBudget is the subtlest part of the truncation path and the part no
 // caller sees directly, so it is tested here rather than only through a read.
 //

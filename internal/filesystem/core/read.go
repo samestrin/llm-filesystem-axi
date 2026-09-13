@@ -340,10 +340,15 @@ type ReadMultipleFilesOptions struct {
 // Truncated means at least one file was cut or not read at all; TotalSize is the
 // combined size on disk. Both are omitempty, so their absence means every
 // requested file came back whole.
+// Skipped counts files that were named but never opened because the budget was
+// already spent. They are neither a success nor a failure, and without a counter
+// of their own success+failed summed to less than the number of files — so a
+// caller checking failed == 0 concluded everything had been read.
 type ReadMultipleFilesResult struct {
 	Files     []ReadFileResult `json:"files"`
 	Success   int              `json:"success"`
 	Failed    int              `json:"failed"`
+	Skipped   int              `json:"skipped,omitempty"`
 	Truncated bool             `json:"truncated,omitempty"`
 	TotalSize int64            `json:"total_size,omitempty"`
 }
@@ -418,9 +423,11 @@ func ReadMultipleFiles(opts ReadMultipleFilesOptions) (*ReadMultipleFilesResult,
 	var mu sync.Mutex
 	success := 0
 	failed := 0
+	skipped := 0
 
 	for i, p := range paths {
 		if budgets[i] == 0 {
+			skipped++
 			// Named and sized, but deliberately not read. Neither a success nor
 			// a failure: it was never attempted, and truncated says so. The size
 			// comes from the budget pass rather than a second stat of a file
@@ -457,6 +464,49 @@ func ReadMultipleFiles(opts ReadMultipleFilesOptions) (*ReadMultipleFilesResult,
 
 	wg.Wait()
 
+	// Enforce the budget in ENCODED characters, which is the unit it is
+	// expressed in.
+	//
+	// The upfront allocation charges raw bytes, because a stat is all it has to
+	// go on. Escape-heavy content costs several times its size once encoded — a
+	// control byte is one raw byte and six encoded characters — so eight small
+	// files overran the cap more than threefold while the last two got nothing.
+	// This pass spends the real cost in request order, so the files asked for
+	// first still win.
+	if maxTotalSize > 0 {
+		var spent int64
+		for i := range results {
+			if results[i].Error != "" {
+				continue
+			}
+
+			cost := int64(EstimateJSONStringSize(results[i].Content))
+			if spent+cost <= maxTotalSize {
+				spent += cost
+				continue
+			}
+
+			originalSize := results[i].Size
+			left := maxTotalSize - spent
+			kept := ""
+			if left > 0 {
+				kept, _ = fitToBudget(results[i].Content, left)
+			}
+
+			if len(kept) < len(results[i].Content) {
+				if results[i].TotalSize == 0 {
+					results[i].TotalSize = originalSize
+				}
+				results[i].Content = kept
+				results[i].Size = int64(len(kept))
+				results[i].Lines = strings.Count(kept, "\n")
+				results[i].NextOffset = int64(len(kept))
+				results[i].Truncated = true
+			}
+			spent = maxTotalSize
+		}
+	}
+
 	// Computed after the goroutines join, so it needs no lock of its own.
 	truncated := false
 	for _, r := range results {
@@ -470,6 +520,7 @@ func ReadMultipleFiles(opts ReadMultipleFilesOptions) (*ReadMultipleFilesResult,
 		Files:   results,
 		Success: success,
 		Failed:  failed,
+		Skipped: skipped,
 	}
 	if truncated {
 		out.Truncated = true
