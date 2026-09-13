@@ -21,12 +21,14 @@ var (
 	jsonOutput  bool
 	minOutput   bool
 	fullFlag    bool
+	fieldsFlag  []string
 	allowedDirs []string
 
 	// Resolved output mode, set in PersistentPreRunE from the flags above.
 	activeFmt     = FormatTOON
 	activeCompact bool
 	activeFull    bool
+	activeFields  []string
 )
 
 // Output sinks and the exit hook, indirected so the paths that actually ship can
@@ -61,7 +63,20 @@ Output defaults to token-efficient TOON; use --format json for machine parsing.`
 				return err
 			}
 			activeFmt, activeCompact = f, compact
-			activeFull = resolveFull(cmd.Flags().Changed("full"), fullFlag, os.Getenv(FullEnvVar))
+
+			fields, ferr := normalizeFields(fieldsFlag)
+			if ferr != nil {
+				return ferr
+			}
+			activeFields = fields
+
+			// An explicit --fields beats the ambient LLM_FILESYSTEM_FULL
+			// default; a contradictory explicit --full is rejected earlier by
+			// the mutual-exclusion group. Forcing full off here is also what
+			// keeps --fields away from the legacy JSON+full early return, which
+			// skips projection entirely and would silently ignore it (AC12).
+			activeFull = resolveFull(cmd.Flags().Changed("full"), fullFlag, os.Getenv(FullEnvVar)) &&
+				len(activeFields) == 0
 			return nil
 		},
 	}
@@ -73,8 +88,15 @@ Output defaults to token-efficient TOON; use --format json for machine parsing.`
 		"Emit all fields instead of the minimal default (env: "+FullEnvVar+")")
 	rootCmd.PersistentFlags().BoolVar(&jsonOutput, "json", false, "Output as JSON (deprecated: use --format json)")
 	rootCmd.PersistentFlags().BoolVar(&minOutput, "min", false, "Minimal/compact output (deprecated)")
+	rootCmd.PersistentFlags().StringSliceVar(&fieldsFlag, "fields", nil,
+		"Comma-separated item fields to emit instead of the minimal set (mutually exclusive with --full)")
 	rootCmd.PersistentFlags().StringSliceVar(&allowedDirs, "allowed-dirs", nil,
 		"Directories the tool is allowed to access (comma-separated)")
+
+	// Contradictory instructions, so cobra rejects them before the command runs.
+	// Its error surfaces through execute, which means exit 2 and a structured
+	// body come for free.
+	rootCmd.MarkFlagsMutuallyExclusive("full", "fields")
 
 	// Add all subcommands
 	addReadCommands(rootCmd)
@@ -154,6 +176,30 @@ func OutputResultAXI(result interface{}, spec map[string][]string, stepsFn func(
 		OutputError(fmt.Errorf("cannot represent result: %w", err))
 		return
 	}
+	if len(activeFields) > 0 {
+		if spec == nil {
+			emitDiagnostic(activeFmt, activeCompact,
+				fmt.Errorf("--fields is not supported by this command (it returns no list)"),
+				goaxi.ExitUsage, nil)
+			return
+		}
+
+		// Validated against what the payload actually holds, which is exactly
+		// the set --full would expose, ,omitempty included. An empty union means
+		// an empty result, and rejecting there would fail a correct --fields
+		// purely because the directory happened to have nothing in it.
+		avail := availableFields(payload, spec)
+		if missing := unknownFields(activeFields, avail); len(avail) > 0 && len(missing) > 0 {
+			emitDiagnostic(activeFmt, activeCompact,
+				fmt.Errorf("unknown --fields: %s", strings.Join(missing, ", ")),
+				goaxi.ExitUsage,
+				[]string{"Available fields: " + strings.Join(sortedFieldNames(avail), ", ")})
+			return
+		}
+
+		spec = overrideSpec(spec, activeFields)
+	}
+
 	if !activeFull && spec != nil {
 		payload = projectGeneric(payload, spec)
 	}

@@ -10,16 +10,27 @@ import (
 
 // runCLI drives the root command the way main does, capturing what the user
 // would see and the status the process would return.
+//
+// It restores the resolved output globals as well as the sinks. execute runs
+// PersistentPreRunE, which assigns activeFmt/activeCompact/activeFull/
+// activeFields, and those would otherwise survive into whatever test ran next —
+// a cross-test leak that reads as a real failure in a file that never touched
+// them. The renderer tests only escape it today because they all call
+// withFormat first.
 func runCLI(t *testing.T, args ...string) (stdout, stderr string, code int) {
 	t.Helper()
 
 	var outBuf, errBuf strings.Builder
 	prevOut, prevErr, prevExit := outWriter, errWriter, exitFunc
+	prevFmt, prevCompact, prevFull, prevFields := activeFmt, activeCompact, activeFull, activeFields
 
 	got := -1
 	outWriter, errWriter = &outBuf, &errBuf
 	exitFunc = func(c int) { got = c }
-	t.Cleanup(func() { outWriter, errWriter, exitFunc = prevOut, prevErr, prevExit })
+	t.Cleanup(func() {
+		outWriter, errWriter, exitFunc = prevOut, prevErr, prevExit
+		activeFmt, activeCompact, activeFull, activeFields = prevFmt, prevCompact, prevFull, prevFields
+	})
 
 	execute(args)
 
