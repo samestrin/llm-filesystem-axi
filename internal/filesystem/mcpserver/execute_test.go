@@ -143,6 +143,32 @@ func TestExecuteHandlerReportsSuccessNormally(t *testing.T) {
 	}
 }
 
+// AC11, end to end: the CLI gate and the MCP builder have to agree.
+//
+// This is the case a unit test on buildDeleteFileArgs cannot catch — "gate added
+// to the CLI, forgotten in the MCP" would leave that test green while every real
+// delete through the server failed. The MCP server does not parse CLI output, so
+// nothing else in this package would notice.
+func TestExecuteHandlerDeleteFileActuallyDeletes(t *testing.T) {
+	cliBinary(t)
+
+	dir := t.TempDir()
+	victim := filepath.Join(dir, "gone.txt")
+	if err := os.WriteFile(victim, []byte("x"), 0o644); err != nil {
+		t.Fatalf("writing target: %v", err)
+	}
+
+	body, err := ExecuteHandler(ToolPrefix+"delete_file", map[string]interface{}{
+		"path": victim,
+	})
+	if err != nil {
+		t.Fatalf("delete_file failed: %v\nbody: %s", err, body)
+	}
+	if _, statErr := os.Stat(victim); !os.IsNotExist(statErr) {
+		t.Errorf("the file survived a delete through the MCP: %v\nbody: %s", statErr, body)
+	}
+}
+
 // Sandbox restrictions have to survive the arg assembly, and they are appended
 // after the format handling, so a regression there would silently drop them.
 func TestBuildCommandArgsCarriesAllowedDirs(t *testing.T) {

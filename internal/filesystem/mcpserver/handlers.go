@@ -453,6 +453,12 @@ func buildDeleteFileArgs(args map[string]interface{}) []string {
 	if getBool(args, "recursive") {
 		cmdArgs = append(cmdArgs, "--recursive")
 	}
+	// The CLI gates deletion behind --confirm. It is supplied here as a server
+	// constant rather than exposed as a schema property: as a property the model
+	// could omit it and earn a refusal for no safety gain, whereas the MCP tool
+	// call IS the confirmation — the human gate is the client's own permission
+	// prompt, not a flag the model chooses to pass.
+	cmdArgs = append(cmdArgs, "--confirm")
 	return cmdArgs
 }
 
@@ -462,6 +468,10 @@ func buildBatchFileOperationsArgs(args map[string]interface{}) []string {
 		opsJSON, _ := json.Marshal(ops)
 		cmdArgs = append(cmdArgs, "--operations", string(opsJSON))
 	}
+	// Same reasoning as delete-file. A batch may contain a delete, which the CLI
+	// gates, and passing this unconditionally stops one delete succeeding and
+	// another failing purely on which tool the model reached for.
+	cmdArgs = append(cmdArgs, "--confirm")
 	return cmdArgs
 }
 

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	goaxi "github.com/samestrin/go-axi"
 	"github.com/samestrin/llm-filesystem-axi/internal/filesystem/core"
 	"github.com/spf13/cobra"
 )
@@ -77,13 +78,28 @@ func moveFileCmd() *cobra.Command {
 
 func deleteFileCmd() *cobra.Command {
 	var path string
-	var recursive bool
+	var recursive, confirm bool
 
 	cmd := &cobra.Command{
 		Use:   "delete-file",
 		Short: "Delete a file or directory",
-		Long:  "Deletes a file or directory, optionally recursively",
+		Long:  "Deletes a file or directory, optionally recursively. Requires --confirm.",
 		Run: func(cmd *cobra.Command, args []string) {
+			// MarkFlagRequired below is satisfied by --confirm=false, because
+			// the flag WAS provided. Only inspecting the value closes that hole.
+			//
+			// This is a usage error, not a tool failure: nothing was attempted,
+			// so nothing failed. Exit 1 would tell the agent the tool tried and
+			// broke, and the rational response to that is retrying the identical
+			// command. Exit 2 says "fix the invocation".
+			if !confirm {
+				emitDiagnostic(activeFmt, activeCompact,
+					fmt.Errorf("delete-file requires --confirm"),
+					goaxi.ExitUsage,
+					[]string{"Confirm the deletion: llm-filesystem delete-file --path " + path + " --confirm"})
+				return
+			}
+
 			result, err := core.DeleteFile(core.DeleteFileOptions{
 				Path:        path,
 				Recursive:   recursive,
@@ -91,6 +107,7 @@ func deleteFileCmd() *cobra.Command {
 			})
 			if err != nil {
 				OutputError(err)
+				return
 			}
 			OutputResult(result, func() string {
 				return fmt.Sprintf("Deleted %s", result.Path)
@@ -100,22 +117,44 @@ func deleteFileCmd() *cobra.Command {
 
 	cmd.Flags().StringVar(&path, "path", "", "Path to delete (required)")
 	cmd.Flags().BoolVar(&recursive, "recursive", false, "Delete directories recursively")
+	cmd.Flags().BoolVar(&confirm, "confirm", false, "Confirm the deletion (required)")
 	cmd.MarkFlagRequired("path")
+	cmd.MarkFlagRequired("confirm")
 
 	return cmd
 }
 
 func batchFileOperationsCmd() *cobra.Command {
 	var operationsJSON string
+	var confirm bool
 
 	cmd := &cobra.Command{
 		Use:   "batch-file-operations",
 		Short: "Perform batch file operations",
-		Long:  "Performs multiple file operations in a batch",
+		Long:  "Performs multiple file operations in a batch. Deletions require --confirm.",
 		Run: func(cmd *cobra.Command, args []string) {
 			var operations []core.BatchOperation
 			if err := json.Unmarshal([]byte(operationsJSON), &operations); err != nil {
 				OutputError(fmt.Errorf("invalid operations JSON: %w", err))
+				return
+			}
+
+			// Gating delete-file while leaving this open would be theatre. The
+			// batch routes "delete" to the same core.DeleteFile, so an agent
+			// that meets the gate steps around it in one hop.
+			//
+			// Scoped to what is destructive: a batch that only copies is not
+			// made harder to use by it.
+			if !confirm {
+				for i, op := range operations {
+					if op.Operation == "delete" {
+						emitDiagnostic(activeFmt, activeCompact,
+							fmt.Errorf("operation %d is a delete, which requires --confirm", i),
+							goaxi.ExitUsage,
+							[]string{"Confirm the batch: re-run the same command with --confirm"})
+						return
+					}
+				}
 			}
 
 			result, err := core.BatchFileOperations(core.BatchFileOperationsOptions{
@@ -124,6 +163,7 @@ func batchFileOperationsCmd() *cobra.Command {
 			})
 			if err != nil {
 				OutputError(err)
+				return
 			}
 			OutputResult(result, func() string {
 				return fmt.Sprintf("Batch complete: %d success, %d failed",
@@ -134,6 +174,7 @@ func batchFileOperationsCmd() *cobra.Command {
 
 	cmd.Flags().StringVar(&operationsJSON, "operations", "",
 		`JSON array of operations: [{"operation":"copy","source":"a","destination":"b"}]`)
+	cmd.Flags().BoolVar(&confirm, "confirm", false, "Confirm any deletions contained in the batch")
 	cmd.MarkFlagRequired("operations")
 
 	return cmd

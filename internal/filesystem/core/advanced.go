@@ -529,15 +529,29 @@ type SyncDirectoriesOptions struct {
 	Source      string
 	Destination string
 	AllowedDirs []string
+	DryRun      bool
 }
 
-// SyncResult represents sync result
+// maxPlannedPaths bounds the preview. A sync of 50,000 files must not answer
+// with 50,000 strings; files_copied stays the authoritative count, and planned
+// is a sample of what would be written.
+const maxPlannedPaths = 100
+
+// SyncResult represents sync result.
+//
+// DryRun is the discriminator, and it carries the same field names in both
+// modes so the shape never forks. The existing --dry-run commands mark a preview
+// only in their TEXT renderer, which leaves a dry run byte-identical to a real
+// one in TOON and JSON — the default and the machine format. That bug is not
+// copied here.
 type SyncResult struct {
-	Source      string `json:"source"`
-	Destination string `json:"destination"`
-	FilesCopied int    `json:"files_copied"`
-	DirsCreated int    `json:"dirs_created"`
-	Success     bool   `json:"success"`
+	Source      string   `json:"source"`
+	Destination string   `json:"destination"`
+	FilesCopied int      `json:"files_copied"`
+	DirsCreated int      `json:"dirs_created"`
+	Success     bool     `json:"success"`
+	DryRun      bool     `json:"dry_run,omitempty"`
+	Planned     []string `json:"planned,omitempty"`
 }
 
 // SyncDirectories synchronizes two directories
@@ -567,7 +581,17 @@ func SyncDirectories(opts SyncDirectoriesOptions) (*SyncResult, error) {
 	}
 
 	var filesCopied, dirsCreated int
+	var planned []string
 
+	// A dry run walks the same tree and counts the same way, skipping only the
+	// two calls that write. It must model the REAL algorithm rather than a
+	// better one: dirsCreated counts every source directory visited, whether or
+	// not MkdirAll had anything to create, and the preview reproduces that
+	// rather than quietly reporting a more accurate number. A preview that does
+	// not match the apply is worse than no preview.
+	//
+	// It predicts rather than guarantees: the real walk skips a file whose copy
+	// fails, which nothing can know in advance.
 	err = filepath.Walk(normalizedSrc, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return nil
@@ -577,13 +601,24 @@ func SyncDirectories(opts SyncDirectoriesOptions) (*SyncResult, error) {
 		dstPath := filepath.Join(normalizedDst, relPath)
 
 		if info.IsDir() {
-			if err := os.MkdirAll(dstPath, info.Mode()); err != nil {
-				return nil
+			if !opts.DryRun {
+				if err := os.MkdirAll(dstPath, info.Mode()); err != nil {
+					return nil
+				}
 			}
 			dirsCreated++
 		} else {
-			if err := copyFile(dstPath, path); err != nil {
-				return nil
+			if !opts.DryRun {
+				// copyFile takes (src, dst). This passed (dst, src), so it
+				// opened a destination that did not exist yet, failed, and the
+				// bare `return nil` below swallowed the error — files_copied
+				// stayed 0 while success stayed true. Directories were still
+				// created, which made the destination look populated.
+				if err := copyFile(path, dstPath); err != nil {
+					return nil
+				}
+			} else if len(planned) < maxPlannedPaths {
+				planned = append(planned, relPath)
 			}
 			filesCopied++
 		}
@@ -600,6 +635,8 @@ func SyncDirectories(opts SyncDirectoriesOptions) (*SyncResult, error) {
 		FilesCopied: filesCopied,
 		DirsCreated: dirsCreated,
 		Success:     true,
+		DryRun:      opts.DryRun,
+		Planned:     planned,
 	}, nil
 }
 

@@ -169,6 +169,64 @@ func TestBuildReadFileArgs(t *testing.T) {
 	}
 }
 
+// AC11: delete-file now requires --confirm. The MCP server builds CLI args, so
+// without this every delete through the MCP would start failing as a usage
+// error.
+//
+// The server supplies the flag as a constant rather than exposing "confirm" as a
+// schema property. As a property the model could omit it and earn a refusal for
+// no safety gain; the MCP tool call IS the confirmation, and in the only client
+// that exists the human gate is Claude Code's own permission prompt.
+func TestBuildDeleteFileArgsCarriesConfirm(t *testing.T) {
+	tests := []struct {
+		name string
+		args map[string]interface{}
+		want []string
+	}{
+		{
+			name: "basic delete",
+			args: map[string]interface{}{"path": "/test/file.txt"},
+			want: []string{"delete-file", "--path", "/test/file.txt", "--confirm"},
+		},
+		{
+			name: "recursive delete",
+			args: map[string]interface{}{"path": "/test/dir", "recursive": true},
+			want: []string{"delete-file", "--path", "/test/dir", "--recursive", "--confirm"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := buildDeleteFileArgs(tt.args)
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("buildDeleteFileArgs() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+// The batch command is gated too when it contains a delete, so the MCP has to
+// confirm there as well or the same delete fails depending on which tool the
+// model reached for.
+func TestBuildBatchFileOperationsArgsCarriesConfirm(t *testing.T) {
+	got := buildBatchFileOperationsArgs(map[string]interface{}{
+		"operations": []interface{}{
+			map[string]interface{}{"operation": "delete", "source": "/test/x.txt"},
+		},
+	})
+
+	found := false
+	for _, a := range got {
+		if a == "--confirm" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("args = %v, want --confirm so a batch delete is not refused", got)
+	}
+}
+
 func TestBuildWriteFileArgs(t *testing.T) {
 	tests := []struct {
 		name string

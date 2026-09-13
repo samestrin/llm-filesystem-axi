@@ -151,6 +151,7 @@ func extractArchiveCmd() *cobra.Command {
 
 func syncDirectoriesCmd() *cobra.Command {
 	var source, destination string
+	var dryRun bool
 
 	cmd := &cobra.Command{
 		Use:   "sync-directories",
@@ -161,19 +162,37 @@ func syncDirectoriesCmd() *cobra.Command {
 				Source:      source,
 				Destination: destination,
 				AllowedDirs: GetAllowedDirs(),
+				DryRun:      dryRun,
 			})
 			if err != nil {
 				OutputError(err)
+				return
 			}
-			OutputResult(result, func() string {
-				return fmt.Sprintf("Synced %s to %s\n%d files copied, %d directories created",
-					result.Source, result.Destination, result.FilesCopied, result.DirsCreated)
-			})
+
+			OutputResultAXI(result, nil,
+				func() []string {
+					if !result.DryRun {
+						return nil
+					}
+					return []string{fmt.Sprintf(
+						"Apply it: llm-filesystem sync-directories --source %s --dest %s",
+						result.Source, result.Destination)}
+				},
+				func() string {
+					prefix := ""
+					if result.DryRun {
+						prefix = "[DRY RUN] "
+					}
+					return fmt.Sprintf("%sSynced %s to %s\n%d files copied, %d directories created",
+						prefix, result.Source, result.Destination,
+						result.FilesCopied, result.DirsCreated)
+				})
 		},
 	}
 
 	cmd.Flags().StringVar(&source, "source", "", "Source directory (required)")
 	cmd.Flags().StringVar(&destination, "dest", "", "Destination directory (required)")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview changes without applying")
 	cmd.MarkFlagRequired("source")
 	cmd.MarkFlagRequired("dest")
 
