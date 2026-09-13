@@ -176,6 +176,80 @@ func TestSyncDirectoriesRefusesBadInput(t *testing.T) {
 	}
 }
 
+// A copy that fails part-way must not leave the destination worse than it found
+// it, and must not be reported as a success.
+//
+// copyFile calls os.Create — which TRUNCATES — before io.Copy. filepath.Walk
+// uses Lstat, so a symlink pointing at a directory is classed as a file: the
+// open succeeds, the destination is truncated to zero, io.Copy then fails EISDIR,
+// and the walk discards the error with a bare `return nil`. Existing destination
+// data is destroyed, files_copied does not count it, and success stays true.
+func TestSyncDirectoriesDoesNotDestroyOnACopyFailure(t *testing.T) {
+	src := t.TempDir()
+	dst := t.TempDir()
+
+	realDir := filepath.Join(src, "realdir")
+	if err := os.Mkdir(realDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(realDir, filepath.Join(src, "trap")); err != nil {
+		t.Skip("symlinks unavailable on this filesystem")
+	}
+
+	precious := filepath.Join(dst, "trap")
+	if err := os.WriteFile(precious, []byte("IRREPLACEABLE DESTINATION DATA"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := SyncDirectories(SyncDirectoriesOptions{
+		Source:      src,
+		Destination: dst,
+		AllowedDirs: []string{src, dst},
+	})
+
+	got, rerr := os.ReadFile(precious)
+	if rerr == nil && len(got) == 0 {
+		t.Error("an existing destination file was truncated by a copy that then failed")
+	}
+	if rerr == nil && string(got) != "IRREPLACEABLE DESTINATION DATA" {
+		t.Errorf("destination content changed to %q despite the copy failing", got)
+	}
+
+	// Whatever the outcome, a failure must be visible to the caller.
+	if err == nil && res != nil && res.Success && res.Failed == 0 {
+		t.Error("a sync containing a failed copy reported success with zero failures")
+	}
+}
+
+// A sync that cannot create its destination must not report success. MkdirAll
+// fails, the walk continues (a directory visitor must return SkipDir to skip —
+// nil descends), every copy then fails into a directory that does not exist, and
+// none of it is reported.
+func TestSyncDirectoriesReportsAnUncreatableDestination(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("running as root; permission bits would not be enforced")
+	}
+
+	src := mkTree(t)
+	parent := t.TempDir()
+	dst := filepath.Join(parent, "sub")
+
+	if err := os.Chmod(parent, 0o555); err != nil {
+		t.Skip("cannot make the parent read-only")
+	}
+	t.Cleanup(func() { _ = os.Chmod(parent, 0o755) })
+
+	res, err := SyncDirectories(SyncDirectoriesOptions{
+		Source:      src,
+		Destination: dst,
+		AllowedDirs: []string{src, parent},
+	})
+
+	if err == nil && res != nil && res.Success {
+		t.Errorf("a sync that created nothing reported success: %+v", res)
+	}
+}
+
 // A real run must not carry preview metadata, or a consumer cannot use the
 // presence of planned[] to tell the two apart.
 func TestSyncDirectoriesRealRunCarriesNoPlan(t *testing.T) {

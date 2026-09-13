@@ -13,8 +13,11 @@ import (
 )
 
 const (
-	serverName         = "llm-filesystem-mcp"
-	serverInstructions = "llm-filesystem-mcp provides high-performance filesystem operations for Claude Code. It wraps the llm-filesystem CLI with 27 commands for reading, writing, editing, searching, and managing files."
+	serverName = "llm-filesystem-mcp"
+	// No command count here. It said 27 against a real 28, and this string goes
+	// to every client in the initialize response — a wrong number in the first
+	// thing a model reads about the tool. The tool list is authoritative.
+	serverInstructions = "llm-filesystem-mcp provides high-performance filesystem operations for Claude Code. It wraps the llm-filesystem CLI for reading, writing, editing, searching, and managing files."
 )
 
 // serverVersion is set at build time via ldflags (-X main.serverVersion=...).

@@ -3,6 +3,7 @@ package commands
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 
 	goaxi "github.com/samestrin/go-axi"
 	"github.com/samestrin/llm-filesystem-axi/internal/filesystem/core"
@@ -147,13 +148,27 @@ func batchFileOperationsCmd() *cobra.Command {
 			// made harder to use by it.
 			if !confirm {
 				for i, op := range operations {
-					if op.Operation == "delete" {
-						emitDiagnostic(activeFmt, activeCompact,
-							fmt.Errorf("operation %d is a delete, which requires --confirm", i),
-							goaxi.ExitUsage,
-							[]string{"Confirm the batch: re-run the same command with --confirm"})
-						return
+					var why string
+					switch op.Operation {
+					case "delete":
+						why = "is a delete"
+					case "move", "copy":
+						// os.Rename and os.Create both replace an existing
+						// destination silently. Gating delete while leaving
+						// these open just moved the hole one operation across.
+						if _, statErr := os.Stat(op.Destination); statErr == nil {
+							why = "overwrites an existing file"
+						}
 					}
+					if why == "" {
+						continue
+					}
+
+					emitDiagnostic(activeFmt, activeCompact,
+						fmt.Errorf("operation %d %s, which requires --confirm", i, why),
+						goaxi.ExitUsage,
+						[]string{"Confirm the batch: re-run the same command with --confirm"})
+					return
 				}
 			}
 

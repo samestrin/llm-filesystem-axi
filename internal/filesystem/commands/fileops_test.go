@@ -112,6 +112,65 @@ func TestBatchRejectsMalformedOperations(t *testing.T) {
 	}
 }
 
+// The gate matched only "delete", so a move or a copy onto an EXISTING file
+// destroyed it with no confirmation at all: os.Rename and os.Create both replace
+// the destination silently, and the batch then reports success.
+//
+// The gate's own rationale is that gating delete-file while leaving the batch
+// open "would just move the hole". The hole moved one operation across.
+func TestBatchOverwriteRequiresConfirm(t *testing.T) {
+	const precious = "IRREPLACEABLE"
+
+	for _, op := range []string{"move", "copy"} {
+		t.Run(op+" over an existing file", func(t *testing.T) {
+			dir := t.TempDir()
+			src := filepath.Join(dir, "src.txt")
+			victim := filepath.Join(dir, "victim.txt")
+			if err := os.WriteFile(src, []byte("replacement"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(victim, []byte(precious), 0o600); err != nil {
+				t.Fatal(err)
+			}
+
+			ops := `[{"operation":"` + op + `","source":"` + src + `","destination":"` + victim + `"}]`
+			_, _, code := runCLI(t, "batch-file-operations", "--operations", ops)
+
+			if code != int(goaxi.ExitUsage) {
+				t.Errorf("exit = %d, want ExitUsage (%d) for an unconfirmed overwrite", code, goaxi.ExitUsage)
+			}
+			got, err := os.ReadFile(victim)
+			if err != nil {
+				t.Fatalf("the destination was removed entirely: %v", err)
+			}
+			if string(got) != precious {
+				t.Errorf("destination = %q, want it untouched (%q)", got, precious)
+			}
+		})
+	}
+}
+
+// The gate must stay scoped to what actually destroys something: a move or copy
+// to a path that does not exist yet overwrites nothing and needs no confirming.
+func TestBatchNonOverwritingMoveNeedsNoConfirm(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "src.txt")
+	if err := os.WriteFile(src, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	dst := filepath.Join(dir, "fresh.txt")
+
+	ops := `[{"operation":"move","source":"` + src + `","destination":"` + dst + `"}]`
+	_, _, code := runCLI(t, "batch-file-operations", "--operations", ops)
+
+	if code == int(goaxi.ExitUsage) {
+		t.Error("a move that overwrites nothing was gated")
+	}
+	if _, err := os.Stat(dst); err != nil {
+		t.Errorf("the move did not run: %v", err)
+	}
+}
+
 // The gate is scoped to what is destructive. A batch that only copies must not
 // be made harder to use by it.
 func TestBatchWithoutDeleteNeedsNoConfirm(t *testing.T) {

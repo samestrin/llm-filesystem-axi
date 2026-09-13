@@ -550,6 +550,8 @@ type SyncResult struct {
 	FilesCopied int      `json:"files_copied"`
 	DirsCreated int      `json:"dirs_created"`
 	Success     bool     `json:"success"`
+	Failed      int      `json:"failed,omitempty"`
+	Failures    []string `json:"failures,omitempty"`
 	DryRun      bool     `json:"dry_run,omitempty"`
 	Planned     []string `json:"planned,omitempty"`
 }
@@ -580,8 +582,20 @@ func SyncDirectories(opts SyncDirectoriesOptions) (*SyncResult, error) {
 		return nil, err
 	}
 
+	// A source that is missing or is not a directory used to walk nothing and
+	// report success with zero files. filepath.Walk hands the callback an error
+	// for an unreadable root, and the callback discarded it.
+	srcInfo, err := os.Stat(normalizedSrc)
+	if err != nil {
+		return nil, fmt.Errorf("source is not readable: %w", err)
+	}
+	if !srcInfo.IsDir() {
+		return nil, fmt.Errorf("source is not a directory: %s", normalizedSrc)
+	}
+
 	var filesCopied, dirsCreated int
 	var planned []string
+	var failures []string
 
 	// A dry run walks the same tree and counts the same way, skipping only the
 	// two calls that write. It must model the REAL algorithm rather than a
@@ -592,8 +606,19 @@ func SyncDirectories(opts SyncDirectoriesOptions) (*SyncResult, error) {
 	//
 	// It predicts rather than guarantees: the real walk skips a file whose copy
 	// fails, which nothing can know in advance.
-	err = filepath.Walk(normalizedSrc, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
+	// Every failure is recorded rather than discarded. A bare `return nil` here
+	// is what let a sync destroy data and still report success: the copy failed,
+	// nobody counted it, and Success stayed true regardless.
+	note := func(relPath string, err error) {
+		if len(failures) < maxPlannedPaths {
+			failures = append(failures, relPath+": "+err.Error())
+		}
+	}
+
+	err = filepath.Walk(normalizedSrc, func(path string, info os.FileInfo, walkErr error) error {
+		if walkErr != nil {
+			rel, _ := filepath.Rel(normalizedSrc, path)
+			note(rel, walkErr)
 			return nil
 		}
 
@@ -602,19 +627,20 @@ func SyncDirectories(opts SyncDirectoriesOptions) (*SyncResult, error) {
 
 		if info.IsDir() {
 			if !opts.DryRun {
-				if err := os.MkdirAll(dstPath, info.Mode()); err != nil {
-					return nil
+				if mkErr := os.MkdirAll(dstPath, info.Mode()); mkErr != nil {
+					note(relPath, mkErr)
+					// Skip the subtree: returning nil would descend and every
+					// copy below would fail into a directory that is not there.
+					return filepath.SkipDir
 				}
 			}
 			dirsCreated++
 		} else {
 			if !opts.DryRun {
 				// copyFile takes (src, dst). This passed (dst, src), so it
-				// opened a destination that did not exist yet, failed, and the
-				// bare `return nil` below swallowed the error — files_copied
-				// stayed 0 while success stayed true. Directories were still
-				// created, which made the destination look populated.
-				if err := copyFile(path, dstPath); err != nil {
+				// opened a destination that did not exist yet and failed.
+				if cpErr := copyFile(path, dstPath); cpErr != nil {
+					note(relPath, cpErr)
 					return nil
 				}
 			} else if len(planned) < maxPlannedPaths {
@@ -634,7 +660,9 @@ func SyncDirectories(opts SyncDirectoriesOptions) (*SyncResult, error) {
 		Destination: normalizedDst,
 		FilesCopied: filesCopied,
 		DirsCreated: dirsCreated,
-		Success:     true,
+		Success:     len(failures) == 0,
+		Failed:      len(failures),
+		Failures:    failures,
 		DryRun:      opts.DryRun,
 		Planned:     planned,
 	}, nil
