@@ -113,17 +113,23 @@ func OutputResult(result interface{}, textFn func() string) {
 // projection (spec maps array field -> kept item keys) when not in --full mode,
 // and next-step hints (AXI #9). The full + JSON combination is kept
 // byte-identical to the pre-AXI --json output for legacy consumers.
-func OutputResultAXI(result interface{}, spec map[string][]string, steps []string, textFn func() string) {
+// stepsFn is a closure rather than a slice so a command can decide its guidance
+// from what it actually found. A fixed slice is built before the result exists,
+// which is how a zero-match search came to offer "Open a match" — a step naming
+// a target that was not there. nil is a valid value and means no guidance, which
+// is why the 23 call sites that never had any compile unchanged.
+func OutputResultAXI(result interface{}, spec map[string][]string, stepsFn func() []string, textFn func() string) {
+	// Resolved once, not per format branch: JSON and TOON must never disagree
+	// about what the next step is, and a command whose guidance is expensive to
+	// build must not pay for it twice.
+	var steps []string
+	if stepsFn != nil {
+		steps = stepsFn()
+	}
+
 	// Human text: render the text body, then append hints as trailing lines.
 	if activeFmt == FormatText {
-		out := textFn()
-		if len(steps) > 0 {
-			out += "\n\nNext steps:"
-			for _, s := range steps {
-				out += "\n  - " + s
-			}
-		}
-		fmt.Fprintln(outWriter, out)
+		fmt.Fprint(outWriter, textFn()+"\n"+textSteps(steps))
 		return
 	}
 
@@ -232,12 +238,7 @@ func emitDiagnostic(f Format, compact bool, err error, code goaxi.ExitCode, step
 			doc.WriteByte('\n')
 		}
 	case FormatText:
-		if len(steps) > 0 {
-			doc.WriteString("\nNext steps:\n")
-			for _, s := range steps {
-				doc.WriteString("  - " + s + "\n")
-			}
-		}
+		doc.WriteString(textSteps(steps))
 	}
 
 	sink := outWriter

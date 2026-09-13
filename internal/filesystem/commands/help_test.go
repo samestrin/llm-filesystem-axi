@@ -2,6 +2,8 @@ package commands
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -13,6 +15,10 @@ var testSteps = []string{
 	"Add --full for all fields (path, mode, timestamps, ...).",
 }
 
+// testStepsFn is testSteps in the closure form OutputResultAXI now takes. The
+// slice stays, because several assertions still compare against its contents.
+var testStepsFn = func() []string { return testSteps }
+
 // AC3: contextual disclosure (AXI principle 9) is a trailing help[] block, not a
 // field buried in the payload. The inline array form is the only one of the
 // three in circulation that survives its own codec, so the body and the block
@@ -21,7 +27,7 @@ func TestTOONOutputEndsWithAHelpBlock(t *testing.T) {
 	withFormat(t, FormatTOON, false, false)
 
 	stdout, _, _ := captureOutput(t, func() {
-		OutputResultAXI(sample(), nil, testSteps, func() string { return "TEXT" })
+		OutputResultAXI(sample(), nil, testStepsFn, func() string { return "TEXT" })
 	})
 
 	lines := strings.Split(strings.TrimRight(stdout, "\n"), "\n")
@@ -46,7 +52,7 @@ func TestTOONOutputHasNoNextStepsField(t *testing.T) {
 	withFormat(t, FormatTOON, false, false)
 
 	stdout, _, _ := captureOutput(t, func() {
-		OutputResultAXI(sample(), nil, testSteps, func() string { return "TEXT" })
+		OutputResultAXI(sample(), nil, testStepsFn, func() string { return "TEXT" })
 	})
 
 	if strings.Contains(stdout, "next_steps") {
@@ -78,7 +84,7 @@ func TestHelpBlockIsSanitized(t *testing.T) {
 
 	stdout, _, _ := captureOutput(t, func() {
 		OutputResultAXI(sample(), nil,
-			[]string{"open \x1b[31mred\u2028.txt"},
+			func() []string { return []string{"open \x1b[31mred\u2028.txt"} },
 			func() string { return "TEXT" })
 	})
 
@@ -104,7 +110,7 @@ func TestJSONOutputKeepsNextStepsAndGainsNoTOONBlock(t *testing.T) {
 	withFormat(t, FormatJSON, false, false)
 
 	stdout, _, _ := captureOutput(t, func() {
-		OutputResultAXI(sample(), nil, testSteps, func() string { return "TEXT" })
+		OutputResultAXI(sample(), nil, testStepsFn, func() string { return "TEXT" })
 	})
 
 	if strings.Contains(stdout, "help[") {
@@ -130,7 +136,7 @@ func TestTextOutputKeepsItsOwnNextStepsForm(t *testing.T) {
 	withFormat(t, FormatText, false, false)
 
 	stdout, _, _ := captureOutput(t, func() {
-		OutputResultAXI(sample(), nil, testSteps, func() string { return "body" })
+		OutputResultAXI(sample(), nil, testStepsFn, func() string { return "body" })
 	})
 
 	if !strings.Contains(stdout, "Next steps:") {
@@ -177,7 +183,7 @@ func TestOutputIsOneWritePerDocument(t *testing.T) {
 	exitFunc = func(c int) { code = c }
 	t.Cleanup(func() { outWriter, exitFunc = prevOut, prevExit })
 
-	OutputResultAXI(sample(), nil, testSteps, func() string { return "TEXT" })
+	OutputResultAXI(sample(), nil, testStepsFn, func() string { return "TEXT" })
 
 	if w.written != 0 {
 		t.Errorf("a failing sink accepted %d writes; the document must be attempted once", w.written)
@@ -197,7 +203,7 @@ func TestPayloadAndHelpBlockShareOneWrite(t *testing.T) {
 	outWriter = w
 	t.Cleanup(func() { outWriter = prevOut })
 
-	OutputResultAXI(sample(), nil, testSteps, func() string { return "TEXT" })
+	OutputResultAXI(sample(), nil, testStepsFn, func() string { return "TEXT" })
 
 	if w.writes != 1 {
 		t.Errorf("writes = %d, want 1 for payload + help block", w.writes)
@@ -313,6 +319,100 @@ func TestErrorBodyAndGuidanceShareOneWrite(t *testing.T) {
 	}
 	if !strings.Contains(w.buf.String(), "boom") {
 		t.Errorf("the single write must carry the error: %q", w.buf.String())
+	}
+}
+
+// AC10: a zero-match search still offered "Open a match", naming a target that
+// does not exist. A step an agent cannot take is worse than no step: it costs
+// tokens to read and one wasted turn to discover it was a lie.
+//
+// The steps were a plain slice evaluated at the call site BEFORE the result
+// existed, so no command could vary them by what it found. Driving this through
+// the real command rather than the renderer is deliberate — a renderer test with
+// a hand-written closure would pass while every command still shipped the fixed
+// slice.
+func TestHelpLinesAdaptToAnEmptyResult(t *testing.T) {
+	dir := t.TempDir()
+
+	cases := []struct {
+		name       string
+		args       []string
+		impossible string
+		want       string
+	}{
+		{"search-code", []string{"search-code", "--path", dir, "--pattern", "zzz-no-such-token"}, "Open a match", "widen"},
+		{"search-files", []string{"search-files", "--path", dir, "--pattern", "zzz-no-such-file"}, "Read a match", "widen"},
+		{"list-directory", []string{"list-directory", "--path", dir}, "Read a listed file", "--show-hidden"},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			stdout, _, _ := runCLI(t, c.args...)
+
+			if strings.Contains(stdout, c.impossible) {
+				t.Errorf("a zero-result command offered %q: %q", c.impossible, stdout)
+			}
+			if !strings.Contains(stdout, "help[") {
+				t.Fatalf("a zero-result command emitted no guidance at all: %q", stdout)
+			}
+			if !strings.Contains(strings.ToLower(stdout), strings.ToLower(c.want)) {
+				t.Errorf("zero-result guidance should mention %q: %q", c.want, stdout)
+			}
+		})
+	}
+}
+
+// The other half of AC10, and the half that stops "suppress the line" from being
+// satisfied by deleting it: a search that DID find something must still say how
+// to open it.
+func TestHelpLinesStillGuideANonEmptyResult(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "hit.txt"), []byte("needle\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	stdout, _, _ := runCLI(t, "search-code", "--path", dir, "--pattern", "needle")
+
+	if !strings.Contains(stdout, "Open a match") {
+		t.Errorf("a search with matches lost its open-a-match step: %q", stdout)
+	}
+	if strings.Contains(strings.ToLower(stdout), "widen") {
+		t.Errorf("a search with matches suggested widening it: %q", stdout)
+	}
+}
+
+// The steps closure must be resolved exactly once per document. Resolving it per
+// format branch would let JSON and TOON disagree about what the next step is,
+// and a command whose steps are expensive would pay twice.
+//
+// nil must also stay safe, because 23 of the 27 call sites pass it.
+func TestStepsFnIsResolvedOnceAndNilIsSafe(t *testing.T) {
+	withFormat(t, FormatTOON, false, false)
+
+	calls := 0
+	stdout, _, _ := captureOutput(t, func() {
+		OutputResultAXI(sample(), nil, func() []string {
+			calls++
+			return testSteps
+		}, func() string { return "TEXT" })
+	})
+
+	if calls != 1 {
+		t.Errorf("steps closure ran %d times, want exactly 1", calls)
+	}
+	if !strings.Contains(stdout, "help[2]: ") {
+		t.Errorf("the resolved steps did not reach the block: %q", stdout)
+	}
+
+	// OutputResult passes a nil closure; it must render rather than panic.
+	nilOut, _, _ := captureOutput(t, func() {
+		OutputResult(sample(), func() string { return "TEXT" })
+	})
+	if strings.Contains(nilOut, "help[") {
+		t.Errorf("a nil steps closure produced a block: %q", nilOut)
+	}
+	if !strings.Contains(nilOut, "items[2]") {
+		t.Errorf("a nil steps closure lost the payload: %q", nilOut)
 	}
 }
 

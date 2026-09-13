@@ -38,9 +38,19 @@ func listDirectoryCmd() *cobra.Command {
 			}
 			OutputResultAXI(result,
 				map[string][]string{"items": {"name", "type", "size_readable"}},
-				[]string{
-					"Read a listed file: llm-filesystem read-file --path <path>",
-					"Add --full for all fields (path, mode, timestamps, ...).",
+				func() []string {
+					// Nothing was listed, so there is nothing to read. Point at
+					// the two reasons a directory looks empty when it is not.
+					if result.Total == 0 {
+						return []string{
+							"Include hidden entries: llm-filesystem list-directory --path " + result.Path + " --show-hidden",
+							"Drop the filter: remove --pattern to list everything.",
+						}
+					}
+					return []string{
+						"Read a listed file: llm-filesystem read-file --path <path>",
+						"Add --full for all fields (path, mode, timestamps, ...).",
+					}
 				},
 				func() string {
 					var sb strings.Builder
@@ -96,7 +106,11 @@ func getDirectoryTreeCmd() *cobra.Command {
 			}
 			OutputResultAXI(result,
 				map[string][]string{"children": {"name", "is_dir", "size"}},
-				[]string{"Add --full for all fields (path, mode, timestamps, ...)."},
+				func() []string {
+					// This step describes the output rather than acting on a
+					// result, so it stays valid for an empty tree.
+					return []string{"Add --full for all fields (path, mode, timestamps, ...)."}
+				},
 				func() string {
 					var sb strings.Builder
 					sb.WriteString(fmt.Sprintf("Tree: %s\n", result.BasePath))

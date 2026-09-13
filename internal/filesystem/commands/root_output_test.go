@@ -157,7 +157,9 @@ func (errBoom) Error() string { return "boom" }
 func TestOutputResultAXIFullJSONStaysByteIdentical(t *testing.T) {
 	result := sample()
 	spec := map[string][]string{"items": {"name"}}
-	steps := []string{"do X"}
+	// Guidance in closure form, and deliberately non-empty: if the legacy path
+	// ever stopped ignoring it, "do X" would show up in the bytes below.
+	steps := func() []string { return []string{"do X"} }
 
 	for _, compact := range []bool{false, true} {
 		withFormat(t, FormatJSON, compact, true)

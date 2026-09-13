@@ -111,6 +111,25 @@ scan:
 	return f, compact
 }
 
+// textSteps renders recovery guidance for the human format, to be appended to a
+// body that already ends in a newline. It returns "" for no steps, so a stepless
+// command leaves no trailing blank line.
+//
+// Shared by the success path and the error path. They had separate copies that
+// produced identical bytes, which is one copy too many for a format whose exact
+// shape two tests pin.
+func textSteps(steps []string) string {
+	if len(steps) == 0 {
+		return ""
+	}
+	var sb strings.Builder
+	sb.WriteString("\nNext steps:\n")
+	for _, s := range steps {
+		sb.WriteString("  - " + s + "\n")
+	}
+	return sb.String()
+}
+
 // renderGeneric renders an already-generic value (map/slice/scalar) as JSON or
 // TOON. Used after minimal projection / next-step injection, which operate on
 // the generic representation.
