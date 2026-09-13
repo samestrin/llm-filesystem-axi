@@ -208,20 +208,56 @@ func OutputResultAXI(result interface{}, spec map[string][]string, steps []strin
 // The exit code is a parameter rather than a constant because the same rendering
 // serves two different situations. A malformed invocation and a failed operation
 // need the same structured body and emphatically different codes.
-func emitDiagnostic(f Format, compact bool, err error, code goaxi.ExitCode) {
-	rendered := renderError(f, compact, err)
-	if f == FormatText {
-		fmt.Fprintln(errWriter, rendered)
-	} else {
-		fmt.Fprintln(outWriter, rendered)
+// steps is recovery guidance and follows the same three-way split the success
+// path uses: JSON carries it inside the document (renderError places it), TOON
+// gets a trailing help[] block, text gets the human bullets. An error document
+// therefore has the same shape as every other document this tool emits.
+//
+// Body and guidance are assembled and written once, for the reason the payload
+// and its help block are: a consumer must never receive half of one document.
+func emitDiagnostic(f Format, compact bool, err error, code goaxi.ExitCode, steps []string) {
+	var doc bytes.Buffer
+	doc.WriteString(renderError(f, compact, err, steps))
+	doc.WriteByte('\n')
+
+	switch f {
+	case FormatTOON:
+		// WriteHelp writes nothing for an empty list, so an error with no
+		// actionable step emits no stray block.
+		if herr := goaxi.WriteHelp(&doc, steps); herr != nil {
+			// Guidance is an enhancement. Losing it must not also cost the
+			// caller the diagnostic, which is the only part it can act on.
+			doc.Reset()
+			doc.WriteString(renderError(f, compact, err, nil))
+			doc.WriteByte('\n')
+		}
+	case FormatText:
+		if len(steps) > 0 {
+			doc.WriteString("\nNext steps:\n")
+			for _, s := range steps {
+				doc.WriteString("  - " + s + "\n")
+			}
+		}
 	}
+
+	sink := outWriter
+	if f == FormatText {
+		sink = errWriter
+	}
+	// Best effort: this is already the failure path, so a write error here has
+	// nowhere left to report itself except the exit code.
+	_, _ = sink.Write(doc.Bytes())
 	exitFunc(int(code))
 }
 
 // OutputError renders a TOOL failure in the active output format and exits
 // ExitError: the operation was attempted and it did not work.
+//
+// It supplies no guidance. What to try after a failed operation depends on what
+// failed, so a generic line here would be a guess — and AC10 forbids a help line
+// the agent cannot act on. Call sites that know the recovery pass their own.
 func OutputError(err error) {
-	emitDiagnostic(activeFmt, activeCompact, err, goaxi.ExitError)
+	emitDiagnostic(activeFmt, activeCompact, err, goaxi.ExitError, nil)
 }
 
 // Execute runs the CLI against the real process arguments.
@@ -261,8 +297,20 @@ func execute(args []string) {
 	cmd.SetOut(outWriter)
 	cmd.SetErr(errWriter)
 
-	if err := cmd.Execute(); err != nil {
+	// ExecuteC returns the command cobra actually resolved: the root for an
+	// unknown subcommand, and the subcommand itself for a bad flag or a missing
+	// required one. Naming that beats scanning argv, which cannot tell a
+	// subcommand from a flag's value.
+	failed, err := cmd.ExecuteC()
+	if err != nil {
 		f, compact := formatFromArgs(args)
-		emitDiagnostic(f, compact, err, goaxi.ExitUsage)
+
+		path := "llm-filesystem"
+		if failed != nil {
+			path = failed.CommandPath()
+		}
+
+		emitDiagnostic(f, compact, err, goaxi.ExitUsage,
+			[]string{"Valid flags and subcommands: " + path + " --help"})
 	}
 }

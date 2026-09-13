@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	goaxi "github.com/samestrin/go-axi"
 )
 
 var testSteps = []string{
@@ -216,4 +218,120 @@ type countingWriter struct {
 func (w *countingWriter) Write(p []byte) (int, error) {
 	w.writes++
 	return w.buf.Write(p)
+}
+
+// AC7: an error said what went wrong and never what to try, which is the moment
+// contextual disclosure is worth the most because it is the moment the agent is
+// stuck. The guidance takes the same three-way split the success path uses — a
+// trailing help[] block for TOON, a next_steps field for JSON, the human
+// "Next steps:" form for text — so an error document has the same shape as every
+// other document this tool emits, rather than a fourth one.
+//
+// The command named in the step comes from cobra's own resolution rather than
+// from scanning argv, because argv cannot tell a subcommand from a flag value.
+func TestUsageErrorsCarryRecoveryGuidance(t *testing.T) {
+	cases := []struct {
+		name     string
+		args     []string
+		wantStep string
+	}{
+		{"unknown flag points at the command that owns it",
+			[]string{"list-directory", "--path", ".", "--bogus"},
+			"llm-filesystem list-directory --help"},
+		{"unknown command points at the root",
+			[]string{"bogus-command"},
+			"llm-filesystem --help"},
+		{"missing required flag points at the command",
+			[]string{"list-directory"},
+			"llm-filesystem list-directory --help"},
+	}
+
+	for _, c := range cases {
+		for _, f := range []Format{FormatTOON, FormatJSON, FormatText} {
+			t.Run(c.name+"/"+string(f), func(t *testing.T) {
+				args := append([]string{"--format", string(f)}, c.args...)
+				stdout, stderr, _ := runCLI(t, args...)
+
+				body := stdout
+				if f == FormatText {
+					body = stderr
+				}
+
+				switch f {
+				case FormatTOON:
+					if !strings.Contains(body, "help[") {
+						t.Fatalf("no help block on a TOON error: %q", body)
+					}
+					if strings.Contains(body, "next_steps") {
+						t.Errorf("TOON error gained a next_steps field: %q", body)
+					}
+				case FormatJSON:
+					if strings.Contains(body, "help[") {
+						t.Errorf("a TOON block was appended to a JSON error: %q", body)
+					}
+					var got map[string]interface{}
+					if err := json.Unmarshal([]byte(body), &got); err != nil {
+						t.Fatalf("a JSON error must parse as one document: %v for %q", err, body)
+					}
+					if _, ok := got["next_steps"].([]interface{}); !ok {
+						t.Fatalf("next_steps missing from a JSON error: %q", body)
+					}
+				case FormatText:
+					if !strings.Contains(body, "Next steps:") {
+						t.Fatalf("text error lost its hint header: %q", body)
+					}
+					if strings.Contains(body, "help[") {
+						t.Errorf("a TOON block leaked into a text error: %q", body)
+					}
+				}
+
+				if !strings.Contains(body, c.wantStep) {
+					t.Errorf("body = %q, want a step naming %q", body, c.wantStep)
+				}
+			})
+		}
+	}
+}
+
+// An error body and its guidance are one document, for exactly the reason the
+// payload and its help block are: a consumer must never receive half of one.
+func TestErrorBodyAndGuidanceShareOneWrite(t *testing.T) {
+	w := &countingWriter{}
+	prevOut, prevExit := outWriter, exitFunc
+	outWriter = w
+	exitFunc = func(int) {}
+	t.Cleanup(func() { outWriter, exitFunc = prevOut, prevExit })
+
+	emitDiagnostic(FormatTOON, false, errBoom{}, goaxi.ExitUsage,
+		[]string{"Valid flags: llm-filesystem --help"})
+
+	if w.writes != 1 {
+		t.Errorf("writes = %d, want 1 for error body + guidance", w.writes)
+	}
+	if !strings.Contains(w.buf.String(), "help[1]: ") {
+		t.Errorf("the single write must carry the guidance: %q", w.buf.String())
+	}
+	if !strings.Contains(w.buf.String(), "boom") {
+		t.Errorf("the single write must carry the error: %q", w.buf.String())
+	}
+}
+
+// A tool failure with nothing useful to suggest must emit no block at all.
+// AC10 forbids a help line an agent cannot act on, and an empty block costs
+// tokens to read and teaches nothing.
+func TestErrorWithoutGuidanceEmitsNoBlock(t *testing.T) {
+	w := &countingWriter{}
+	prevOut, prevExit := outWriter, exitFunc
+	outWriter = w
+	exitFunc = func(int) {}
+	t.Cleanup(func() { outWriter, exitFunc = prevOut, prevExit })
+
+	emitDiagnostic(FormatTOON, false, errBoom{}, goaxi.ExitError, nil)
+
+	if strings.Contains(w.buf.String(), "help[") {
+		t.Errorf("a stepless error emitted a help block: %q", w.buf.String())
+	}
+	if !strings.Contains(w.buf.String(), "boom") {
+		t.Errorf("the error body is missing: %q", w.buf.String())
+	}
 }

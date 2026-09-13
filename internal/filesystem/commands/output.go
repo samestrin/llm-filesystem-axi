@@ -186,7 +186,14 @@ func toGeneric(v interface{}) (interface{}, error) {
 // renderError renders an error in the given format. Text keeps the pre-AXI
 // "Error: " prefix (or the bare message under compact); JSON keeps the pre-AXI
 // key shapes; TOON emits the same structured error as a TOON document.
-func renderError(f Format, compact bool, err error) string {
+//
+// steps is recovery guidance, and only the JSON branch consumes it. JSON has to
+// stay one parseable document, so its guidance goes inside as next_steps — the
+// same field and the same injector the success path uses. TOON and text carry
+// theirs after the body, which emitDiagnostic appends. Passing nil steps leaves
+// every byte of the pre-AXI output unchanged, because injectNextSteps no-ops on
+// an empty slice.
+func renderError(f Format, compact bool, err error, steps []string) string {
 	switch f {
 	case FormatText:
 		if compact {
@@ -195,10 +202,10 @@ func renderError(f Format, compact bool, err error) string {
 		return "Error: " + err.Error()
 	case FormatJSON:
 		if compact {
-			b, _ := json.Marshal(map[string]interface{}{"err": true, "msg": err.Error()})
+			b, _ := json.Marshal(injectNextSteps(map[string]interface{}{"err": true, "msg": err.Error()}, steps))
 			return string(b)
 		}
-		b, _ := json.MarshalIndent(map[string]interface{}{"error": true, "message": err.Error()}, "", "  ")
+		b, _ := json.MarshalIndent(injectNextSteps(map[string]interface{}{"error": true, "message": err.Error()}, steps), "", "  ")
 		return string(b)
 	case FormatTOON:
 		s, encErr := encodeTOON(map[string]interface{}{"error": true, "message": err.Error()})

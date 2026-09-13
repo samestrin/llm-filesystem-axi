@@ -217,30 +217,61 @@ func TestRenderGenericTOONHonorsJSONTags(t *testing.T) {
 func TestRenderErrorFormats(t *testing.T) {
 	err := errors.New("boom")
 
+	// Every case passes nil steps, which is what keeps these byte-for-byte
+	// assertions valid: injectNextSteps no-ops on an empty slice, so guidance
+	// costs an errorless caller nothing.
+
 	// Text (non-compact) keeps the "Error: " prefix used pre-AXI.
-	if got := renderError(FormatText, false, err); got != "Error: boom" {
+	if got := renderError(FormatText, false, err, nil); got != "Error: boom" {
 		t.Errorf("text error = %q, want %q", got, "Error: boom")
 	}
 	// Text compact is the bare message.
-	if got := renderError(FormatText, true, err); got != "boom" {
+	if got := renderError(FormatText, true, err, nil); got != "boom" {
 		t.Errorf("compact text error = %q, want %q", got, "boom")
 	}
 	// JSON error is byte-compatible with pre-AXI.
 	wantJSON, _ := json.MarshalIndent(map[string]interface{}{"error": true, "message": "boom"}, "", "  ")
-	if got := renderError(FormatJSON, false, err); got != string(wantJSON) {
+	if got := renderError(FormatJSON, false, err, nil); got != string(wantJSON) {
 		t.Errorf("json error = %q, want %q", got, wantJSON)
 	}
 	// JSON compact uses abbreviated keys, as pre-AXI.
 	wantMin, _ := json.Marshal(map[string]interface{}{"err": true, "msg": "boom"})
-	if got := renderError(FormatJSON, true, err); got != string(wantMin) {
+	if got := renderError(FormatJSON, true, err, nil); got != string(wantMin) {
 		t.Errorf("compact json error = %q, want %q", got, wantMin)
 	}
 	// TOON error is structured (not the "Error: " text form, not raw JSON braces).
-	toonErr := renderError(FormatTOON, false, err)
+	toonErr := renderError(FormatTOON, false, err, nil)
 	if strings.HasPrefix(toonErr, "Error:") || strings.HasPrefix(toonErr, "{") {
 		t.Errorf("toon error should be structured TOON, got %q", toonErr)
 	}
 	if !strings.Contains(toonErr, "boom") {
 		t.Errorf("toon error missing message: %q", toonErr)
+	}
+}
+
+// AC7: guidance reaches JSON through the document itself, because appending a
+// TOON block would stop it being one JSON value. TOON must NOT gain the field —
+// it gets a trailing block instead, and carrying both would bill the agent for
+// the same strings twice.
+func TestRenderErrorPlacesGuidanceByFormat(t *testing.T) {
+	err := errors.New("boom")
+	steps := []string{"Valid flags and subcommands: llm-filesystem --help"}
+
+	var got map[string]interface{}
+	if uerr := json.Unmarshal([]byte(renderError(FormatJSON, false, err, steps)), &got); uerr != nil {
+		t.Fatalf("a JSON error with guidance must parse as one document: %v", uerr)
+	}
+	if _, ok := got["next_steps"].([]interface{}); !ok {
+		t.Errorf("next_steps missing from JSON error: %v", got)
+	}
+
+	if toonErr := renderError(FormatTOON, false, err, steps); strings.Contains(toonErr, "next_steps") {
+		t.Errorf("TOON error gained a next_steps field: %q", toonErr)
+	}
+
+	// Text renders the same with or without steps; emitDiagnostic appends its
+	// bullets after the body rather than folding them into the message.
+	if got := renderError(FormatText, false, err, steps); got != "Error: boom" {
+		t.Errorf("text error = %q, want the message unchanged by steps", got)
 	}
 }
