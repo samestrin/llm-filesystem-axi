@@ -80,6 +80,50 @@ func TestResolveFormatInvalidFailsLoud(t *testing.T) {
 	}
 }
 
+// AC7: formatFromArgs is the usage-error path's only source of truth about the
+// requested format. Cobra fails on an unknown flag or subcommand before
+// PersistentPreRunE runs, so activeFmt is never assigned and still holds
+// whatever the previous invocation left there. Every form the root flags accept
+// has to be recognized here, or a diagnostic renders in a format the caller
+// never asked for.
+func TestFormatFromArgsScansRawArgv(t *testing.T) {
+	tests := []struct {
+		name        string
+		args        []string
+		wantFormat  Format
+		wantCompact bool
+	}{
+		{"no flags is toon", []string{"list-directory"}, FormatTOON, false},
+		{"--format with a separate value", []string{"--format", "json", "x"}, FormatJSON, false},
+		{"--format= joined form", []string{"--format=json"}, FormatJSON, false},
+		{"--format= joined text", []string{"--format=text"}, FormatText, false},
+		{"legacy --json", []string{"--json", "x"}, FormatJSON, false},
+		{"legacy --min alone is text", []string{"--min"}, FormatText, true},
+		{"legacy --json --min is compact json", []string{"--json", "--min"}, FormatJSON, true},
+		{"explicit --format beats legacy --json", []string{"--json", "--format", "text"}, FormatText, false},
+		{"nothing after -- is a flag", []string{"--", "--format", "json"}, FormatTOON, false},
+		{"trailing --format with no value", []string{"list-directory", "--format"}, FormatTOON, false},
+		// compress-files owns a --format flag naming the ARCHIVE type. A raw argv
+		// scan cannot tell that apart from the global flag, so it reads "zip",
+		// which resolveFormat rejects, which falls back to TOON. That is the
+		// right outcome for the only thing this function decides — how to render
+		// a diagnostic — and it is why the returned error is discarded here.
+		{"a subcommand's own --format falls back", []string{"compress-files", "--format", "zip"}, FormatTOON, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotFmt, gotCompact := formatFromArgs(tt.args)
+			if gotFmt != tt.wantFormat {
+				t.Errorf("format = %v, want %v", gotFmt, tt.wantFormat)
+			}
+			if gotCompact != tt.wantCompact {
+				t.Errorf("compact = %v, want %v", gotCompact, tt.wantCompact)
+			}
+		})
+	}
+}
+
 // renderGeneric is the encoder the CLI actually calls, so the back-compat
 // assertions live on it. They used to target renderResult, which had no
 // production caller — the suite could stay green through a codec swap that

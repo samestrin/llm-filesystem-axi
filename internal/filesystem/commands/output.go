@@ -60,6 +60,57 @@ func resolveFormat(formatFlag string, formatSet, jsonFlag, minFlag bool) (Format
 	}
 }
 
+// formatFromArgs recovers the requested output format from raw argv.
+//
+// The usage-error path cannot consult activeFmt. PersistentPreRunE is what
+// assigns it, and for an unknown flag or an unknown subcommand cobra fails while
+// parsing — before that hook ever runs — so activeFmt still holds the package
+// default, or whatever the previous invocation in this process left there.
+// Re-scanning argv is the one source that is correct for every usage-error
+// class, including the ones where the hook did run.
+//
+// An invalid --format falls back to TOON, because that value is itself the error
+// being reported. resolveFormat already returns TOON alongside its error, so the
+// error is discardable here, and only here.
+//
+// The scan reads argv without knowing which flag owns which value, so an
+// argument whose VALUE happens to be --format, --json or --min is misread as the
+// flag itself (--pattern --json, say). A subcommand defining its own --format is
+// misread the same way: compress-files does, and its archive type arrives here
+// as a format name, which resolveFormat then rejects. In every case the blast
+// radius is which format a diagnostic renders in, never the format of a
+// successful result, so the cheap scan earns its keep.
+func formatFromArgs(args []string) (Format, bool) {
+	var (
+		formatVal string
+		formatSet bool
+		jsonFlag  bool
+		minFlag   bool
+	)
+
+scan:
+	for i := 0; i < len(args); i++ {
+		switch a := args[i]; {
+		case a == "--":
+			break scan
+		case a == "--json":
+			jsonFlag = true
+		case a == "--min":
+			minFlag = true
+		case strings.HasPrefix(a, "--format="):
+			formatVal, formatSet = strings.TrimPrefix(a, "--format="), true
+		case a == "--format":
+			if i+1 < len(args) {
+				formatVal, formatSet = args[i+1], true
+				i++
+			}
+		}
+	}
+
+	f, compact, _ := resolveFormat(formatVal, formatSet, jsonFlag, minFlag)
+	return f, compact
+}
+
 // renderGeneric renders an already-generic value (map/slice/scalar) as JSON or
 // TOON. Used after minimal projection / next-step injection, which operate on
 // the generic representation.

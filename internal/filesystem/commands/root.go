@@ -197,17 +197,31 @@ func OutputResultAXI(result interface{}, spec map[string][]string, steps []strin
 	}
 }
 
-// OutputError renders an error in the active output format and exits non-zero.
-// Plain text goes to stderr; structured formats (json, toon) go to stdout so
-// the caller receives a parseable body.
-func OutputError(err error) {
-	rendered := renderError(activeFmt, activeCompact, err)
-	if activeFmt == FormatText {
+// emitDiagnostic renders err in f and exits with code.
+//
+// Plain text goes to stderr, where a human reads it. Structured formats go to
+// stdout, so an agent receives a parseable body on the stream it actually reads
+// — AXI reserves stderr for logs. The two are exclusive on purpose: a diagnostic
+// written to both streams is one event that a consumer merging them counts
+// twice, which is what the MCP server's CombinedOutput would do.
+//
+// The exit code is a parameter rather than a constant because the same rendering
+// serves two different situations. A malformed invocation and a failed operation
+// need the same structured body and emphatically different codes.
+func emitDiagnostic(f Format, compact bool, err error, code goaxi.ExitCode) {
+	rendered := renderError(f, compact, err)
+	if f == FormatText {
 		fmt.Fprintln(errWriter, rendered)
 	} else {
 		fmt.Fprintln(outWriter, rendered)
 	}
-	exitFunc(int(goaxi.ExitError))
+	exitFunc(int(code))
+}
+
+// OutputError renders a TOOL failure in the active output format and exits
+// ExitError: the operation was attempted and it did not work.
+func OutputError(err error) {
+	emitDiagnostic(activeFmt, activeCompact, err, goaxi.ExitError)
 }
 
 // Execute runs the CLI against the real process arguments.
@@ -232,6 +246,15 @@ func Execute() {
 // ExitUsage is deliberately distinct from ExitError. A typo and a broken tool
 // are different situations, and an agent cannot decide whether a retry is
 // worthwhile if they share a code.
+//
+// The diagnostic was plain text on stderr regardless of --format, so an agent
+// running --format json got nothing parseable from a typo and stdout — the
+// stream it reads — stayed empty. It now renders through the same structured
+// path a tool failure takes, which is why the two differ only in their code.
+//
+// The format comes from argv rather than from activeFmt, because for an unknown
+// flag or subcommand cobra fails during parsing and PersistentPreRunE, which is
+// what assigns activeFmt, never runs at all.
 func execute(args []string) {
 	cmd := RootCmd()
 	cmd.SetArgs(args)
@@ -239,7 +262,7 @@ func execute(args []string) {
 	cmd.SetErr(errWriter)
 
 	if err := cmd.Execute(); err != nil {
-		fmt.Fprintln(errWriter, "Error: "+err.Error())
-		exitFunc(int(goaxi.ExitUsage))
+		f, compact := formatFromArgs(args)
+		emitDiagnostic(f, compact, err, goaxi.ExitUsage)
 	}
 }
