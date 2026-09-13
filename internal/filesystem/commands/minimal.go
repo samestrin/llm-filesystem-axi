@@ -20,6 +20,30 @@ func normalizeFields(raw []string) ([]string, error) {
 	return out, nil
 }
 
+// alwaysKept survives every projection, whatever --fields asks for.
+//
+// truncated and its companions say the content is INCOMPLETE. A selection that
+// dropped them would hand back a partial file that looks whole, which is the one
+// thing a field selection must never be able to do. error is kept for the same
+// reason: a per-item failure must not be projected out of existence.
+var alwaysKept = []string{"truncated", "total_size", "next_offset", "error"}
+
+// withAlwaysKept returns fields plus any alwaysKept key not already requested.
+func withAlwaysKept(fields []string) []string {
+	seen := make(map[string]bool, len(fields))
+	for _, f := range fields {
+		seen[f] = true
+	}
+
+	out := append([]string(nil), fields...)
+	for _, k := range alwaysKept {
+		if !seen[k] {
+			out = append(out, k)
+		}
+	}
+	return out
+}
+
 // overrideSpec replaces every array's keep-list with fields.
 //
 // This is what lets --fields work without the caller knowing which array key a

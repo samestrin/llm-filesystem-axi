@@ -3,6 +3,7 @@ package core
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"sync"
@@ -115,24 +116,34 @@ func ReadFile(opts ReadFileOptions) (*ReadFileResult, error) {
 	// the one thing the old fail-fast pre-check got right. Only the whole-file
 	// path needs it — a caller-supplied line range or byte window is bounded
 	// already.
-	wholeFileRead := opts.LineStart == 0 && opts.LineCount == 0 &&
-		opts.StartOffset == 0 && opts.MaxSize == 0
-	byteBounded := maxSize > 0 && totalSize > maxSize && wholeFileRead
+	lineRangeRead := opts.LineStart > 0 || opts.LineCount > 0
+	byteWindowRead := !lineRangeRead && (opts.StartOffset > 0 || opts.MaxSize > 0)
+
+	// Bytes to read on the byte-oriented paths. An explicit --max-size wins;
+	// otherwise the size budget bounds the read. This is what stops the resume
+	// command from loading the whole file: --start-offset previously arrived
+	// here with no byte limit at all.
+	//
+	// JSON escaping only ever grows a string, so maxSize BYTES is a safe upper
+	// bound on what fits in maxSize CHARS; fitToBudget trims the remainder when
+	// escaping pushes it back over.
+	byteBudget := opts.MaxSize
+	if byteBudget <= 0 && maxSize > 0 {
+		byteBudget = int(maxSize)
+	}
 
 	var content string
 	var lines int
 
 	switch {
-	case byteBounded:
-		// JSON escaping only ever grows a string, so maxSize BYTES is a safe
-		// upper bound on what fits in maxSize CHARS. fitToBudget trims the
-		// remainder when escaping pushes it back over.
+	case lineRangeRead:
+		content, lines, err = readFileByLines(path, opts.LineStart, opts.LineCount)
+	case byteWindowRead:
+		content, err = readFileByBytes(path, opts.StartOffset, byteBudget)
+		lines = strings.Count(content, "\n")
+	case maxSize > 0 && totalSize > maxSize:
 		content, err = readFileByBytes(path, 0, int(maxSize))
 		lines = strings.Count(content, "\n")
-	case opts.LineStart > 0 || opts.LineCount > 0:
-		content, lines, err = readFileByLines(path, opts.LineStart, opts.LineCount)
-	case opts.StartOffset > 0 || opts.MaxSize > 0:
-		content, err = readFileByBytes(path, opts.StartOffset, opts.MaxSize)
 	default:
 		content, lines, err = readEntireFile(path)
 	}
@@ -143,13 +154,19 @@ func ReadFile(opts ReadFileOptions) (*ReadFileResult, error) {
 
 	// Fit to the estimated-JSON budget, which catches escape-heavy content that
 	// fits in bytes but not in encoded characters.
-	truncated := byteBounded
 	if maxSize > 0 {
 		if kept, cut := fitToBudget(content, maxSize); cut {
-			content, truncated = kept, true
+			content = kept
 			lines = strings.Count(content, "\n")
 		}
 	}
+
+	// Truncated means bytes remain past what was returned. Derived from the file
+	// rather than from which branch ran, so a resume that stops short is flagged
+	// exactly like a first read that does. A line-range read is excluded: its
+	// window is the caller's own, and its end is not a byte offset.
+	truncated := !lineRangeRead &&
+		int64(opts.StartOffset)+int64(len(content)) < totalSize
 
 	res := &ReadFileResult{
 		Path:    path,
@@ -161,12 +178,9 @@ func ReadFile(opts ReadFileOptions) (*ReadFileResult, error) {
 	if truncated {
 		res.Truncated = true
 		res.TotalSize = totalSize
-		// A byte offset into the file, so it is only honest when the content is
-		// a byte prefix. A trimmed line-range read reports the truncation
-		// without a resume point it cannot correctly compute.
-		if wholeFileRead || opts.StartOffset > 0 || opts.MaxSize > 0 {
-			res.NextOffset = int64(opts.StartOffset) + int64(len(content))
-		}
+		// A byte offset into the file, so it resumes exactly where this read
+		// stopped — including when this read was itself a resume.
+		res.NextOffset = int64(opts.StartOffset) + int64(len(content))
 	}
 
 	return res, nil
@@ -208,13 +222,29 @@ func fitToBudget(s string, maxSize int64) (string, bool) {
 		return kept[:i+1], true
 	}
 
-	// No line boundary available: back off to a whole rune.
-	for len(kept) > 0 {
+	// No line boundary available: back off to a whole rune, but by at most
+	// UTFMax-1 bytes. A rune is never longer than that, so needing more means
+	// the content simply is not UTF-8.
+	//
+	// Unbounded, this consumed the ENTIRE prefix of a binary file: every byte of
+	// invalid UTF-8 decodes as RuneError with size 1, so the loop stripped until
+	// nothing was left. ReadFile then answered with empty content, truncated
+	// true, and a next_offset equal to the offset it was given — a resume that
+	// cannot advance, which an agent following the help block repeats forever
+	// while every iteration exits 0.
+	byteCut := kept
+	for i := 0; i < utf8.UTFMax-1 && len(kept) > 0; i++ {
 		r, size := utf8.DecodeLastRuneInString(kept)
 		if r != utf8.RuneError || size > 1 {
-			break
+			return kept, true
 		}
 		kept = kept[:len(kept)-1]
+	}
+
+	if kept == "" {
+		// Not UTF-8 at all. The byte cut is the honest answer: a prefix that
+		// advances beats a correct-looking nothing.
+		return byteCut, true
 	}
 	return kept, true
 }
@@ -264,6 +294,15 @@ func readFileByLines(path string, startLine, lineCount int) (string, int, error)
 	return result.String(), linesRead, nil
 }
 
+// readFileByBytes returns up to maxSize bytes starting at startOffset, or
+// everything from startOffset when maxSize is not positive.
+//
+// It seeks and streams. The previous version did two things that made the
+// advertised resume command dangerous: with no maxSize it called os.ReadFile on
+// the WHOLE file and then sliced, so `--start-offset N` on a 300MB file peaked
+// at 609MB of RSS — on a 1GB file, over 2GB. And with a maxSize it took a single
+// file.Read, which is permitted to return fewer bytes than asked for, so a short
+// read silently truncated more than the budget required.
 func readFileByBytes(path string, startOffset, maxSize int) (string, error) {
 	file, err := os.Open(path)
 	if err != nil {
@@ -272,30 +311,20 @@ func readFileByBytes(path string, startOffset, maxSize int) (string, error) {
 	defer file.Close()
 
 	if startOffset > 0 {
-		_, err = file.Seek(int64(startOffset), 0)
-		if err != nil {
+		if _, err := file.Seek(int64(startOffset), io.SeekStart); err != nil {
 			return "", fmt.Errorf("failed to seek: %w", err)
 		}
 	}
 
-	var buffer []byte
+	var r io.Reader = file
 	if maxSize > 0 {
-		buffer = make([]byte, maxSize)
-		n, err := file.Read(buffer)
-		if err != nil && err.Error() != "EOF" {
-			return "", fmt.Errorf("failed to read: %w", err)
-		}
-		buffer = buffer[:n]
-	} else {
-		buffer, err = os.ReadFile(path)
-		if err != nil {
-			return "", fmt.Errorf("failed to read file: %w", err)
-		}
-		if startOffset > 0 && startOffset < len(buffer) {
-			buffer = buffer[startOffset:]
-		}
+		r = io.LimitReader(file, int64(maxSize))
 	}
 
+	buffer, err := io.ReadAll(r)
+	if err != nil {
+		return "", fmt.Errorf("failed to read: %w", err)
+	}
 	return string(buffer), nil
 }
 

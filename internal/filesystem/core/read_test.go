@@ -296,6 +296,92 @@ func TestReadMultipleFilesSizeLimit(t *testing.T) {
 	})
 }
 
+// The resume command the help block advertises had NO test at all, and it was
+// broken in the way that matters least visibly and most expensively: with no
+// explicit --max-size it reached readFileByBytes with no byte limit, which read
+// the entire file with os.ReadFile and then sliced. A 300MB file peaked at
+// 609MB of resident memory; a 1GB file at over 2GB. The agent was told to run
+// that command by the tool itself.
+//
+// Reading the whole file in chunks must reconstruct it exactly, or next_offset
+// silently skips or repeats bytes.
+func TestResumeByOffsetReconstructsTheFile(t *testing.T) {
+	tmpDir := t.TempDir()
+	// Line-structured and comfortably over the default budget, so more than one
+	// resume is required.
+	body := strings.Repeat("the quick brown fox jumps\n", 8000) // ~208KB
+	path := filepath.Join(tmpDir, "resume.txt")
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var rebuilt strings.Builder
+	offset := 0
+	for i := 0; ; i++ {
+		if i > 20 {
+			t.Fatal("resume did not terminate; next_offset is not advancing")
+		}
+
+		res, err := ReadFile(ReadFileOptions{
+			Path:        path,
+			StartOffset: offset,
+			AllowedDirs: []string{tmpDir},
+		})
+		if err != nil {
+			t.Fatalf("read at offset %d: %v", offset, err)
+		}
+		if len(res.Content) == 0 {
+			t.Fatalf("read at offset %d returned nothing while %d bytes remained",
+				offset, len(body)-offset)
+		}
+
+		rebuilt.WriteString(res.Content)
+
+		if !res.Truncated {
+			break
+		}
+		if res.TotalSize != int64(len(body)) {
+			t.Errorf("total_size = %d, want %d", res.TotalSize, len(body))
+		}
+		if res.NextOffset != int64(offset+len(res.Content)) {
+			t.Fatalf("next_offset = %d, want %d", res.NextOffset, offset+len(res.Content))
+		}
+		offset = int(res.NextOffset)
+	}
+
+	if rebuilt.String() != body {
+		t.Errorf("resumed read reconstructed %d bytes, want %d; next_offset skipped or repeated content",
+			rebuilt.Len(), len(body))
+	}
+}
+
+// A resume that reaches the end of the file must NOT claim to be truncated, or
+// an agent loops forever re-reading the tail.
+func TestResumeAtTheTailIsNotTruncated(t *testing.T) {
+	tmpDir := t.TempDir()
+	body := "short enough to fit\n"
+	path := filepath.Join(tmpDir, "tail.txt")
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := ReadFile(ReadFileOptions{
+		Path:        path,
+		StartOffset: 10,
+		AllowedDirs: []string{tmpDir},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if res.Truncated {
+		t.Error("a read that reached EOF reported itself truncated")
+	}
+	if res.Content != body[10:] {
+		t.Errorf("content = %q, want %q", res.Content, body[10:])
+	}
+}
+
 // fitToBudget is the subtlest part of the truncation path and the part no
 // caller sees directly, so it is tested here rather than only through a read.
 //
@@ -372,6 +458,45 @@ func TestFitToBudget(t *testing.T) {
 		}
 		if !strings.HasPrefix(s, got) {
 			t.Error("result is not a prefix of the input")
+		}
+	})
+
+	// The rune-boundary fallback strips while DecodeLastRuneInString reports
+	// RuneError with size 1 — which EVERY byte of an invalid-UTF-8 prefix does.
+	// So a binary file was stripped to nothing, and ReadFile then answered with
+	// empty content, truncated: true, and a next_offset equal to the offset it
+	// was given. An agent following that resume never terminates, and every
+	// iteration exits 0.
+	t.Run("invalid UTF-8 is never stripped to nothing", func(t *testing.T) {
+		s := strings.Repeat("\xff", 100000)
+
+		got, cut := fitToBudget(s, 70000)
+
+		if !cut {
+			t.Fatal("a 100000-byte string must be cut to a 70000 budget")
+		}
+		if got == "" {
+			t.Fatal("stripped the entire prefix; a resume from here cannot advance")
+		}
+		if est := int64(EstimateJSONStringSize(got)); est > 70000 {
+			t.Errorf("kept content costs %d, over the budget of 70000", est)
+		}
+		if !strings.HasPrefix(s, got) {
+			t.Error("result is not a prefix of the input")
+		}
+	})
+
+	// A tail of invalid bytes must cost at most a rune's worth, not the budget.
+	t.Run("a partly invalid tail loses at most a few bytes", func(t *testing.T) {
+		s := strings.Repeat("a", 69990) + strings.Repeat("\xff", 100)
+
+		got, cut := fitToBudget(s, 70000)
+
+		if !cut {
+			t.Skip("fixture fits the budget; nothing to assert")
+		}
+		if len(got) < 60000 {
+			t.Errorf("kept only %d bytes of a 70000 budget; the invalid tail ate the whole prefix", len(got))
 		}
 	})
 
