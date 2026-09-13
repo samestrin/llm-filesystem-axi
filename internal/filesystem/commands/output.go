@@ -91,15 +91,18 @@ func renderGeneric(f Format, compact bool, v interface{}) (string, error) {
 //
 // EncodeChecked rather than Check followed by Encode. That pair sanitizes and
 // marshals the same value twice to serve one guard; EncodeChecked derives its
-// verdict from the bytes it writes. Measured medians in go-axi, with a bare
-// Encode as the floor:
+// verdict from the bytes it writes. Medians of six runs on a 2000-row payload,
+// go-axi v0.2.1 on an M5, with a bare Encode as the floor:
 //
-//	rows   Encode    EncodeChecked   Check+Encode
-//	100    134us     156us (+16%)    338us (+152%)
-//	2000   2.91ms    3.32ms (+14%)   7.18ms (+147%)
+//	Encode    EncodeChecked    Check+Encode
+//	1.02ms    1.17ms (+15%)    2.78ms (+173%)
 //
-// The guard costs about 14% here. An earlier version of this function dropped it
-// to avoid the 2.4x that Check+Encode cost, which was the wrong trade: the cost
+// Rerun them rather than trust them, from a go-axi checkout:
+//
+//	go test -run '^$' -bench Output -benchmem
+//
+// The guard costs about 15% here. An earlier version of this function dropped it
+// to avoid the 2.7x that Check+Encode cost, which was the wrong trade: the cost
 // was duplicated work, not safety, and it was fixable in the library.
 //
 // Returning "" alongside the error matters: no caller may write a partial body.
