@@ -28,6 +28,19 @@ the operation is inherently multi-file or filesystem-specialized:
 | Copy / move / delete, or batch of those | `llm_filesystem_copy_file` / `move_file` / `delete_file` / `batch_file_operations` |
 | Create / extract archives | `llm_filesystem_compress_files` / `extract_archive` |
 
+## Large reads truncate, they do not fail
+
+A read over the size budget returns its leading content with `truncated`,
+`total_size` and `next_offset`, and succeeds. Resume with
+`--start-offset <next_offset>` or pass `--full` for the whole file. Do not treat
+a big file as a reason to avoid the tool.
+
+## Deletions need confirmation
+
+`delete_file` and any `batch_file_operations` containing a delete require
+confirmation. The MCP server supplies it automatically, so the tool call itself
+is the confirmation; on the CLI, pass `--confirm`.
+
 ## Output is token-efficient by default
 
 llm-filesystem returns compact TOON with a minimal field set (~90% fewer tokens

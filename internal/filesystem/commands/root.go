@@ -48,9 +48,12 @@ func RootCmd() *cobra.Command {
 		Use:     "llm-filesystem",
 		Short:   "High-performance filesystem operations CLI",
 		Version: Version,
+		// No command count here on purpose. It was wrong (27 against a real 28),
+		// and the list of commands printed directly below this text is the
+		// authoritative answer — a maintained number can only ever drift from it.
 		Long: `llm-filesystem provides fast file operations for Claude Code and CLI usage.
 
-It supports 27 commands for reading, writing, editing, and managing files.
+Reads, writes, edits, searches and manages files.
 Output defaults to token-efficient TOON; use --format json for machine parsing.`,
 		SilenceErrors: true,
 		SilenceUsage:  true,

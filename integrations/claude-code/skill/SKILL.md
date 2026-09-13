@@ -26,7 +26,7 @@ filesystem-specialized.
 
 **Read several files in one call:**
 ```bash
-llm-filesystem read-multiple-files --files a.go,b.go,c.go
+llm-filesystem read-multiple-files --paths a.go,b.go,c.go
 ```
 
 **Search file contents (ripgrep speed):**
@@ -52,14 +52,27 @@ llm-filesystem get-directory-tree --path . --depth 3
 **Archives:**
 ```bash
 llm-filesystem compress-files --paths dist --output release.tar.gz
-llm-filesystem extract-archive --archive release.tar.gz --destination ./out
+llm-filesystem extract-archive --archive release.tar.gz --dest ./out
+```
+
+**Delete (confirmation required):**
+```bash
+llm-filesystem delete-file --path ./stale.txt --confirm
 ```
 
 ## Output format
 
 Output defaults to compact TOON with a minimal field set. Add `--full` for all
-fields, `--format json` for machine parsing, or `--format text` for a readable
-view. Every command lists its flags with `--help`.
+fields, `--fields name,size` for an exact subset, `--format json` for machine
+parsing, or `--format text` for a readable view. Every command lists its flags
+with `--help`.
+
+## Large files
+
+A read over the size budget is **truncated, not refused** — do not route around
+the tool when a file is big. The result carries `truncated`, `total_size` and
+`next_offset`; resume with `--start-offset <next_offset>`, or pass `--full` to
+take the whole file.
 
 ## Safety
 
