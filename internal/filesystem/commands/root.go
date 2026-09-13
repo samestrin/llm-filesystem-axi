@@ -54,6 +54,15 @@ It supports 27 commands for reading, writing, editing, and managing files.
 Output defaults to token-efficient TOON; use --format json for machine parsing.`,
 		SilenceErrors: true,
 		SilenceUsage:  true,
+		// AXI principle 6, content first: a bare invocation answers with live
+		// data rather than a usage screen. Without a Run the root is not
+		// Runnable, so cobra returns flag.ErrHelp and prints the help template —
+		// the exact anti-pattern the principle names.
+		//
+		// This does not swallow an unknown subcommand. Cobra resolves the
+		// command in Find, which fails before the Runnable check is reached, so
+		// a typo still exits 2. --help and --version are handled earlier still.
+		Run: runHome,
 		// Resolve the output format once, before any subcommand runs. An
 		// invalid --format fails loud here (non-zero exit) rather than
 		// silently defaulting.
@@ -339,6 +348,15 @@ func Execute() {
 // flag or subcommand cobra fails during parsing and PersistentPreRunE, which is
 // what assigns activeFmt, never runs at all.
 func execute(args []string) {
+	// Cobra falls back to os.Args[1:] when SetArgs is given nil. Production
+	// never reaches that — a bare invocation yields an empty but non-nil slice —
+	// but a caller passing nil would silently parse THIS process's arguments,
+	// which under `go test` are the test binary's own flags. Normalizing here
+	// beats relying on every future caller knowing.
+	if args == nil {
+		args = []string{}
+	}
+
 	cmd := RootCmd()
 	cmd.SetArgs(args)
 	cmd.SetOut(outWriter)
