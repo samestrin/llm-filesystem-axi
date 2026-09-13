@@ -3,6 +3,7 @@ package commands
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	goaxi "github.com/samestrin/go-axi"
@@ -94,6 +95,20 @@ func TestBatchDeleteRequiresConfirm(t *testing.T) {
 	}
 	if _, err := os.Stat(f); err != nil {
 		t.Errorf("a batch delete ran without --confirm: %v", err)
+	}
+}
+
+// Malformed input must fail loud rather than decode to an empty batch, which
+// would report a cheerful "0 success, 0 failed" for work that was never even
+// described — a success reported for nothing done.
+func TestBatchRejectsMalformedOperations(t *testing.T) {
+	stdout, _, code := runCLI(t, "batch-file-operations", "--operations", "not json at all")
+
+	if code == int(goaxi.ExitOK) || code == -1 {
+		t.Errorf("malformed operations JSON was accepted, exit = %d: %q", code, stdout)
+	}
+	if !strings.Contains(strings.ToLower(stdout), "invalid operations json") {
+		t.Errorf("the diagnostic must name the problem: %q", stdout)
 	}
 }
 

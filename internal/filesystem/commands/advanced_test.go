@@ -91,6 +91,42 @@ func TestSyncDryRunIsVisibleInMachineFormats(t *testing.T) {
 	})
 }
 
+// The human format keeps its own marker. This is the idiom the two existing
+// --dry-run commands use, and the only one they got right, so it must survive
+// alongside the structured fields rather than be replaced by them.
+func TestSyncDryRunMarksTheTextOutput(t *testing.T) {
+	src, dst := syncPair(t)
+
+	stdout, _, _ := runCLI(t, "--format", "text", "sync-directories",
+		"--source", src, "--dest", dst, "--dry-run")
+
+	if !strings.Contains(stdout, "[DRY RUN]") {
+		t.Errorf("text output does not mark the preview: %q", stdout)
+	}
+	assertDestinationEmpty(t, dst)
+}
+
+// A sync the sandbox forbids must report a tool failure, not a cheerful zero.
+// Reporting success for work that was refused is the defect this command
+// already had once.
+func TestSyncDirectoriesReportsASandboxRefusal(t *testing.T) {
+	src, dst := syncPair(t)
+	elsewhere := t.TempDir()
+
+	stdout, _, code := runCLI(t, "--allowed-dirs", elsewhere,
+		"sync-directories", "--source", src, "--dest", dst)
+
+	if code == -1 || code == 0 {
+		t.Errorf("a forbidden sync exited %d: %q", code, stdout)
+	}
+	if !strings.Contains(stdout, "error: true") {
+		t.Errorf("a refusal must carry a structured error body: %q", stdout)
+	}
+	if _, err := os.Stat(filepath.Join(dst, "a.txt")); err == nil {
+		t.Error("a forbidden sync copied a file anyway")
+	}
+}
+
 func assertDestinationEmpty(t *testing.T, dst string) {
 	t.Helper()
 
