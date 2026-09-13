@@ -2,11 +2,11 @@ package core
 
 import (
 	"bufio"
-	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
 	"sync"
+	"unicode/utf8"
 )
 
 // DefaultMaxSize is the default maximum JSON output size in characters (70K)
@@ -33,65 +33,11 @@ func EstimateJSONStringSize(s string) int {
 	return size
 }
 
-// SizeExceededError represents an error when estimated JSON output size exceeds the limit
-type SizeExceededError struct {
-	Message           string `json:"message"`
-	Path              string `json:"path"`
-	Size              int64  `json:"size"`                // Raw file size in bytes
-	EstimatedJSONSize int64  `json:"estimated_json_size"` // Estimated size after JSON encoding
-	MaxSize           int64  `json:"max_size"`            // Maximum allowed JSON size
-}
-
-func (e *SizeExceededError) Error() string {
-	return e.Message
-}
-
-// ToJSON returns the error as a JSON object with error: true
-func (e *SizeExceededError) ToJSON() string {
-	result := map[string]interface{}{
-		"error":               true,
-		"message":             e.Message,
-		"path":                e.Path,
-		"size":                e.Size,
-		"estimated_json_size": e.EstimatedJSONSize,
-		"max_size":            e.MaxSize,
-	}
-	jsonBytes, _ := json.Marshal(result)
-	return string(jsonBytes)
-}
-
-// TotalSizeExceededError represents an error when combined estimated JSON size exceeds the limit
-type TotalSizeExceededError struct {
-	Message           string          `json:"message"`
-	TotalSize         int64           `json:"total_size"`          // Raw total size in bytes
-	EstimatedJSONSize int64           `json:"estimated_json_size"` // Estimated size after JSON encoding
-	MaxTotalSize      int64           `json:"max_total_size"`      // Maximum allowed JSON size
-	Files             []FileSizeEntry `json:"files"`
-}
-
-// FileSizeEntry represents a file and its size
-type FileSizeEntry struct {
-	Path string `json:"path"`
-	Size int64  `json:"size"`
-}
-
-func (e *TotalSizeExceededError) Error() string {
-	return e.Message
-}
-
-// ToJSON returns the error as a JSON object with error: true
-func (e *TotalSizeExceededError) ToJSON() string {
-	result := map[string]interface{}{
-		"error":               true,
-		"message":             e.Message,
-		"total_size":          e.TotalSize,
-		"estimated_json_size": e.EstimatedJSONSize,
-		"max_total_size":      e.MaxTotalSize,
-		"files":               e.Files,
-	}
-	jsonBytes, _ := json.Marshal(result)
-	return string(jsonBytes)
-}
+// SizeExceededError, TotalSizeExceededError and FileSizeEntry lived here.
+//
+// Reads truncate rather than refuse (AXI principle 3), so size stopped being an
+// error class and the types lost their last caller. They were deleted with the
+// behaviour they described rather than left behind as vestigial API.
 
 // ReadFileOptions contains input parameters for ReadFile
 type ReadFileOptions struct {
@@ -104,14 +50,22 @@ type ReadFileOptions struct {
 	SizeCheckMaxSize int64 // Maximum allowed JSON output size (0 = use default, -1 = no limit, >0 = custom)
 }
 
-// ReadFileResult represents the result of a file read operation
+// ReadFileResult represents the result of a file read operation.
+//
+// Size keeps its original meaning — bytes actually returned — so nothing shifts
+// under an existing consumer. TotalSize is the file's real size, and the gap
+// between the two is the size hint AXI principle 3 asks for. NextOffset is the
+// exact --start-offset that resumes where this read stopped, so the agent does
+// no arithmetic. All three are omitempty: their absence means a complete read.
 type ReadFileResult struct {
-	Path      string `json:"path"`
-	Content   string `json:"content"`
-	Size      int64  `json:"size"`
-	Lines     int    `json:"lines,omitempty"`
-	Truncated bool   `json:"truncated,omitempty"`
-	Error     string `json:"error,omitempty"`
+	Path       string `json:"path"`
+	Content    string `json:"content"`
+	Size       int64  `json:"size"`
+	Lines      int    `json:"lines,omitempty"`
+	Truncated  bool   `json:"truncated,omitempty"`
+	TotalSize  int64  `json:"total_size,omitempty"`
+	NextOffset int64  `json:"next_offset,omitempty"`
+	Error      string `json:"error,omitempty"`
 }
 
 // ReadFile reads a file with optional line range or byte offset
@@ -149,28 +103,37 @@ func ReadFile(opts ReadFileOptions) (*ReadFileResult, error) {
 	}
 	// maxSize is now: DefaultMaxSize, -1 (no limit), or custom value
 
-	// Pre-check: fail-fast if raw file size already exceeds limit
-	// JSON encoding only adds overhead, never reduces size, so if raw > limit, JSON will definitely > limit
-	// Skip check if maxSize == -1 (no limit)
-	if maxSize > 0 && info.Size() > maxSize {
-		return nil, &SizeExceededError{
-			Message:           fmt.Sprintf("File size (%d bytes) exceeds max_size (%d chars)", info.Size(), maxSize),
-			Path:              path,
-			Size:              info.Size(),
-			EstimatedJSONSize: 0, // Not calculated for fail-fast
-			MaxSize:           maxSize,
-		}
-	}
+	totalSize := info.Size()
+
+	// An over-budget file used to be REFUSED here. AXI principle 3 asks for a
+	// truncated read with a size hint instead: a refusal tells an agent nothing
+	// about the file, while a prefix plus total_size tells it everything it
+	// needs to decide what to do next.
+	//
+	// Bounding the read itself is load-bearing, not tidiness. Reading a 5GB file
+	// whole and then slicing it would exhaust the agent's own process, which is
+	// the one thing the old fail-fast pre-check got right. Only the whole-file
+	// path needs it — a caller-supplied line range or byte window is bounded
+	// already.
+	wholeFileRead := opts.LineStart == 0 && opts.LineCount == 0 &&
+		opts.StartOffset == 0 && opts.MaxSize == 0
+	byteBounded := maxSize > 0 && totalSize > maxSize && wholeFileRead
 
 	var content string
 	var lines int
 
-	// Read by lines or bytes
-	if opts.LineStart > 0 || opts.LineCount > 0 {
+	switch {
+	case byteBounded:
+		// JSON escaping only ever grows a string, so maxSize BYTES is a safe
+		// upper bound on what fits in maxSize CHARS. fitToBudget trims the
+		// remainder when escaping pushes it back over.
+		content, err = readFileByBytes(path, 0, int(maxSize))
+		lines = strings.Count(content, "\n")
+	case opts.LineStart > 0 || opts.LineCount > 0:
 		content, lines, err = readFileByLines(path, opts.LineStart, opts.LineCount)
-	} else if opts.StartOffset > 0 || opts.MaxSize > 0 {
+	case opts.StartOffset > 0 || opts.MaxSize > 0:
 		content, err = readFileByBytes(path, opts.StartOffset, opts.MaxSize)
-	} else {
+	default:
 		content, lines, err = readEntireFile(path)
 	}
 
@@ -178,26 +141,82 @@ func ReadFile(opts ReadFileOptions) (*ReadFileResult, error) {
 		return nil, err
 	}
 
-	// Post-read check: estimate JSON size to catch files with high encoding overhead
+	// Fit to the estimated-JSON budget, which catches escape-heavy content that
+	// fits in bytes but not in encoded characters.
+	truncated := byteBounded
 	if maxSize > 0 {
-		estimatedJSONSize := int64(EstimateJSONStringSize(content))
-		if estimatedJSONSize > maxSize {
-			return nil, &SizeExceededError{
-				Message:           fmt.Sprintf("Estimated JSON size (%d chars) exceeds max_size (%d chars). Raw file: %d bytes", estimatedJSONSize, maxSize, len(content)),
-				Path:              path,
-				Size:              int64(len(content)),
-				EstimatedJSONSize: estimatedJSONSize,
-				MaxSize:           maxSize,
-			}
+		if kept, cut := fitToBudget(content, maxSize); cut {
+			content, truncated = kept, true
+			lines = strings.Count(content, "\n")
 		}
 	}
 
-	return &ReadFileResult{
+	res := &ReadFileResult{
 		Path:    path,
 		Content: content,
 		Size:    int64(len(content)),
 		Lines:   lines,
-	}, nil
+	}
+
+	if truncated {
+		res.Truncated = true
+		res.TotalSize = totalSize
+		// A byte offset into the file, so it is only honest when the content is
+		// a byte prefix. A trimmed line-range read reports the truncation
+		// without a resume point it cannot correctly compute.
+		if wholeFileRead || opts.StartOffset > 0 || opts.MaxSize > 0 {
+			res.NextOffset = int64(opts.StartOffset) + int64(len(content))
+		}
+	}
+
+	return res, nil
+}
+
+// fitToBudget returns the largest prefix of s whose estimated JSON size is
+// within maxSize, and whether anything was dropped.
+//
+// The budget is measured in EstimateJSONStringSize units but spent on output
+// that may be TOON, which escapes less than JSON. The estimate is therefore
+// conservative — it can return slightly less than would have fit, never more.
+// That is the safe direction: overshooting the limit is what breaks a consumer.
+//
+// The cut prefers a line boundary, so NextOffset lands at the start of a line
+// and the advertised --start-offset resume reads cleanly. Falling back to a rune
+// boundary keeps a minified or single-line file from being cut mid-character.
+func fitToBudget(s string, maxSize int64) (string, bool) {
+	if maxSize <= 0 || int64(EstimateJSONStringSize(s)) <= maxSize {
+		return s, false
+	}
+
+	// Shrink by the ratio of budget to estimated cost. Escaping never costs less
+	// than one byte per byte, so this converges in a pass or two rather than
+	// walking backwards a byte at a time.
+	kept := s
+	for len(kept) > 0 && int64(EstimateJSONStringSize(kept)) > maxSize {
+		est := int64(EstimateJSONStringSize(kept))
+		n := int(int64(len(kept)) * maxSize / est)
+		if n >= len(kept) {
+			n = len(kept) - 1
+		}
+		if n < 0 {
+			n = 0
+		}
+		kept = kept[:n]
+	}
+
+	if i := strings.LastIndexByte(kept, '\n'); i >= 0 {
+		return kept[:i+1], true
+	}
+
+	// No line boundary available: back off to a whole rune.
+	for len(kept) > 0 {
+		r, size := utf8.DecodeLastRuneInString(kept)
+		if r != utf8.RuneError || size > 1 {
+			break
+		}
+		kept = kept[:len(kept)-1]
+	}
+	return kept, true
 }
 
 func readEntireFile(path string) (string, int, error) {
@@ -287,11 +306,17 @@ type ReadMultipleFilesOptions struct {
 	SizeCheckMaxTotalSize int64 // Maximum allowed total JSON output size (0 = use default, -1 = no limit, >0 = custom)
 }
 
-// ReadMultipleFilesResult represents results from reading multiple files
+// ReadMultipleFilesResult represents results from reading multiple files.
+//
+// Truncated means at least one file was cut or not read at all; TotalSize is the
+// combined size on disk. Both are omitempty, so their absence means every
+// requested file came back whole.
 type ReadMultipleFilesResult struct {
-	Files   []ReadFileResult `json:"files"`
-	Success int              `json:"success"`
-	Failed  int              `json:"failed"`
+	Files     []ReadFileResult `json:"files"`
+	Success   int              `json:"success"`
+	Failed    int              `json:"failed"`
+	Truncated bool             `json:"truncated,omitempty"`
+	TotalSize int64            `json:"total_size,omitempty"`
 }
 
 // ReadMultipleFiles reads multiple files concurrently
@@ -307,123 +332,121 @@ func ReadMultipleFiles(opts ReadMultipleFilesOptions) (*ReadMultipleFilesResult,
 	}
 	// maxTotalSize is now: DefaultMaxSize, -1 (no limit), or custom value
 
-	// Pre-check: fail-fast if total raw file size already exceeds limit
-	// JSON encoding only adds overhead, so if raw total > limit, JSON total will definitely > limit
-	// Skip check if maxTotalSize == -1 (no limit)
-	if maxTotalSize > 0 {
-		var totalRawSize int64
-		fileSizes := make([]FileSizeEntry, 0, len(opts.Paths))
+	// Resolve once, so the budget pass and the read pass agree on paths.
+	paths := make([]string, len(opts.Paths))
+	for i, p := range opts.Paths {
+		if resolved, rerr := ResolveSymlink(p); rerr == nil && resolved != "" {
+			paths[i] = resolved
+			continue
+		}
+		paths[i] = p
+	}
 
-		for _, path := range opts.Paths {
-			resolved, _ := ResolveSymlink(path)
-			if resolved != "" {
-				path = resolved
-			}
+	// GREEDY budget allocation, replacing a refusal.
+	//
+	// Walking in order and giving each file everything it needs keeps the files
+	// the caller asked for FIRST whole, which is far more useful than N evenly
+	// shrunken fragments. A file past the budget is never opened at all, so this
+	// is also faster than the old read-everything-then-refuse.
+	//
+	// budget: -1 means no limit, 0 means do not read, >0 is a character budget.
+	// It is never passed as 0 to ReadFile, where 0 would mean "use the default".
+	budgets := make([]int64, len(paths))
+	sizes := make([]int64, len(paths))
+	remaining := maxTotalSize
+	var totalOnDisk int64
 
-			info, err := os.Stat(path)
-			if err != nil {
-				fileSizes = append(fileSizes, FileSizeEntry{Path: path, Size: 0})
-				continue
-			}
-			if info.IsDir() {
-				fileSizes = append(fileSizes, FileSizeEntry{Path: path, Size: 0})
-				continue
-			}
+	for i, p := range paths {
+		info, serr := os.Stat(p)
+		if serr != nil || info.IsDir() {
+			// Not a readable file. Let the read pass report why, rather than
+			// guessing at a diagnosis from here.
+			budgets[i] = -1
+			continue
+		}
+		sizes[i] = info.Size()
+		totalOnDisk += info.Size()
 
-			totalRawSize += info.Size()
-			fileSizes = append(fileSizes, FileSizeEntry{Path: path, Size: info.Size()})
+		if maxTotalSize < 0 {
+			budgets[i] = -1
+			continue
+		}
+		if remaining <= 0 {
+			budgets[i] = 0
+			continue
 		}
 
-		if totalRawSize > maxTotalSize {
-			return nil, &TotalSizeExceededError{
-				Message:           fmt.Sprintf("Total file size (%d bytes) exceeds max_total_size (%d chars)", totalRawSize, maxTotalSize),
-				TotalSize:         totalRawSize,
-				EstimatedJSONSize: 0, // Not calculated for fail-fast
-				MaxTotalSize:      maxTotalSize,
-				Files:             fileSizes,
-			}
+		budgets[i] = remaining
+		if info.Size() < remaining {
+			remaining -= info.Size()
+		} else {
+			remaining = 0
 		}
 	}
 
-	results := make([]ReadFileResult, len(opts.Paths))
+	results := make([]ReadFileResult, len(paths))
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	success := 0
 	failed := 0
 
-	for i, path := range opts.Paths {
+	for i, p := range paths {
+		if budgets[i] == 0 {
+			// Named and sized, but deliberately not read. Neither a success nor
+			// a failure: it was never attempted, and truncated says so. The size
+			// comes from the budget pass rather than a second stat of a file
+			// this branch has already decided not to open.
+			results[i] = ReadFileResult{Path: p, Truncated: true, TotalSize: sizes[i]}
+			continue
+		}
+
 		wg.Add(1)
-		go func(idx int, filePath string) {
+		go func(idx int, filePath string, budget int64) {
 			defer wg.Done()
 
-			// Resolve and validate
-			resolved, _ := ResolveSymlink(filePath)
-			if resolved != "" {
-				filePath = resolved
-			}
-
-			result := ReadFileResult{Path: filePath}
-
-			if err := ValidatePath(filePath, opts.AllowedDirs); err != nil {
-				result.Error = err.Error()
-				mu.Lock()
-				failed++
-				mu.Unlock()
-			} else {
-				content, lines, err := readEntireFile(filePath)
-				if err != nil {
-					result.Error = err.Error()
-					mu.Lock()
-					failed++
-					mu.Unlock()
-				} else {
-					result.Content = content
-					result.Size = int64(len(content))
-					result.Lines = lines
-					mu.Lock()
-					success++
-					mu.Unlock()
-				}
-			}
+			// ReadFile already validates, truncates and reports total_size and
+			// next_offset per file, so every guarantee AC8 makes for one file
+			// holds for each file here without a second implementation.
+			r, rerr := ReadFile(ReadFileOptions{
+				Path:             filePath,
+				AllowedDirs:      opts.AllowedDirs,
+				SizeCheckMaxSize: budget,
+			})
 
 			mu.Lock()
-			results[idx] = result
-			mu.Unlock()
-		}(i, path)
+			defer mu.Unlock()
+
+			if rerr != nil {
+				results[idx] = ReadFileResult{Path: filePath, Error: rerr.Error()}
+				failed++
+				return
+			}
+			results[idx] = *r
+			success++
+		}(i, p, budgets[i])
 	}
 
 	wg.Wait()
 
-	// Check estimated total JSON size after reading all files (smarter than raw byte limits)
-	if maxTotalSize > 0 {
-		var totalRawSize int64
-		var totalEstimatedJSONSize int64
-		fileSizes := make([]FileSizeEntry, 0, len(results))
-
-		for _, r := range results {
-			if r.Error == "" {
-				totalRawSize += r.Size
-				totalEstimatedJSONSize += int64(EstimateJSONStringSize(r.Content))
-			}
-			fileSizes = append(fileSizes, FileSizeEntry{Path: r.Path, Size: r.Size})
-		}
-
-		if totalEstimatedJSONSize > maxTotalSize {
-			return nil, &TotalSizeExceededError{
-				Message:           fmt.Sprintf("Estimated total JSON size (%d chars) exceeds max_total_size (%d chars). Raw total: %d bytes", totalEstimatedJSONSize, maxTotalSize, totalRawSize),
-				TotalSize:         totalRawSize,
-				EstimatedJSONSize: totalEstimatedJSONSize,
-				MaxTotalSize:      maxTotalSize,
-				Files:             fileSizes,
-			}
+	// Computed after the goroutines join, so it needs no lock of its own.
+	truncated := false
+	for _, r := range results {
+		if r.Truncated {
+			truncated = true
+			break
 		}
 	}
 
-	return &ReadMultipleFilesResult{
+	out := &ReadMultipleFilesResult{
 		Files:   results,
 		Success: success,
 		Failed:  failed,
-	}, nil
+	}
+	if truncated {
+		out.Truncated = true
+		out.TotalSize = totalOnDisk
+	}
+	return out, nil
 }
 
 // ExtractLinesOptions contains input parameters for ExtractLines

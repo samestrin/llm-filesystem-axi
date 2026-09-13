@@ -24,10 +24,19 @@ func readFileCmd() *cobra.Command {
 		Short: "Read a file",
 		Long:  "Reads a file with optional line range or byte offset",
 		Run: func(cmd *cobra.Command, args []string) {
-			// Size limit: 0 = use default, -1 = no limit, >0 = custom
+			// Size limit: 0 = use default, -1 = no limit, >0 = custom.
+			//
+			// --full extends from "all fields" to "all fields and all bytes":
+			// one flag meaning "do not reduce what you return" beats a second
+			// flag an agent has to discover. An explicit --max-size is more
+			// specific, so it wins — the same precedence --format has over the
+			// legacy --json.
 			sizeLimit := maxSize
 			if !cmd.Flags().Changed("max-size") {
-				sizeLimit = 0 // Use default
+				sizeLimit = 0
+				if activeFull {
+					sizeLimit = -1
+				}
 			}
 
 			result, err := core.ReadFile(core.ReadFileOptions{
@@ -39,19 +48,28 @@ func readFileCmd() *cobra.Command {
 				SizeCheckMaxSize: sizeLimit,
 			})
 			if err != nil {
-				// Check for size exceeded error and output as JSON
-				if sizeErr, ok := err.(*core.SizeExceededError); ok {
-					if activeFmt == FormatJSON {
-						fmt.Println(sizeErr.ToJSON())
-						return
-					}
-				}
 				OutputError(err)
 				return
 			}
-			OutputResult(result, func() string {
-				return result.Content
-			})
+
+			OutputResultAXI(result, nil,
+				func() []string {
+					if !result.Truncated {
+						return nil
+					}
+					steps := []string{
+						"Whole file: llm-filesystem read-file --path " + result.Path + " --full",
+					}
+					if result.NextOffset > 0 {
+						steps = append([]string{fmt.Sprintf(
+							"Continue: llm-filesystem read-file --path %s --start-offset %d",
+							result.Path, result.NextOffset)}, steps...)
+					}
+					return steps
+				},
+				func() string {
+					return result.Content
+				})
 		},
 	}
 
@@ -74,10 +92,14 @@ func readMultipleFilesCmd() *cobra.Command {
 		Short: "Read multiple files simultaneously",
 		Long:  "Reads multiple files concurrently and returns their contents",
 		Run: func(cmd *cobra.Command, args []string) {
-			// Size limit: 0 = use default, -1 = no limit, >0 = custom
+			// Same precedence as read-file: an explicit --max-total-size beats
+			// --full, and --full means "do not reduce what you return".
 			sizeLimit := maxTotalSize
 			if !cmd.Flags().Changed("max-total-size") {
-				sizeLimit = 0 // Use default
+				sizeLimit = 0
+				if activeFull {
+					sizeLimit = -1
+				}
 			}
 
 			result, err := core.ReadMultipleFiles(core.ReadMultipleFilesOptions{
@@ -86,17 +108,29 @@ func readMultipleFilesCmd() *cobra.Command {
 				SizeCheckMaxTotalSize: sizeLimit,
 			})
 			if err != nil {
-				// Check for size exceeded error and output as JSON
-				if sizeErr, ok := err.(*core.TotalSizeExceededError); ok {
-					if activeFmt == FormatJSON {
-						fmt.Println(sizeErr.ToJSON())
-						return
-					}
-				}
 				OutputError(err)
 				return
 			}
-			OutputResult(result, func() string {
+
+			OutputResultAXI(result, nil, func() []string {
+				if !result.Truncated {
+					return nil
+				}
+				// Name the files that did not fit, so the continuation is a
+				// concrete command rather than a puzzle.
+				var pending []string
+				for _, f := range result.Files {
+					if f.Truncated {
+						pending = append(pending, f.Path)
+					}
+				}
+				steps := []string{"Whole files: add --full"}
+				if len(pending) > 0 {
+					steps = append([]string{"Re-request what did not fit: llm-filesystem read-multiple-files --paths " +
+						strings.Join(pending, ",")}, steps...)
+				}
+				return steps
+			}, func() string {
 				var sb strings.Builder
 				sb.WriteString(fmt.Sprintf("Read %d files (%d success, %d failed)\n",
 					len(result.Files), result.Success, result.Failed))
