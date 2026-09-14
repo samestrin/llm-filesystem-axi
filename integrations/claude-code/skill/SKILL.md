@@ -21,9 +21,11 @@ Every command takes `--help`, and `--help` is authoritative.
 ## JSON-valued flags
 
 These four take a JSON array, and the field names are **not** interchangeable
-with the obvious guesses. A payload whose keys do not match is currently decoded
-as an empty edit, applied, and reported as a success with `changes: 0` — so
-check the change count, not just the exit code.
+with the obvious guesses. Go ignores unknown JSON fields, so on the two edit
+commands a payload with wrong keys decodes as an empty old string — and that
+is now a hard error naming the edit ordinal, not a silent success with
+`changes: 0`. A run where no edit matches is likewise an error, and leaves
+the file untouched.
 
 **Replace several blocks in one file** — keys are `old_string` / `new_string`:
 
