@@ -51,6 +51,10 @@ Before changing a documented example, run it. A flag sweep validates flag *names
 
 When you find something you are not fixing, file it: severity, `file:line`, what is wrong, and how to reproduce. Severity is about consequence — **HIGH** means a caller can be misled about what happened.
 
+That applies to automated review findings too. Anything a review or CI gate raises that is judged out of scope, deferred, or not worth fixing gets a row here before the run ends — a finding that is dismissed in a pipeline log and nowhere else is lost the moment the run is archived.
+
+A partial fix does not earn a `[x]`. An item naming two commands, two call sites or two formats stays open until all of them are done, or it is split into separate rows so the unfinished half is still visible. Ticking the box for half the work is the same failure this repo exists to prevent: reporting success for something that did not fully succeed.
+
 ## Scope
 
 Prefer the smallest change that solves the problem. If a fix starts pulling in adjacent work, say so and ask rather than expanding quietly — scope here has a habit of growing severalfold once it starts.
