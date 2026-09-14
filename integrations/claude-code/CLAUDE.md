@@ -1,49 +1,14 @@
-# llm-filesystem routing
+# llm-filesystem — Claude Code
 
-`llm-filesystem` complements Claude Code's built-in file tools — it does not
-replace them. Route by operation shape:
+The routing guidance lives in [`../AGENTS.md`](../AGENTS.md). It is tool-agnostic and applies to Claude Code unchanged, so it is kept in one place rather than copied here — a second copy is a second thing to forget to update.
 
-## Use the native tools for single-file work
+Install it by appending that file to your project or user `CLAUDE.md`:
 
-For reading, writing, or editing **one** file, use the built-in `Read`,
-`Write`, and `Edit` tools. They are faster in-loop and integrate with the
-harness's file tracking. Do **not** route single-file operations through
-llm-filesystem.
+```bash
+cat integrations/AGENTS.md >> ./CLAUDE.md          # this project only
+cat integrations/AGENTS.md >> ~/.claude/CLAUDE.md  # every project
+```
 
-## Use llm-filesystem for batch and specialized work
+In short: native `Read`/`Write`/`Edit` for a single file, `llm-filesystem` for batch and filesystem-specialized work, large reads truncate rather than fail, and deletes need `--confirm`. `AGENTS.md` explains why, and tells the agent to ask the binary itself for anything else.
 
-Reach for the `llm_filesystem_*` MCP tools (or the `llm-filesystem` CLI) when
-the operation is inherently multi-file or filesystem-specialized:
-
-| Task | Tool |
-|------|------|
-| Read 2+ files at once | `llm_filesystem_read_multiple_files` |
-| Read a specific line range from a large file | `llm_filesystem_extract_lines` |
-| Write 2+ files at once | `llm_filesystem_write_multiple_files` |
-| Search file **contents** (ripgrep-fast) | `llm_filesystem_search_code` |
-| Find files by name/glob | `llm_filesystem_search_files` |
-| Cross-file find-and-replace | `llm_filesystem_search_and_replace` |
-| Directory tree overview | `llm_filesystem_get_directory_tree` |
-| List a directory with filters/sorting | `llm_filesystem_list_directory` |
-| Copy / move / delete, or batch of those | `llm_filesystem_copy_file` / `move_file` / `delete_file` / `batch_file_operations` |
-| Create / extract archives | `llm_filesystem_compress_files` / `extract_archive` |
-
-## Large reads truncate, they do not fail
-
-A read over the size budget returns its leading content with `truncated`,
-`total_size` and `next_offset`, and succeeds. Resume with
-`--start-offset <next_offset>` or pass `--full` for the whole file. Do not treat
-a big file as a reason to avoid the tool.
-
-## Deletions need confirmation
-
-`delete_file` and any `batch_file_operations` containing a delete require
-confirmation. The MCP server supplies it automatically, so the tool call itself
-is the confirmation; on the CLI, pass `--confirm`.
-
-## Output is token-efficient by default
-
-llm-filesystem returns compact TOON with a minimal field set (~90% fewer tokens
-than full JSON on a directory listing). If you need every field (mode,
-timestamps, permissions), pass `--full` on the CLI or set `LLM_FILESYSTEM_FULL=1`.
-For machine parsing, use `--format json`.
+> This file used to carry a table of every MCP tool name. It was removed on purpose: a list in a document drifts from the binary, and `llm-filesystem` with no arguments already answers what it is and what is here.

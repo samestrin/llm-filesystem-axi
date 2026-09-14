@@ -17,6 +17,18 @@ func cliBinary(t *testing.T) {
 		t.Fatalf("resolving binary path: %v", err)
 	}
 	if _, err := os.Stat(path); os.IsNotExist(err) {
+		// Skipping locally is a convenience. Skipping in CI is how the only
+		// end-to-end check of the MCP surface stopped running at all: the test
+		// job never built into ./build/, so all four of these went quiet, and
+		// nothing would have caught the CLI gaining --confirm while the server
+		// forgot to pass it.
+		//
+		// The workflow builds before testing now, so the binary being absent
+		// there is a broken workflow rather than a missing convenience — and it
+		// must fail loudly rather than pretend the surface was verified.
+		if os.Getenv("CI") != "" {
+			t.Fatalf("binary not built at %s; CI must build it before running tests", path)
+		}
 		t.Skip("binary not built; run make build")
 	}
 

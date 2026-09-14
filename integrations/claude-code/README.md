@@ -1,17 +1,36 @@
 # Claude Code integration
 
-Two opt-in integrations that make `llm-filesystem` available ambiently in Claude
-Code, following the AXI "ambient context" principle: a session integration first,
-then an on-demand skill.
+`llm-filesystem` is a CLI, and Claude Code can run a CLI. That is the whole integration — there is nothing to register.
 
-Both are optional and independent. They position llm-filesystem as a **complement**
-to Claude's native `Read`/`Write`/`Edit` — single-file operations stay on the
-native tools; llm-filesystem handles batch and specialized work.
+What follows is optional: telling Claude *when* to reach for it, and giving it somewhere to look up details on demand. This is the AXI "ambient context" principle — session guidance first, an on-demand skill second.
 
-## 1. MCP server (session integration)
+It is a **complement** to Claude's native `Read`/`Write`/`Edit`, not a replacement. Single-file work stays on the native tools.
 
-Register the MCP server in your Claude Code config so the `llm_filesystem_*`
-tools are available every session:
+## 1. Routing guidance
+
+Append [`../AGENTS.md`](../AGENTS.md) to your project or user `CLAUDE.md`, so Claude reaches for the right tool without being asked:
+
+```bash
+cat integrations/AGENTS.md >> ./CLAUDE.md          # this project only
+cat integrations/AGENTS.md >> ~/.claude/CLAUDE.md  # every project
+```
+
+`AGENTS.md` is the canonical copy and is tool-agnostic, so the same file works for other agents that read `AGENTS.md`. [`CLAUDE.md`](CLAUDE.md) in this directory just points at it.
+
+## 2. On-demand skill
+
+Copy the skill in so Claude can load detailed usage only when it needs it, rather than paying for it every session:
+
+```bash
+mkdir -p ~/.claude/skills/llm-filesystem
+cp skill/SKILL.md ~/.claude/skills/llm-filesystem/SKILL.md
+```
+
+Use a project-level `.claude/skills/` instead of `~/.claude/` to scope it to one project.
+
+## 3. MCP server (optional, for clients without a shell)
+
+Claude Code does not need this — it can run the binary directly, and the MCP server only shells out to that same binary. Register it if you want the tools available to a client that cannot run a CLI:
 
 ```json
 {
@@ -23,25 +42,6 @@ tools are available every session:
 }
 ```
 
-Both binaries must be installed (the MCP server shells out to the CLI). See the
-project [README](../../README.md) for install steps. To restrict access, add
-`"args": ["--allowed-dirs", "/path/a,/path/b"]`.
+Both binaries must be installed; see the project [README](../../README.md). To restrict access, add `"args": ["--allowed-dirs", "/path/a,/path/b"]`.
 
-## 2. Routing rules (ambient guidance)
-
-Append [`CLAUDE.md`](CLAUDE.md) to your project or user `CLAUDE.md`. It tells
-Claude when to prefer llm-filesystem (batch/specialized) versus the native tools
-(single-file), so the right tool is chosen without being asked.
-
-## 3. On-demand skill
-
-Copy the skill into your skills directory so Claude can load detailed usage on
-demand:
-
-```bash
-mkdir -p ~/.claude/skills/llm-filesystem
-cp skill/SKILL.md ~/.claude/skills/llm-filesystem/SKILL.md
-```
-
-(Use a project-level `.claude/skills/` instead of `~/.claude/` to scope it to one
-project.)
+Registering it costs a tool schema per session whether the tools get used or not, which is the per-session cost the on-demand skill above exists to avoid. If you can run the CLI, prefer it.
