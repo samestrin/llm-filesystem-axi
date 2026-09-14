@@ -131,7 +131,7 @@ func EditBlocks(opts EditBlocksOptions) (*EditResult, error) {
 	// keyed {old,new} produces entirely empty edits and every one was skipped.
 	for i, edit := range opts.Edits {
 		if edit.OldString == "" {
-			return nil, fmt.Errorf("edit %d: old_string is required", i)
+			return nil, fmt.Errorf("edit %d: old_string is required", i+1)
 		}
 
 		if !strings.Contains(contentStr, edit.OldString) {
@@ -484,6 +484,7 @@ type MultiEditResult struct {
 	Path            string         `json:"path"`
 	TotalEdits      int            `json:"total_edits"`
 	SuccessfulEdits int            `json:"successful_edits"`
+	Unmatched       int            `json:"unmatched,omitempty"`
 	TotalChanges    int            `json:"total_changes"`
 	OriginalLines   int            `json:"original_lines"`
 	NewLines        int            `json:"new_lines"`
@@ -539,12 +540,8 @@ func EditMultipleBlocks(opts EditMultipleBlocksOptions) (*MultiEditResult, error
 		return nil, fmt.Errorf("failed to read file: %w", err)
 	}
 
-	var backupPath *string
-	if opts.Backup {
-		bp := createEditBackup(normalizedPath)
-		if bp != "" {
-			backupPath = &bp
-		}
+	if len(opts.Edits) == 0 {
+		return nil, fmt.Errorf("edits is required")
 	}
 
 	contentStr := string(content)
@@ -569,10 +566,7 @@ func EditMultipleBlocks(opts EditMultipleBlocksOptions) (*MultiEditResult, error
 		switch mode {
 		case "replace":
 			if edit.OldText == "" {
-				opResult.Status = "skipped"
-				opResult.ChangesMade = 0
-				editResults = append(editResults, opResult)
-				continue
+				return nil, fmt.Errorf("edit %d: old_text is required for replace mode", i+1)
 			}
 			if strings.Contains(contentStr, edit.OldText) {
 				contentStr = strings.Replace(contentStr, edit.OldText, edit.NewText, 1)
@@ -663,6 +657,18 @@ func EditMultipleBlocks(opts EditMultipleBlocksOptions) (*MultiEditResult, error
 		editResults = append(editResults, opResult)
 	}
 
+	if successfulEdits == 0 {
+		return nil, fmt.Errorf("none of %d edits applied", len(opts.Edits))
+	}
+
+	var backupPath *string
+	if opts.Backup {
+		bp := createEditBackup(normalizedPath)
+		if bp != "" {
+			backupPath = &bp
+		}
+	}
+
 	// Write file
 	if err := os.WriteFile(normalizedPath, []byte(contentStr), 0644); err != nil {
 		return nil, fmt.Errorf("failed to write file: %w", err)
@@ -677,11 +683,19 @@ func EditMultipleBlocks(opts EditMultipleBlocksOptions) (*MultiEditResult, error
 
 	newLines := len(strings.Split(contentStr, "\n"))
 
+	unmatched := len(opts.Edits) - successfulEdits
+
+	message := fmt.Sprintf("Applied %d of %d edits", successfulEdits, len(opts.Edits))
+	if unmatched > 0 {
+		message += fmt.Sprintf("; %d did not apply", unmatched)
+	}
+
 	return &MultiEditResult{
-		Message:         "Safe multiple blocks edited successfully",
+		Message:         message,
 		Path:            normalizedPath,
 		TotalEdits:      len(opts.Edits),
 		SuccessfulEdits: successfulEdits,
+		Unmatched:       unmatched,
 		TotalChanges:    totalChanges,
 		OriginalLines:   originalLines,
 		NewLines:        newLines,
