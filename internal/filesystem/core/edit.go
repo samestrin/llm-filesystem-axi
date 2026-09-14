@@ -10,10 +10,14 @@ import (
 )
 
 // EditResult represents the result of an edit operation
+// Unmatched counts edits that found no target. It is a field rather than only a
+// sentence in Message because a caller must be able to detect a partial result
+// without parsing prose — the whole reason this tool emits structured output.
 type EditResult struct {
 	Path       string `json:"path"`
 	Success    bool   `json:"success"`
 	Changes    int    `json:"changes"`
+	Unmatched  int    `json:"unmatched,omitempty"`
 	Backup     string `json:"backup,omitempty"`
 	Message    string `json:"message"`
 	OldContent string `json:"old_content,omitempty"`
@@ -109,30 +113,60 @@ func EditBlocks(opts EditBlocksOptions) (*EditResult, error) {
 		return nil, fmt.Errorf("failed to read file: %w", err)
 	}
 
+	if len(opts.Edits) == 0 {
+		return nil, fmt.Errorf("edits is required")
+	}
+
 	contentStr := string(content)
 	changes := 0
+	unmatched := 0
 
-	for _, edit := range opts.Edits {
+	// EditBlock, the singular form, refuses both of these outright. This one
+	// used to `continue` past them and then report "Applied 0 edits
+	// successfully" — two sibling functions disagreeing about whether a no-op
+	// is a success.
+	//
+	// The empty case is the one that bites through JSON: --edits decodes into
+	// EditPair{old_string,new_string}, Go ignores unknown fields, so a payload
+	// keyed {old,new} produces entirely empty edits and every one was skipped.
+	for i, edit := range opts.Edits {
 		if edit.OldString == "" {
+			return nil, fmt.Errorf("edit %d: old_string is required", i)
+		}
+
+		if !strings.Contains(contentStr, edit.OldString) {
+			unmatched++
 			continue
 		}
 
-		if strings.Contains(contentStr, edit.OldString) {
-			contentStr = strings.Replace(contentStr, edit.OldString, edit.NewString, 1)
-			changes++
-		}
+		contentStr = strings.Replace(contentStr, edit.OldString, edit.NewString, 1)
+		changes++
 	}
 
-	// Write file
+	if changes == 0 {
+		return nil, fmt.Errorf("old_string not found in file: none of %d edits matched", len(opts.Edits))
+	}
+
+	// Only write when something changed. The previous version rewrote the file
+	// even on a zero-change run, bumping its mtime for no reason.
 	if err := os.WriteFile(normalizedPath, []byte(contentStr), 0644); err != nil {
 		return nil, fmt.Errorf("failed to write file: %w", err)
 	}
 
+	// "Applied N of M" rather than "Applied N successfully": a partial result is
+	// a success, but the caller has to be able to see it was partial without
+	// reading prose.
+	message := fmt.Sprintf("Applied %d of %d edits", changes, len(opts.Edits))
+	if unmatched > 0 {
+		message += fmt.Sprintf("; %d did not match", unmatched)
+	}
+
 	return &EditResult{
-		Path:    normalizedPath,
-		Success: true,
-		Changes: changes,
-		Message: fmt.Sprintf("Applied %d edits successfully", changes),
+		Path:      normalizedPath,
+		Success:   true,
+		Changes:   changes,
+		Unmatched: unmatched,
+		Message:   message,
 	}, nil
 }
 
