@@ -40,10 +40,10 @@ func TestSyncDryRunIsVisibleInMachineFormats(t *testing.T) {
 		stdout, _, _ := runCLI(t, "sync-directories",
 			"--source", src, "--dest", dst, "--dry-run")
 
-		if !strings.Contains(stdout, "dry_run: true") {
+		if !hasTOONField(stdout, "dry_run") {
 			t.Errorf("a TOON preview is indistinguishable from a real run: %q", stdout)
 		}
-		if !strings.Contains(stdout, "planned") {
+		if !hasTOONField(stdout, "planned") {
 			t.Errorf("a preview must name what it would write: %q", stdout)
 		}
 		assertDestinationEmpty(t, dst)
@@ -82,7 +82,7 @@ func TestSyncDryRunIsVisibleInMachineFormats(t *testing.T) {
 
 		stdout, _, _ := runCLI(t, "sync-directories", "--source", src, "--dest", dst)
 
-		if strings.Contains(stdout, "dry_run") {
+		if hasTOONField(stdout, "dry_run") {
 			t.Errorf("a real run reported dry_run: %q", stdout)
 		}
 		if _, err := os.Stat(filepath.Join(dst, "a.txt")); err != nil {
@@ -124,6 +124,48 @@ func TestSyncDirectoriesReportsASandboxRefusal(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dst, "a.txt")); err == nil {
 		t.Error("a forbidden sync copied a file anyway")
+	}
+}
+
+// hasTOONField reports whether the output carries a top-level field of this
+// name, matching the start of a line rather than the substring anywhere.
+//
+// The loose form was a real CI failure. t.TempDir() embeds the TEST NAME in the
+// path it creates, so a subtest called "a real run carries no dry_run" produced
+// a destination path containing "dry_run" — and the output prints that path.
+// The assertion matched its own temp directory and reported a field that was
+// never there. It passed locally only because Go 1.26 names temp directories
+// differently from the Go 1.24 used in CI.
+func hasTOONField(out, field string) bool {
+	for _, line := range strings.Split(out, "\n") {
+		if strings.HasPrefix(line, field+":") || strings.HasPrefix(line, field+"[") {
+			return true
+		}
+	}
+	return false
+}
+
+// Reconstructs the CI failure deterministically.
+//
+// The original bug cannot reproduce on this machine: Go 1.26 names temp
+// directories differently from the Go 1.24 used in CI, so the loose assertion
+// passed locally and failed there. Feeding the helper the exact shape of output
+// that broke it makes the fix provable on any platform, which is the property
+// the original assertion lacked.
+func TestHasTOONFieldIgnoresAFieldNameInsideAPath(t *testing.T) {
+	out := "destination: /tmp/TestSyncDryRuna_real_run_carries_no_dry_run369885382/002\n" +
+		"dirs_created: 2\n" +
+		"files_copied: 2\n" +
+		"success: true\n"
+
+	if hasTOONField(out, "dry_run") {
+		t.Error("matched a field name that only appears inside a path")
+	}
+	if !hasTOONField(out, "files_copied") {
+		t.Error("missed a real field")
+	}
+	if !hasTOONField("planned[2]: a.txt,b.txt\n", "planned") {
+		t.Error("missed an array field, which TOON writes as name[n]:")
 	}
 }
 
