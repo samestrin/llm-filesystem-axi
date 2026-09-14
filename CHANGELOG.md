@@ -81,6 +81,20 @@ Adopted the [AXI](https://axi.md) design principles for agent-ergonomic CLIs:
   with `dry_run` and `planned[]` visible in TOON and JSON rather than only in
   the human text.
 
+### Fixed — found by review, before release
+
+Two independent reviewers read the full diff. Everything below was reproduced against the built binary.
+
+- **`sync-directories` could destroy destination data and report success.** `copyFile` called `os.Create`, which truncates, before copying a byte; a copy failing part-way — EISDIR, ENOSPC, a permission change — left the destination empty and the walk discarded the error. Copies are now written to a temporary file and renamed into place, so a destination is either replaced completely or untouched. Failures are counted and reported, and a destination that cannot be created no longer has its subtree attempted.
+- **`batch-file-operations` let a `move` or `copy` overwrite a file with no confirmation.** The gate matched only `delete`, while `os.Rename` and `os.Create` both replace silently. Overwriting operations now require `--confirm`; ones that create something new do not.
+- **`search-code` and `search-files` reported a missing path as an empty result** at exit 0, because the path was normalized and sandbox-checked but never stat-ed. A mistyped path is now a failure, not an absence.
+- **`--fields` on an unsupported command performed the operation and then reported a usage error.** The check ran at render time, after the command body; `delete-file --confirm --fields path` deleted the file and exited 2, while exit 2 promises nothing was touched. It now runs before the command.
+- **A binary file could produce an endless resume loop.** The rune-boundary backoff stripped every byte of an invalid-UTF-8 prefix, returning empty content with `next_offset` equal to the offset given. The backoff is now bounded.
+- **The advertised resume read the whole file.** `--start-offset` reached the reader with no byte limit and called `os.ReadFile`: a 300 MB file peaked at 609 MB resident. It now seeks and streams — 8 MB.
+- **`read-multiple-files` counters did not account for every file**, so `success + failed` could be less than the number of files requested, and its budget was spent in raw bytes while measured in encoded characters, overrunning the cap several times over on escape-heavy content.
+- **Tool failures carried no `help[]`**, and the landing view exited non-zero when the working directory was unknowable. Both are acceptance criteria this release claims.
+- **25 `OutputError` call sites were missing a `return`**, which became a nil-pointer panic once a search could fail.
+
 ### Included
 
 Everything that shipped as `llm-filesystem` inside `llm-tools` through mid-2026:

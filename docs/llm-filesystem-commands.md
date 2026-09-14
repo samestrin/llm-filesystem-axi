@@ -43,6 +43,10 @@ Running `llm-filesystem` with no arguments prints the current directory and what
 
 A read larger than the size budget is **truncated, not refused**. The result carries `truncated`, `total_size` and `next_offset`, and exits `0`. Resume with `--start-offset <next_offset>`, or take the whole file with `--full`. `--max-size -1` also disables the budget.
 
+`--full` returns everything, which for a large file means holding a multiple of it in memory while it is read, marshalled and encoded. Above roughly 10 MB the guidance stops suggesting `--full` and offers the windowed resume instead — reading in windows is bounded, whatever the file size.
+
+`read-multiple-files` shares one budget across the files requested, allocating it in order, so the files asked for first come back whole. Anything past the budget is never opened and is counted in `skipped`; `success + failed + skipped` always accounts for every path given.
+
 ### Writing Files
 
 | Command | Description | Example |
@@ -80,6 +84,8 @@ A read larger than the size budget is **truncated, not refused**. The result car
 
 A search with no matches says so explicitly and suggests how to widen it, rather than offering to open a result that does not exist.
 
+A search path that does not exist, or that is a file rather than a directory, is a **failure** — not an empty result. "I searched and found nothing" and "that directory is not there" are different answers, and an agent has to be able to tell them apart.
+
 ### File Operations
 
 | Command | Description | Example |
@@ -89,7 +95,7 @@ A search with no matches says so explicitly and suggests how to widen it, rather
 | `delete-file` | Delete file/directory | `llm-filesystem delete-file --path /tmp/old --recursive --confirm` |
 | `batch-file-operations` | Batch operations | `llm-filesystem batch-file-operations --operations '[...]' --confirm` |
 
-`delete-file` **requires `--confirm`**, and `batch-file-operations` requires it whenever any operation is a `delete`. Without it nothing is touched and the command exits `2`. A batch that only copies or moves needs no confirmation.
+`delete-file` **requires `--confirm`**. `batch-file-operations` requires it for any operation that destroys something: a `delete`, or a `move`/`copy` whose destination already exists — `os.Rename` and `os.Create` both replace silently, so gating only `delete` would just move the hole one operation across. Without confirmation nothing is touched and the command exits `2`. An operation that only creates something new needs no confirmation.
 
 ### Advanced Operations
 

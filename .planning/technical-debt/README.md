@@ -1,6 +1,6 @@
 # Technical Debt
 
-Open items are unchecked. Resolved items are marked `[x]`. Deferred items are marked `[/]`.
+Open items are unchecked. Resolved items are marked `[x]`.
 
 Severity is about consequence, not effort. **HIGH** means a caller can be misled about what happened; **MEDIUM** means a real defect with a narrow blast radius or an internal-only one; **LOW** means cost without correctness risk.
 
@@ -8,23 +8,35 @@ Severity is about consequence, not effort. **HIGH** means a caller can be misled
 
 | Severity | Open |
 |---|---|
-| HIGH | 1 |
-| MEDIUM | 3 |
-| LOW | 2 |
-| INFO | 1 |
+| HIGH | 0 |
+| MEDIUM | 2 |
+| LOW | 6 |
+| INFO | 2 |
 
 ### [2026-09-13] From Sprint: AXI compliance (`feat/axi-compliance`)
 
-Found while implementing AC7–AC13. None of these blocked an acceptance criterion, which is why they were filed rather than fixed — with one exception noted below.
+Filed while implementing AC7–AC13. Several were fixed during the review round that followed and are struck through below rather than deleted, so the record shows what was found and what happened to it.
 
-| # | Status | Severity | Category | File:Line | Problem | Suggested fix |
-|---|---|---|---|---|---|---|
-| 1 | [ ] | HIGH | correctness | `internal/filesystem/core/advanced.go:571` | `sync-directories` against a **missing source** returns `success: true`, `files_copied: 0`, exit 0. The `filepath.Walk` callback opens with `if err != nil { return nil }`, so the walk error for an unreadable root is swallowed. Verified on the built binary: `--source /definitely/not/here` reports success. Same defect family as the `copyFile` argument bug fixed in `3cdd87d`, and the same root cause. | Stat the source before walking and refuse a missing or non-directory path; or capture the walk error instead of discarding it. Needs a test asserting a missing source exits non-zero. |
-| 2 | [ ] | MEDIUM | correctness | `internal/filesystem/commands/{write,advanced,search,fileops,directory,edit}.go` (~30 sites) | Every `OutputError(err)` call is followed by `}` with no `return`. Production is saved only because `exitFunc` is `os.Exit`, which never returns. Under the test-injected `exitFunc` execution falls through into `OutputResult` with a nil or zero result, so any future test driving an error path gets two documents on one stream. `read.go` and the sites touched in this sprint already have their `return`. | Add `return` after every `OutputError` call. Mechanical, but it touches six files, which is why it was not folded into an unrelated task. |
-| 3 | [ ] | MEDIUM | correctness | `internal/filesystem/core/edit.go:317` | `SearchReplaceResult` has no `dry_run` field, and `safe-edit` / `search-and-replace` mark a preview **only** in the text renderer (`commands/edit.go:154`, `:234`). In TOON and JSON — the default format and the one a script parses — a dry run is byte-identical to a real one. An agent cannot tell whether the edit was applied. `sync-directories` deliberately did not copy this pattern (see `3cdd87d`). | Add `DryRun bool` to `SearchReplaceResult` and the safe-edit result, set from options, and assert it in both machine formats. |
-| 4 | [ ] | MEDIUM | design | `internal/filesystem/mcpserver/` | The MCP server is a subprocess wrapper that shells out to the same CLI (`handlers.go:125`) and does not parse its output, so it adds a process hop and 17 tool schemas of per-session context for no capability the CLI lacks. The owner confirmed Claude Code is the only client, and Claude Code has shell access. Kept working throughout this sprint (`--confirm` is passed in both arg builders) rather than removed, because removal is its own change with its own PR. | Decide whether to delete `cmd/llm-filesystem-mcp` and `internal/filesystem/mcpserver` outright. If kept, document which clients justify it. |
-| 5 | [ ] | LOW | robustness | `internal/filesystem/core/read.go:295` | `readFileByBytes` fills its budget with a single `file.Read(buffer)`, which is permitted to return fewer bytes than requested. A short read silently returns less content than the budget allowed. Harmless today — `next_offset` is computed from `len(content)`, so a resume is still correct — but it makes truncation non-deterministic in size. | Use `io.ReadFull` with `io.ErrUnexpectedEOF` treated as success. |
-| 6 | [ ] | LOW | testability | `internal/filesystem/commands/root.go:232` | The `goaxi.WriteHelp` failure fallback in `emitDiagnostic` is effectively unreachable: the target is a `bytes.Buffer`, whose writes never fail, so it triggers only if goaxi's internal marshal fails on an already-sanitized string. It is correct handling of a documented error return, but it is the one untested branch in that function (82.4% coverage). | Either accept it as defensive and annotate, or inject the help writer so the failure can be exercised. |
-| 7 | [ ] | INFO | docs | `internal/filesystem/core/advanced.go:583` | `dirs_created` counts directories **visited**, not created — `MkdirAll` returns nil for an existing directory and the counter increments regardless. The `--dry-run` preview deliberately reproduces this so the preview matches the apply. Correcting the count would move the numbers for real runs too. | If corrected, change both paths in the same commit and update the preview test, which asserts preview counts equal applied counts. |
+| # | Status | Severity | File:Line | Item |
+|---|---|---|---|---|
+| 1 | [x] | HIGH | `core/advanced.go` | `sync-directories` against a missing source reported `success: true` at exit 0. **Fixed** in review batch 2: the source is stat-ed and refused up front, and walk errors are recorded instead of discarded. |
+| 2 | [x] | MEDIUM | 25 sites across `commands/` | `OutputError` calls with no `return`. **Fixed** in review batch 3 — and it stopped being latent first: making `search-code` reject a missing path meant the call site fell through to `OutputResultAXI` with a nil result and panicked. |
+| 3 | [ ] | MEDIUM | `core/edit.go:317` | `SearchReplaceResult` has no `dry_run` field, and `safe-edit` / `search-and-replace` mark a preview only in the TEXT renderer. In TOON and JSON — the default and the machine format — a dry run is byte-identical to a real one. `sync-directories` deliberately did not copy this pattern; these two still have it. |
+| 4 | [ ] | MEDIUM | `internal/filesystem/mcpserver/` | The MCP server is a subprocess wrapper around this same CLI that does not parse its output, costing a process hop and 17 tool schemas of per-session context for no capability the CLI lacks. The owner confirmed Claude Code is the only client. Kept working throughout; removal is its own change with its own PR. |
+| 5 | [x] | LOW | `core/read.go` | `readFileByBytes` filled its budget with a single `file.Read`, which may return short, and compared against `"EOF"` by string. **Fixed** in review batch 1 — it now seeks and streams through `io.ReadAll` with `io.LimitReader`. |
+| 6 | [ ] | LOW | `commands/root.go` | The `goaxi.WriteHelp` failure fallback in `emitDiagnostic` is effectively unreachable — the target is a `bytes.Buffer`, whose writes never fail — so it is the one untested branch in that function. |
+| 7 | [ ] | INFO | `core/advanced.go` | `dirs_created` counts directories **visited**, not created; `MkdirAll` returns nil for one that already exists. The `--dry-run` preview reproduces this deliberately so the preview matches the apply. Correcting it must move both numbers in one commit. |
 
-**Exception noted above:** item 1's sibling — `SyncDirectories` calling `copyFile(dstPath, path)` with reversed arguments — *was* fixed in `3cdd87d` rather than filed, because it made AC11's "the preview must match the apply" criterion unsatisfiable. `sync-directories` had never copied a file.
+### [2026-09-14] From review: two independent reviewers over the full diff
+
+Every High and Medium from both reviewers was fixed in review batches 1–5. What remains is the Low tail, plus items that are judgement calls rather than defects.
+
+| # | Status | Severity | File:Line | Item |
+|---|---|---|---|---|
+| 8 | [ ] | LOW | `core/read.go` | The line-boundary preference takes the **last** newline in the kept prefix, so a file of `"a\n"` followed by 200,000 characters returns 2 bytes against a 70,000 budget. Correct and resumable, but 35,000x short. Fall back to the rune cut when the line boundary discards more than about half the budget. |
+| 9 | [ ] | LOW | `core/read.go` | `ReadMultipleFilesResult.TotalSize` excludes files that failed to stat, so "combined size on disk" undercounts when any path is missing. |
+| 10 | [ ] | LOW | `commands/minimal.go` | `injectNextSteps` drops `next_steps` for a non-map payload while TOON still emits its `help[]` block. Not currently reachable — every result is a struct — but it is a latent format disagreement in code whose comment promises the two never disagree. |
+| 11 | [ ] | LOW | `commands/directory.go` | A zero-result listing offers "remove `--pattern`" even when no `--pattern` was given. Harmless, but it is a help line that does not apply, which is the class AC10 exists to prevent. |
+| 12 | [ ] | LOW | `commands/docs_test.go` | The command-count guard checks only `docs/llm-filesystem-commands.md`. README and `root.go` are no longer checked because neither states a count any more — but nothing stops a count being reintroduced there and drifting again. |
+| 13 | [ ] | LOW | deployment | An already-installed `/usr/local/bin/llm-filesystem` predating this branch rejects `--confirm` and fails every delete routed through it. `binpath.go` prefers the sibling binary, so a freshly built pair is fine; an install resolving via `$PATH` needs a reinstall. Worth a release note. |
+| 14 | [ ] | INFO | AC12 | `--full --format json` remains byte-identical to the pre-AXI `--json` output for every command **except** `read-file` and `read-multiple-files` on over-budget files, where the old output was a `SizeExceededError` body and the new one is content. That divergence is AC8 deliberately removing the refusal, not a regression — recorded because AC12 claims identity without exception. |

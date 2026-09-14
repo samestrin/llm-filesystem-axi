@@ -98,7 +98,9 @@ Set `LLM_FILESYSTEM_FULL=1` to make full output the default for every command �
 
 **Big reads truncate rather than refuse.** A file over the size budget returns its leading content plus `truncated`, `total_size` and `next_offset`, and exits `0`. `next_offset` is the exact `--start-offset` that resumes the read; `--full` or `--max-size -1` returns the whole file. A refusal tells an agent nothing about the file — a prefix and a total tell it everything it needs to decide what to do next.
 
-**Deletions are gated.** `delete-file` requires `--confirm`, and `batch-file-operations` requires it when any operation is a delete — gating one without the other would just move the hole. Without confirmation nothing is touched and the command exits `2`.
+**Anything destructive is gated.** `delete-file` requires `--confirm`. So does any `batch-file-operations` entry that destroys something — a delete, or a move or copy onto a path that already exists, since both replace silently. Gating one without the others would just move the hole. Without confirmation nothing is touched and the command exits `2`.
+
+**A missing path is a failure, not an empty result.** A search against a path that does not exist reports an error rather than zero matches, so a typo cannot read as "the code you are looking for is not here".
 
 **Destructive syncs can be previewed.** `sync-directories --dry-run` reports what it would write, in every output format rather than only in the human text, and writes nothing.
 
