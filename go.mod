@@ -5,7 +5,7 @@ go 1.24.0
 require (
 	github.com/dustin/go-humanize v1.0.1
 	github.com/modelcontextprotocol/go-sdk v1.2.0
-	github.com/samestrin/go-axi v0.2.1
+	github.com/samestrin/go-axi v0.3.0
 	github.com/spf13/cobra v1.8.0
 )
 
