@@ -31,6 +31,13 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: '1.24'
+      # The MCP end-to-end tests exec the real CLI from ./build/, and skip when
+      # it is absent. Without this step all four of them went quiet here — so
+      # nothing would have caught the CLI gaining a required flag while the MCP
+      # server forgot to pass it. They now fail loudly in CI if this is removed.
+      - name: build the CLI for the end-to-end tests
+        run: make build
+
       - name: test
         run: go test -race -coverprofile=coverage.txt -covermode=atomic ./...
       - name: coverage

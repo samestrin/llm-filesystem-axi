@@ -54,6 +54,16 @@ Run with no arguments and it answers with live data — the binary in use, the w
 
 To restrict it to specific directories, pass `--allowed-dirs /Users/me/projects,/tmp`.
 
+### Telling your agent about it
+
+Append [`integrations/AGENTS.md`](integrations/AGENTS.md) to your project's `AGENTS.md` or `CLAUDE.md`. It says when to reach for this tool instead of built-in single-file tools, and covers the two behaviours that surprise agents — large reads truncate rather than fail, and deletes need `--confirm`:
+
+```bash
+cat integrations/AGENTS.md >> ./AGENTS.md
+```
+
+It deliberately does not list the commands. Running `llm-filesystem` with no arguments already answers what it is and what is here, and a list in a document drifts from the binary.
+
 ### MCP server (optional)
 
 For an MCP client that cannot run a CLI, `llm-filesystem-mcp` wraps this same binary over stdio. It is a subprocess wrapper, not a second implementation, and it costs a tool schema of context per session — if your client has shell access, use the CLI directly. Setup and the Claude Code routing rules live in [`integrations/claude-code/`](integrations/claude-code/).

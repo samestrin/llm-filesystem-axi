@@ -20,7 +20,7 @@ func GetToolDefinitions() []ToolDefinition {
 		// Single File Operations (for LLM compatibility)
 		{
 			Name:        ToolPrefix + "read_file",
-			Description: "Read a file with optional line range or byte offset",
+			Description: "Read a file with optional line range or byte offset. A file over the size budget is TRUNCATED, not refused: the result carries truncated, total_size and next_offset. Resume with start_offset; do not treat a truncated read as the whole file.",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
@@ -72,7 +72,7 @@ func GetToolDefinitions() []ToolDefinition {
 		// Batch Reading
 		{
 			Name:        ToolPrefix + "read_multiple_files",
-			Description: "Reads multiple files simultaneously",
+			Description: "Reads multiple files simultaneously, sharing one size budget allocated in request order. Files past the budget are truncated or skipped, so check truncated and skipped rather than assuming every file came back whole.",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
@@ -230,7 +230,7 @@ func GetToolDefinitions() []ToolDefinition {
 		},
 		{
 			Name:        ToolPrefix + "delete_file",
-			Description: "Delete a file or directory",
+			Description: "Delete a file or directory. Destructive and confirmation-gated on the CLI; this tool call is itself the confirmation.",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
@@ -242,7 +242,7 @@ func GetToolDefinitions() []ToolDefinition {
 		},
 		{
 			Name:        ToolPrefix + "batch_file_operations",
-			Description: "Perform batch file operations",
+			Description: "Perform batch file operations (copy, move, delete). Destructive entries — a delete, or a move/copy onto a path that already exists — are confirmation-gated; this tool call is itself the confirmation.",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
