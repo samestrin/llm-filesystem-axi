@@ -21,13 +21,23 @@ var (
 	jsonOutput  bool
 	minOutput   bool
 	fullFlag    bool
+	fieldsFlag  []string
 	allowedDirs []string
 
 	// Resolved output mode, set in PersistentPreRunE from the flags above.
 	activeFmt     = FormatTOON
 	activeCompact bool
 	activeFull    bool
+	activeFields  []string
+	activeListKey string
+	activeCmdPath string
 )
+
+// listAnnotation marks a command whose output contains a list, and names the key
+// that list lives under. It is what makes --fields answerable before the command
+// runs, and it is deliberately separate from the render-time projection spec: a
+// command can support --fields while still returning every field by default.
+const listAnnotation = "axi.list"
 
 // Output sinks and the exit hook, indirected so the paths that actually ship can
 // be tested. OutputResultAXI and OutputError used to write straight to
@@ -46,12 +56,24 @@ func RootCmd() *cobra.Command {
 		Use:     "llm-filesystem",
 		Short:   "High-performance filesystem operations CLI",
 		Version: Version,
+		// No command count here on purpose. It was wrong (27 against a real 28),
+		// and the list of commands printed directly below this text is the
+		// authoritative answer — a maintained number can only ever drift from it.
 		Long: `llm-filesystem provides fast file operations for Claude Code and CLI usage.
 
-It supports 27 commands for reading, writing, editing, and managing files.
+Reads, writes, edits, searches and manages files.
 Output defaults to token-efficient TOON; use --format json for machine parsing.`,
 		SilenceErrors: true,
 		SilenceUsage:  true,
+		// AXI principle 6, content first: a bare invocation answers with live
+		// data rather than a usage screen. Without a Run the root is not
+		// Runnable, so cobra returns flag.ErrHelp and prints the help template —
+		// the exact anti-pattern the principle names.
+		//
+		// This does not swallow an unknown subcommand. Cobra resolves the
+		// command in Find, which fails before the Runnable check is reached, so
+		// a typo still exits 2. --help and --version are handled earlier still.
+		Run: runHome,
 		// Resolve the output format once, before any subcommand runs. An
 		// invalid --format fails loud here (non-zero exit) rather than
 		// silently defaulting.
@@ -61,7 +83,38 @@ Output defaults to token-efficient TOON; use --format json for machine parsing.`
 				return err
 			}
 			activeFmt, activeCompact = f, compact
-			activeFull = resolveFull(cmd.Flags().Changed("full"), fullFlag, os.Getenv(FullEnvVar))
+
+			fields, ferr := normalizeFields(fieldsFlag)
+			if ferr != nil {
+				return ferr
+			}
+			activeFields = fields
+
+			// Resolved and CHECKED here, before Run.
+			//
+			// This check used to live in OutputResultAXI, which runs at render
+			// time — after the command body had already done its work. So
+			// `delete-file --confirm --fields path` deleted the file and THEN
+			// reported a usage error, while the docs promise exit 2 means
+			// nothing was touched and the agent's rational next move is to retry
+			// the same command. Doing it here also means the answer no longer
+			// depends on the output format: the text branch returned before the
+			// old check and silently ignored --fields entirely.
+			// Recorded so a tool failure can name the command that produced it.
+			activeCmdPath = cmd.CommandPath()
+
+			activeListKey = cmd.Annotations[listAnnotation]
+			if len(activeFields) > 0 && activeListKey == "" {
+				return fmt.Errorf("--fields is not supported by %s (it returns no list)", cmd.CommandPath())
+			}
+
+			// An explicit --fields beats the ambient LLM_FILESYSTEM_FULL
+			// default; a contradictory explicit --full is rejected earlier by
+			// the mutual-exclusion group. Forcing full off here is also what
+			// keeps --fields away from the legacy JSON+full early return, which
+			// skips projection entirely and would silently ignore it (AC12).
+			activeFull = resolveFull(cmd.Flags().Changed("full"), fullFlag, os.Getenv(FullEnvVar)) &&
+				len(activeFields) == 0
 			return nil
 		},
 	}
@@ -73,8 +126,15 @@ Output defaults to token-efficient TOON; use --format json for machine parsing.`
 		"Emit all fields instead of the minimal default (env: "+FullEnvVar+")")
 	rootCmd.PersistentFlags().BoolVar(&jsonOutput, "json", false, "Output as JSON (deprecated: use --format json)")
 	rootCmd.PersistentFlags().BoolVar(&minOutput, "min", false, "Minimal/compact output (deprecated)")
+	rootCmd.PersistentFlags().StringSliceVar(&fieldsFlag, "fields", nil,
+		"Comma-separated item fields to emit instead of the minimal set (mutually exclusive with --full)")
 	rootCmd.PersistentFlags().StringSliceVar(&allowedDirs, "allowed-dirs", nil,
 		"Directories the tool is allowed to access (comma-separated)")
+
+	// Contradictory instructions, so cobra rejects them before the command runs.
+	// Its error surfaces through execute, which means exit 2 and a structured
+	// body come for free.
+	rootCmd.MarkFlagsMutuallyExclusive("full", "fields")
 
 	// Add all subcommands
 	addReadCommands(rootCmd)
@@ -84,6 +144,36 @@ Output defaults to token-efficient TOON; use --format json for machine parsing.`
 	addSearchCommands(rootCmd)
 	addFileOpsCommands(rootCmd)
 	addAdvancedCommands(rootCmd)
+
+	// Every command that returns a list, and the key its list lives under.
+	// Kept as one table rather than a line in each of seven constructors, so
+	// the set is readable in one place; TestEveryAnnotatedListCommandExists
+	// catches a name that no longer resolves.
+	//
+	// The last three have no render-time projection spec on purpose: their full
+	// output is their default, and annotating them adds --fields without
+	// changing what they return when it is absent.
+	for name, key := range map[string]string{
+		"list-directory":       "items",
+		"get-directory-tree":   "children",
+		"search-files":         "matches",
+		"search-code":          "matches",
+		"read-multiple-files":  "files",
+		"write-multiple-files": "files",
+		"find-large-files":     "files",
+	} {
+		for _, c := range rootCmd.Commands() {
+			if c.Name() != name {
+				continue
+			}
+			if c.Annotations == nil {
+				c.Annotations = map[string]string{}
+			}
+			c.Annotations[listAnnotation] = key
+		}
+	}
+	// The landing view lists the working directory.
+	rootCmd.Annotations = map[string]string{listAnnotation: "items"}
 
 	return rootCmd
 }
@@ -113,17 +203,77 @@ func OutputResult(result interface{}, textFn func() string) {
 // projection (spec maps array field -> kept item keys) when not in --full mode,
 // and next-step hints (AXI #9). The full + JSON combination is kept
 // byte-identical to the pre-AXI --json output for legacy consumers.
-func OutputResultAXI(result interface{}, spec map[string][]string, steps []string, textFn func() string) {
+// checkFields validates activeFields against the payload and returns the spec to
+// project with. On a bad selection it emits the usage diagnostic itself and
+// returns false, and the caller must return without rendering.
+//
+// Shared by the text branch and the structured branches deliberately. When this
+// lived only in the structured path, `--format text --fields nosuchfield` was
+// silently accepted while the same selection was a hard exit 2 in TOON and JSON
+// — one invocation with three different verdicts depending on formatting.
+func checkFields(payload interface{}, spec map[string][]string) (map[string][]string, bool) {
+	// Which array the selection applies to. The call site's spec names it when
+	// the command has a default minimal view; otherwise the command's
+	// annotation does. PersistentPreRunE has already refused the case where
+	// neither exists, so reaching here without a target is a wiring bug.
+	target := spec
+	if target == nil && activeListKey != "" {
+		target = map[string][]string{activeListKey: nil}
+	}
+	if target == nil {
+		emitDiagnostic(activeFmt, activeCompact,
+			fmt.Errorf("--fields is not supported by this command (it returns no list)"),
+			goaxi.ExitUsage, nil)
+		return nil, false
+	}
+
+	// Validated against what the payload actually holds, which is exactly the
+	// set --full would expose, ,omitempty included. An empty union means an
+	// empty result, and rejecting there would fail a correct --fields purely
+	// because the directory happened to have nothing in it.
+	avail := availableFields(payload, target)
+	if missing := unknownFields(activeFields, avail); len(avail) > 0 && len(missing) > 0 {
+		emitDiagnostic(activeFmt, activeCompact,
+			fmt.Errorf("unknown --fields: %s", strings.Join(missing, ", ")),
+			goaxi.ExitUsage,
+			[]string{"Available fields: " + strings.Join(sortedFieldNames(avail), ", ")})
+		return nil, false
+	}
+
+	return overrideSpec(target, withAlwaysKept(activeFields)), true
+}
+
+// stepsFn is a closure rather than a slice so a command can decide its guidance
+// from what it actually found. A fixed slice is built before the result exists,
+// which is how a zero-match search came to offer "Open a match" — a step naming
+// a target that was not there. nil is a valid value and means no guidance, which
+// is why the 23 call sites that never had any compile unchanged.
+func OutputResultAXI(result interface{}, spec map[string][]string, stepsFn func() []string, textFn func() string) {
+	// Resolved once, not per format branch: JSON and TOON must never disagree
+	// about what the next step is, and a command whose guidance is expensive to
+	// build must not pay for it twice.
+	var steps []string
+	if stepsFn != nil {
+		steps = stepsFn()
+	}
+
 	// Human text: render the text body, then append hints as trailing lines.
 	if activeFmt == FormatText {
-		out := textFn()
-		if len(steps) > 0 {
-			out += "\n\nNext steps:"
-			for _, s := range steps {
-				out += "\n  - " + s
+		// --fields does not change what text renders, but an invalid selection
+		// must still be refused here, or the same invocation is an error in two
+		// formats and silently accepted in the third.
+		if len(activeFields) > 0 {
+			payload, gerr := toGeneric(result)
+			if gerr != nil {
+				OutputError(fmt.Errorf("cannot represent result: %w", gerr))
+				return
+			}
+			if _, ok := checkFields(payload, spec); !ok {
+				return
 			}
 		}
-		fmt.Fprintln(outWriter, out)
+
+		fmt.Fprint(outWriter, textFn()+"\n"+textSteps(steps))
 		return
 	}
 
@@ -148,6 +298,14 @@ func OutputResultAXI(result interface{}, spec map[string][]string, steps []strin
 		OutputError(fmt.Errorf("cannot represent result: %w", err))
 		return
 	}
+	if len(activeFields) > 0 {
+		projected, ok := checkFields(payload, spec)
+		if !ok {
+			return
+		}
+		spec = projected
+	}
+
 	if !activeFull && spec != nil {
 		payload = projectGeneric(payload, spec)
 	}
@@ -197,17 +355,77 @@ func OutputResultAXI(result interface{}, spec map[string][]string, steps []strin
 	}
 }
 
-// OutputError renders an error in the active output format and exits non-zero.
-// Plain text goes to stderr; structured formats (json, toon) go to stdout so
-// the caller receives a parseable body.
-func OutputError(err error) {
-	rendered := renderError(activeFmt, activeCompact, err)
-	if activeFmt == FormatText {
-		fmt.Fprintln(errWriter, rendered)
-	} else {
-		fmt.Fprintln(outWriter, rendered)
+// emitDiagnostic renders err in f and exits with code.
+//
+// Plain text goes to stderr, where a human reads it. Structured formats go to
+// stdout, so an agent receives a parseable body on the stream it actually reads
+// — AXI reserves stderr for logs. The two are exclusive on purpose: a diagnostic
+// written to both streams is one event that a consumer merging them counts
+// twice, which is what the MCP server's CombinedOutput would do.
+//
+// The exit code is a parameter rather than a constant because the same rendering
+// serves two different situations. A malformed invocation and a failed operation
+// need the same structured body and emphatically different codes.
+// steps is recovery guidance and follows the same three-way split the success
+// path uses: JSON carries it inside the document (renderError places it), TOON
+// gets a trailing help[] block, text gets the human bullets. An error document
+// therefore has the same shape as every other document this tool emits.
+//
+// Body and guidance are assembled and written once, for the reason the payload
+// and its help block are: a consumer must never receive half of one document.
+func emitDiagnostic(f Format, compact bool, err error, code goaxi.ExitCode, steps []string) {
+	var doc bytes.Buffer
+	doc.WriteString(renderError(f, compact, err, steps))
+	doc.WriteByte('\n')
+
+	switch f {
+	case FormatTOON:
+		// WriteHelp writes nothing for an empty list, so an error with no
+		// actionable step emits no stray block.
+		if herr := goaxi.WriteHelp(&doc, steps); herr != nil {
+			// Guidance is an enhancement. Losing it must not also cost the
+			// caller the diagnostic, which is the only part it can act on.
+			doc.Reset()
+			doc.WriteString(renderError(f, compact, err, nil))
+			doc.WriteByte('\n')
+		}
+	case FormatText:
+		doc.WriteString(textSteps(steps))
 	}
-	exitFunc(int(goaxi.ExitError))
+
+	sink := outWriter
+	if f == FormatText {
+		sink = errWriter
+	}
+	// Best effort: this is already the failure path, so a write error here has
+	// nowhere left to report itself except the exit code.
+	_, _ = sink.Write(doc.Bytes())
+	exitFunc(int(code))
+}
+
+// OutputError renders a TOOL failure in the active output format and exits
+// ExitError: the operation was attempted and it did not work.
+func OutputError(err error) {
+	emitDiagnostic(activeFmt, activeCompact, err, goaxi.ExitError, toolFailureSteps())
+}
+
+// toolFailureSteps is the guidance carried by every tool failure.
+//
+// It names the failing command's own --help rather than guessing at the cause.
+// An invented per-error suggestion — "try --allowed-dirs", "check the path" —
+// is wrong for some of the errors it would be attached to, and AC10 forbids a
+// help line the agent cannot act on. --help is always valid and always exists,
+// which is what makes it safe to attach unconditionally.
+//
+// Errors that know their own recovery still pass better steps directly through
+// emitDiagnostic; this is the floor, not the ceiling.
+func toolFailureSteps() []string {
+	path := activeCmdPath
+	if path == "" {
+		// No subcommand resolved, so the root is the honest answer.
+		path = "llm-filesystem"
+	}
+	return []string{"Check the flags and what they mean: " + path + " --help"}
 }
 
 // Execute runs the CLI against the real process arguments.
@@ -232,14 +450,44 @@ func Execute() {
 // ExitUsage is deliberately distinct from ExitError. A typo and a broken tool
 // are different situations, and an agent cannot decide whether a retry is
 // worthwhile if they share a code.
+//
+// The diagnostic was plain text on stderr regardless of --format, so an agent
+// running --format json got nothing parseable from a typo and stdout — the
+// stream it reads — stayed empty. It now renders through the same structured
+// path a tool failure takes, which is why the two differ only in their code.
+//
+// The format comes from argv rather than from activeFmt, because for an unknown
+// flag or subcommand cobra fails during parsing and PersistentPreRunE, which is
+// what assigns activeFmt, never runs at all.
 func execute(args []string) {
+	// Cobra falls back to os.Args[1:] when SetArgs is given nil. Production
+	// never reaches that — a bare invocation yields an empty but non-nil slice —
+	// but a caller passing nil would silently parse THIS process's arguments,
+	// which under `go test` are the test binary's own flags. Normalizing here
+	// beats relying on every future caller knowing.
+	if args == nil {
+		args = []string{}
+	}
+
 	cmd := RootCmd()
 	cmd.SetArgs(args)
 	cmd.SetOut(outWriter)
 	cmd.SetErr(errWriter)
 
-	if err := cmd.Execute(); err != nil {
-		fmt.Fprintln(errWriter, "Error: "+err.Error())
-		exitFunc(int(goaxi.ExitUsage))
+	// ExecuteC returns the command cobra actually resolved: the root for an
+	// unknown subcommand, and the subcommand itself for a bad flag or a missing
+	// required one. Naming that beats scanning argv, which cannot tell a
+	// subcommand from a flag's value.
+	failed, err := cmd.ExecuteC()
+	if err != nil {
+		f, compact := formatFromArgs(args)
+
+		path := "llm-filesystem"
+		if failed != nil {
+			path = failed.CommandPath()
+		}
+
+		emitDiagnostic(f, compact, err, goaxi.ExitUsage,
+			[]string{"Valid flags and subcommands: " + path + " --help"})
 	}
 }

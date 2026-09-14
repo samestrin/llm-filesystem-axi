@@ -33,12 +33,23 @@ func searchFilesCmd() *cobra.Command {
 			})
 			if err != nil {
 				OutputError(err)
+				return
 			}
 			OutputResultAXI(result,
 				map[string][]string{"matches": {"path", "name", "size"}},
-				[]string{
-					"Read a match: llm-filesystem read-file --path <path>",
-					"Add --full for all fields (is_dir, mod_time).",
+				func() []string {
+					// No match means there is nothing to read, so offer the ways
+					// to widen instead of naming a file that is not there.
+					if result.Total == 0 {
+						return []string{
+							"Widen the search: drop terms from --pattern, or add --show-hidden",
+							"Search contents instead of names: llm-filesystem search-code --path " + result.Path + " --pattern <text>",
+						}
+					}
+					return []string{
+						"Read a match: llm-filesystem read-file --path <path>",
+						"Add --full for all fields (is_dir, mod_time).",
+					}
 				},
 				func() string {
 					var sb strings.Builder
@@ -91,12 +102,23 @@ func searchCodeCmd() *cobra.Command {
 			})
 			if err != nil {
 				OutputError(err)
+				return
 			}
 			OutputResultAXI(result,
 				map[string][]string{"matches": {"file", "line", "content"}},
-				[]string{
-					"Open a match: llm-filesystem read-file --path <file>",
-					"Add --full for surrounding context lines.",
+				func() []string {
+					// No match means there is nothing to open, so offer the ways
+					// to widen instead of naming a file that is not there.
+					if result.TotalMatches == 0 {
+						return []string{
+							"Widen the search: add --ignore-case, or --regex to treat the pattern as an expression",
+							"Search file names instead of contents: llm-filesystem search-files --path " + result.Path + " --pattern <name>",
+						}
+					}
+					return []string{
+						"Open a match: llm-filesystem read-file --path <file>",
+						"Add --full for surrounding context lines.",
+					}
 				},
 				func() string {
 					var sb strings.Builder

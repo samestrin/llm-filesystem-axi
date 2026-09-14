@@ -8,6 +8,20 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// fullSuggestionLimit is the size above which a truncated read stops
+// RECOMMENDING --full.
+//
+// --full means "return everything", and for a caller who asks for it that is a
+// fair trade. But pulling a whole file costs a multiple of its size in memory
+// once it is read, copied, marshalled and encoded — 300MB in gives roughly
+// 1.8GB resident — and the tool SUGGESTING that on a large file is a different
+// thing from the caller choosing it. Above this size the resume is offered
+// instead.
+//
+// A var rather than a const so the test can lower it, instead of writing an
+// 11MB fixture to exercise the branch.
+var fullSuggestionLimit int64 = 10 << 20 // 10 MB
+
 func addReadCommands(rootCmd *cobra.Command) {
 	rootCmd.AddCommand(readFileCmd())
 	rootCmd.AddCommand(readMultipleFilesCmd())
@@ -24,10 +38,19 @@ func readFileCmd() *cobra.Command {
 		Short: "Read a file",
 		Long:  "Reads a file with optional line range or byte offset",
 		Run: func(cmd *cobra.Command, args []string) {
-			// Size limit: 0 = use default, -1 = no limit, >0 = custom
+			// Size limit: 0 = use default, -1 = no limit, >0 = custom.
+			//
+			// --full extends from "all fields" to "all fields and all bytes":
+			// one flag meaning "do not reduce what you return" beats a second
+			// flag an agent has to discover. An explicit --max-size is more
+			// specific, so it wins — the same precedence --format has over the
+			// legacy --json.
 			sizeLimit := maxSize
 			if !cmd.Flags().Changed("max-size") {
-				sizeLimit = 0 // Use default
+				sizeLimit = 0
+				if activeFull {
+					sizeLimit = -1
+				}
 			}
 
 			result, err := core.ReadFile(core.ReadFileOptions{
@@ -39,19 +62,41 @@ func readFileCmd() *cobra.Command {
 				SizeCheckMaxSize: sizeLimit,
 			})
 			if err != nil {
-				// Check for size exceeded error and output as JSON
-				if sizeErr, ok := err.(*core.SizeExceededError); ok {
-					if activeFmt == FormatJSON {
-						fmt.Println(sizeErr.ToJSON())
-						return
-					}
-				}
 				OutputError(err)
 				return
 			}
-			OutputResult(result, func() string {
-				return result.Content
-			})
+
+			OutputResultAXI(result, nil,
+				func() []string {
+					if !result.Truncated {
+						return nil
+					}
+
+					var steps []string
+					if result.NextOffset > 0 {
+						steps = append(steps, fmt.Sprintf(
+							"Continue: llm-filesystem read-file --path %s --start-offset %d",
+							result.Path, result.NextOffset))
+					}
+
+					// --full is only SUGGESTED for a file small enough that
+					// pulling it whole is a reasonable thing to do. Above the
+					// threshold it costs a multiple of the file in memory, and
+					// a tool recommending that is a different matter from a
+					// caller choosing it.
+					if result.TotalSize <= fullSuggestionLimit {
+						steps = append(steps,
+							"Whole file: llm-filesystem read-file --path "+result.Path+" --full")
+					} else {
+						steps = append(steps, fmt.Sprintf(
+							"This file is %d bytes; read it in windows rather than whole.",
+							result.TotalSize))
+					}
+					return steps
+				},
+				func() string {
+					return result.Content
+				})
 		},
 	}
 
@@ -74,10 +119,14 @@ func readMultipleFilesCmd() *cobra.Command {
 		Short: "Read multiple files simultaneously",
 		Long:  "Reads multiple files concurrently and returns their contents",
 		Run: func(cmd *cobra.Command, args []string) {
-			// Size limit: 0 = use default, -1 = no limit, >0 = custom
+			// Same precedence as read-file: an explicit --max-total-size beats
+			// --full, and --full means "do not reduce what you return".
 			sizeLimit := maxTotalSize
 			if !cmd.Flags().Changed("max-total-size") {
-				sizeLimit = 0 // Use default
+				sizeLimit = 0
+				if activeFull {
+					sizeLimit = -1
+				}
 			}
 
 			result, err := core.ReadMultipleFiles(core.ReadMultipleFilesOptions{
@@ -86,17 +135,29 @@ func readMultipleFilesCmd() *cobra.Command {
 				SizeCheckMaxTotalSize: sizeLimit,
 			})
 			if err != nil {
-				// Check for size exceeded error and output as JSON
-				if sizeErr, ok := err.(*core.TotalSizeExceededError); ok {
-					if activeFmt == FormatJSON {
-						fmt.Println(sizeErr.ToJSON())
-						return
-					}
-				}
 				OutputError(err)
 				return
 			}
-			OutputResult(result, func() string {
+
+			OutputResultAXI(result, nil, func() []string {
+				if !result.Truncated {
+					return nil
+				}
+				// Name the files that did not fit, so the continuation is a
+				// concrete command rather than a puzzle.
+				var pending []string
+				for _, f := range result.Files {
+					if f.Truncated {
+						pending = append(pending, f.Path)
+					}
+				}
+				steps := []string{"Whole files: add --full"}
+				if len(pending) > 0 {
+					steps = append([]string{"Re-request what did not fit: llm-filesystem read-multiple-files --paths " +
+						strings.Join(pending, ",")}, steps...)
+				}
+				return steps
+			}, func() string {
 				var sb strings.Builder
 				sb.WriteString(fmt.Sprintf("Read %d files (%d success, %d failed)\n",
 					len(result.Files), result.Success, result.Failed))
@@ -141,6 +202,7 @@ func extractLinesCmd() *cobra.Command {
 			})
 			if err != nil {
 				OutputError(err)
+				return
 			}
 			OutputResult(result, func() string {
 				return result.Content

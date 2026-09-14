@@ -81,6 +81,13 @@ func CopyFile(opts CopyFileOptions) (*FileOpResult, error) {
 	}, nil
 }
 
+// copyFile copies src over dst atomically.
+//
+// It writes to a temporary file alongside the destination and renames it into
+// place. os.Create TRUNCATES its target before any bytes are copied, so a copy
+// that failed part-way — EISDIR, ENOSPC, EIO, a permission change — destroyed
+// whatever was already at the destination and left nothing to recover. A rename
+// either replaces the destination completely or not at all.
 func copyFile(src, dst string) error {
 	srcFile, err := os.Open(src)
 	if err != nil {
@@ -88,23 +95,40 @@ func copyFile(src, dst string) error {
 	}
 	defer srcFile.Close()
 
-	dstFile, err := os.Create(dst)
+	srcInfo, err := srcFile.Stat()
 	if err != nil {
 		return err
 	}
-	defer dstFile.Close()
-
-	if _, err := io.Copy(dstFile, srcFile); err != nil {
-		return err
+	if srcInfo.IsDir() {
+		// filepath.Walk uses Lstat, so a symlink to a directory arrives here
+		// classed as a file. Refusing early keeps it from reaching the copy.
+		return fmt.Errorf("not a regular file: %s", src)
 	}
 
-	// Copy permissions
-	srcInfo, err := os.Stat(src)
+	tmp, err := os.CreateTemp(filepath.Dir(dst), ".llmfs-copy-*")
 	if err != nil {
 		return err
 	}
+	tmpName := tmp.Name()
 
-	return os.Chmod(dst, srcInfo.Mode())
+	if _, err := io.Copy(tmp, srcFile); err != nil {
+		tmp.Close()
+		os.Remove(tmpName)
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		os.Remove(tmpName)
+		return err
+	}
+	if err := os.Chmod(tmpName, srcInfo.Mode()); err != nil {
+		os.Remove(tmpName)
+		return err
+	}
+	if err := os.Rename(tmpName, dst); err != nil {
+		os.Remove(tmpName)
+		return err
+	}
+	return nil
 }
 
 func copyDir(src, dst string) error {

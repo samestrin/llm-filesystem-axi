@@ -34,6 +34,7 @@ func writeFileCmd() *cobra.Command {
 			})
 			if err != nil {
 				OutputError(err)
+				return
 			}
 			OutputResult(result, func() string {
 				action := "Updated"
@@ -75,6 +76,7 @@ func largeWriteFileCmd() *cobra.Command {
 			})
 			if err != nil {
 				OutputError(err)
+				return
 			}
 			OutputResult(result, func() string {
 				action := "Updated"
@@ -113,6 +115,7 @@ func writeMultipleFilesCmd() *cobra.Command {
 			var entries []core.WriteFileEntry
 			if err := json.Unmarshal([]byte(filesJSON), &entries); err != nil {
 				OutputError(fmt.Errorf("invalid --files JSON: %w", err))
+				return
 			}
 
 			result, err := core.WriteMultipleFiles(core.WriteMultipleFilesOptions{
@@ -121,6 +124,7 @@ func writeMultipleFilesCmd() *cobra.Command {
 			})
 			if err != nil {
 				OutputError(err)
+				return
 			}
 			OutputResult(result, func() string {
 				return fmt.Sprintf("Wrote %d files, %d failed", result.Success, result.Failed)
@@ -148,6 +152,7 @@ func getFileInfoCmd() *cobra.Command {
 			})
 			if err != nil {
 				OutputError(err)
+				return
 			}
 			OutputResult(result, func() string {
 				fileType := "File"
@@ -182,6 +187,7 @@ func createDirectoryCmd() *cobra.Command {
 			})
 			if err != nil {
 				OutputError(err)
+				return
 			}
 			OutputResult(result, func() string {
 				return fmt.Sprintf("Created directory: %s", result.Path)

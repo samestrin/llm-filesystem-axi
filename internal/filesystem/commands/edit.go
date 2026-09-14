@@ -33,6 +33,7 @@ func editBlockCmd() *cobra.Command {
 			})
 			if err != nil {
 				OutputError(err)
+				return
 			}
 			OutputResult(result, func() string {
 				return fmt.Sprintf("Edited %s: %d change(s)", result.Path, result.Changes)
@@ -60,6 +61,7 @@ func editBlocksCmd() *cobra.Command {
 			var edits []core.EditPair
 			if err := json.Unmarshal([]byte(editsJSON), &edits); err != nil {
 				OutputError(fmt.Errorf("invalid edits JSON: %w", err))
+				return
 			}
 
 			result, err := core.EditBlocks(core.EditBlocksOptions{
@@ -69,6 +71,7 @@ func editBlocksCmd() *cobra.Command {
 			})
 			if err != nil {
 				OutputError(err)
+				return
 			}
 			OutputResult(result, func() string {
 				return fmt.Sprintf("Edited %s: %d change(s)", result.Path, result.Changes)
@@ -96,6 +99,7 @@ func editMultipleBlocksCmd() *cobra.Command {
 			var edits []core.MultiEditOperation
 			if err := json.Unmarshal([]byte(editsJSON), &edits); err != nil {
 				OutputError(fmt.Errorf("invalid edits JSON: %w", err))
+				return
 			}
 
 			result, err := core.EditMultipleBlocks(core.EditMultipleBlocksOptions{
@@ -106,6 +110,7 @@ func editMultipleBlocksCmd() *cobra.Command {
 			})
 			if err != nil {
 				OutputError(err)
+				return
 			}
 			OutputResult(result, func() string {
 				msg := fmt.Sprintf("Edited %s: %d change(s)", result.Path, result.TotalChanges)
@@ -145,6 +150,7 @@ func safeEditCmd() *cobra.Command {
 			})
 			if err != nil {
 				OutputError(err)
+				return
 			}
 			OutputResult(result, func() string {
 				msg := fmt.Sprintf("Edited %s: %d change(s)", result.Path, result.Changes)
@@ -188,6 +194,7 @@ func editFileCmd() *cobra.Command {
 			})
 			if err != nil {
 				OutputError(err)
+				return
 			}
 			OutputResult(result, func() string {
 				return fmt.Sprintf("%s at line %d: %s", operation, line, result.Message)
@@ -227,6 +234,7 @@ func searchAndReplaceCmd() *cobra.Command {
 			})
 			if err != nil {
 				OutputError(err)
+				return
 			}
 			OutputResult(result, func() string {
 				msg := fmt.Sprintf("Modified %d files, %d total changes",

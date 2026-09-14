@@ -1,6 +1,122 @@
 package commands
 
-import "strings"
+import (
+	"fmt"
+	"sort"
+	"strings"
+)
+
+// normalizeFields trims each requested field name and rejects a blank one, so
+// "--fields name,,size" fails loud rather than quietly selecting two fields.
+func normalizeFields(raw []string) ([]string, error) {
+	out := make([]string, 0, len(raw))
+	for _, f := range raw {
+		t := strings.TrimSpace(f)
+		if t == "" {
+			return nil, fmt.Errorf("--fields contains an empty field name")
+		}
+		out = append(out, t)
+	}
+	return out, nil
+}
+
+// alwaysKept survives every projection, whatever --fields asks for.
+//
+// truncated and its companions say the content is INCOMPLETE. A selection that
+// dropped them would hand back a partial file that looks whole, which is the one
+// thing a field selection must never be able to do. error is kept for the same
+// reason: a per-item failure must not be projected out of existence.
+var alwaysKept = []string{"truncated", "total_size", "next_offset", "error"}
+
+// withAlwaysKept returns fields plus any alwaysKept key not already requested.
+func withAlwaysKept(fields []string) []string {
+	seen := make(map[string]bool, len(fields))
+	for _, f := range fields {
+		seen[f] = true
+	}
+
+	out := append([]string(nil), fields...)
+	for _, k := range alwaysKept {
+		if !seen[k] {
+			out = append(out, k)
+		}
+	}
+	return out
+}
+
+// overrideSpec replaces every array's keep-list with fields.
+//
+// This is what lets --fields work without the caller knowing which array key a
+// command uses: the caller names the fields, the call site names the array. It
+// replaces rather than intersects, so a field the call site's minimal view omits
+// is still reachable by name.
+func overrideSpec(spec map[string][]string, fields []string) map[string][]string {
+	out := make(map[string][]string, len(spec))
+	for k := range spec {
+		out[k] = fields
+	}
+	return out
+}
+
+// availableFields returns the union of item keys present under every spec array
+// in the payload — exactly the set --full would expose for this result,
+// ,omitempty behaviour included, since it reads the marshalled payload rather
+// than the Go struct.
+func availableFields(v interface{}, spec map[string][]string) map[string]bool {
+	found := map[string]bool{}
+	collectFields(v, spec, found)
+	return found
+}
+
+func collectFields(v interface{}, spec map[string][]string, found map[string]bool) {
+	switch val := v.(type) {
+	case map[string]interface{}:
+		for k, child := range val {
+			if _, wanted := spec[k]; wanted {
+				if arr, isArr := child.([]interface{}); isArr {
+					for _, e := range arr {
+						if em, isMap := e.(map[string]interface{}); isMap {
+							for key := range em {
+								found[key] = true
+							}
+						}
+						collectFields(e, spec, found)
+					}
+					continue
+				}
+			}
+			collectFields(child, spec, found)
+		}
+	case []interface{}:
+		for _, e := range val {
+			collectFields(e, spec, found)
+		}
+	}
+}
+
+// unknownFields returns the requested names the payload does not have, sorted so
+// the diagnostic is stable enough to assert against.
+func unknownFields(requested []string, available map[string]bool) []string {
+	var missing []string
+	for _, f := range requested {
+		if !available[f] {
+			missing = append(missing, f)
+		}
+	}
+	sort.Strings(missing)
+	return missing
+}
+
+// sortedFieldNames returns the available field names in a stable order, for the
+// "available: ..." guidance that teaches the schema in one turn.
+func sortedFieldNames(available map[string]bool) []string {
+	out := make([]string, 0, len(available))
+	for k := range available {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
+}
 
 // FullEnvVar, when truthy, makes full (non-minimal) output the default so
 // legacy consumers can opt out of minimal schemas without passing --full.

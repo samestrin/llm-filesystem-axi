@@ -55,6 +55,16 @@ func SearchFiles(opts SearchFilesOptions) (*SearchFilesResult, error) {
 		return nil, err
 	}
 
+	// NormalizePath only expands ~, cleans and absolutizes; ValidatePath answers
+	// "is this inside the sandbox", not "is this there". Without this, a missing
+	// path walked nothing and returned a clean zero — and "I found nothing" and
+	// "that directory does not exist" are answers an agent must tell apart.
+	if info, statErr := os.Stat(normalizedPath); statErr != nil {
+		return nil, fmt.Errorf("search path is not readable: %w", statErr)
+	} else if !info.IsDir() {
+		return nil, fmt.Errorf("search path is not a directory: %s", normalizedPath)
+	}
+
 	maxResults := opts.MaxResults
 	if maxResults == 0 {
 		maxResults = 1000
@@ -162,6 +172,16 @@ func SearchCode(opts SearchCodeOptions) (*SearchCodeResult, error) {
 
 	if err := ValidatePath(normalizedPath, opts.AllowedDirs); err != nil {
 		return nil, err
+	}
+
+	// NormalizePath only expands ~, cleans and absolutizes; ValidatePath answers
+	// "is this inside the sandbox", not "is this there". Without this, a missing
+	// path walked nothing and returned a clean zero — and "I found nothing" and
+	// "that directory does not exist" are answers an agent must tell apart.
+	if info, statErr := os.Stat(normalizedPath); statErr != nil {
+		return nil, fmt.Errorf("search path is not readable: %w", statErr)
+	} else if !info.IsDir() {
+		return nil, fmt.Errorf("search path is not a directory: %s", normalizedPath)
 	}
 
 	maxResults := opts.MaxResults

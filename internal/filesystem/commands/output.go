@@ -60,6 +60,90 @@ func resolveFormat(formatFlag string, formatSet, jsonFlag, minFlag bool) (Format
 	}
 }
 
+// formatFromArgs recovers the requested output format from raw argv.
+//
+// The usage-error path cannot consult activeFmt. PersistentPreRunE is what
+// assigns it, and for an unknown flag or an unknown subcommand cobra fails while
+// parsing — before that hook ever runs — so activeFmt still holds the package
+// default, or whatever the previous invocation in this process left there.
+// Re-scanning argv is the one source that is correct for every usage-error
+// class, including the ones where the hook did run.
+//
+// An invalid --format falls back to TOON, because that value is itself the error
+// being reported. resolveFormat already returns TOON alongside its error, so the
+// error is discardable here, and only here.
+//
+// The scan reads argv without knowing which flag owns which value, so an
+// argument whose VALUE happens to be --format, --json or --min is misread as the
+// flag itself (--pattern --json, say). A subcommand defining its own --format is
+// misread the same way: compress-files does, and its archive type arrives here
+// as a format name, which resolveFormat then rejects. In every case the blast
+// radius is which format a diagnostic renders in, never the format of a
+// successful result, so the cheap scan earns its keep.
+func formatFromArgs(args []string) (Format, bool) {
+	var (
+		formatVal string
+		formatSet bool
+		jsonFlag  bool
+		minFlag   bool
+	)
+
+scan:
+	for i := 0; i < len(args); i++ {
+		switch a := args[i]; {
+		case a == "--":
+			break scan
+		case a == "--json":
+			jsonFlag = true
+		case a == "--min":
+			minFlag = true
+		case strings.HasPrefix(a, "--format="):
+			formatVal, formatSet = strings.TrimPrefix(a, "--format="), true
+		case a == "--format":
+			if i+1 < len(args) {
+				formatVal, formatSet = args[i+1], true
+				i++
+			}
+		case a == "--full", a == "--help", a == "--version":
+			// Known root booleans. They consume no value, so the token after
+			// them belongs to someone else and must not be skipped below.
+		case strings.HasPrefix(a, "--") && !strings.Contains(a, "="):
+			// An unrecognised long flag may take a value, and this scan cannot
+			// tell a flag from a value. Skipping the next token is what stops
+			// `--pattern --min` being read as a format request.
+			//
+			// It errs toward ignoring a stray --min, which is the safe
+			// direction. A misread normally only changes how a diagnostic is
+			// FORMATTED — but text is the one format that also changes which
+			// STREAM it lands on, and a diagnostic silently moving to stderr is
+			// exactly the failure AC7 exists to remove.
+			i++
+		}
+	}
+
+	f, compact, _ := resolveFormat(formatVal, formatSet, jsonFlag, minFlag)
+	return f, compact
+}
+
+// textSteps renders recovery guidance for the human format, to be appended to a
+// body that already ends in a newline. It returns "" for no steps, so a stepless
+// command leaves no trailing blank line.
+//
+// Shared by the success path and the error path. They had separate copies that
+// produced identical bytes, which is one copy too many for a format whose exact
+// shape two tests pin.
+func textSteps(steps []string) string {
+	if len(steps) == 0 {
+		return ""
+	}
+	var sb strings.Builder
+	sb.WriteString("\nNext steps:\n")
+	for _, s := range steps {
+		sb.WriteString("  - " + s + "\n")
+	}
+	return sb.String()
+}
+
 // renderGeneric renders an already-generic value (map/slice/scalar) as JSON or
 // TOON. Used after minimal projection / next-step injection, which operate on
 // the generic representation.
@@ -91,15 +175,18 @@ func renderGeneric(f Format, compact bool, v interface{}) (string, error) {
 //
 // EncodeChecked rather than Check followed by Encode. That pair sanitizes and
 // marshals the same value twice to serve one guard; EncodeChecked derives its
-// verdict from the bytes it writes. Measured medians in go-axi, with a bare
-// Encode as the floor:
+// verdict from the bytes it writes. Medians of six runs on a 2000-row payload,
+// go-axi v0.2.1 on an M5, with a bare Encode as the floor:
 //
-//	rows   Encode    EncodeChecked   Check+Encode
-//	100    134us     156us (+16%)    338us (+152%)
-//	2000   2.91ms    3.32ms (+14%)   7.18ms (+147%)
+//	Encode    EncodeChecked    Check+Encode
+//	1.02ms    1.17ms (+15%)    2.78ms (+173%)
 //
-// The guard costs about 14% here. An earlier version of this function dropped it
-// to avoid the 2.4x that Check+Encode cost, which was the wrong trade: the cost
+// Rerun them rather than trust them, from a go-axi checkout:
+//
+//	go test -run '^$' -bench Output -benchmem
+//
+// The guard costs about 15% here. An earlier version of this function dropped it
+// to avoid the 2.7x that Check+Encode cost, which was the wrong trade: the cost
 // was duplicated work, not safety, and it was fixable in the library.
 //
 // Returning "" alongside the error matters: no caller may write a partial body.
@@ -132,7 +219,14 @@ func toGeneric(v interface{}) (interface{}, error) {
 // renderError renders an error in the given format. Text keeps the pre-AXI
 // "Error: " prefix (or the bare message under compact); JSON keeps the pre-AXI
 // key shapes; TOON emits the same structured error as a TOON document.
-func renderError(f Format, compact bool, err error) string {
+//
+// steps is recovery guidance, and only the JSON branch consumes it. JSON has to
+// stay one parseable document, so its guidance goes inside as next_steps — the
+// same field and the same injector the success path uses. TOON and text carry
+// theirs after the body, which emitDiagnostic appends. Passing nil steps leaves
+// every byte of the pre-AXI output unchanged, because injectNextSteps no-ops on
+// an empty slice.
+func renderError(f Format, compact bool, err error, steps []string) string {
 	switch f {
 	case FormatText:
 		if compact {
@@ -141,10 +235,10 @@ func renderError(f Format, compact bool, err error) string {
 		return "Error: " + err.Error()
 	case FormatJSON:
 		if compact {
-			b, _ := json.Marshal(map[string]interface{}{"err": true, "msg": err.Error()})
+			b, _ := json.Marshal(injectNextSteps(map[string]interface{}{"err": true, "msg": err.Error()}, steps))
 			return string(b)
 		}
-		b, _ := json.MarshalIndent(map[string]interface{}{"error": true, "message": err.Error()}, "", "  ")
+		b, _ := json.MarshalIndent(injectNextSteps(map[string]interface{}{"error": true, "message": err.Error()}, steps), "", "  ")
 		return string(b)
 	case FormatTOON:
 		s, encErr := encodeTOON(map[string]interface{}{"error": true, "message": err.Error()})

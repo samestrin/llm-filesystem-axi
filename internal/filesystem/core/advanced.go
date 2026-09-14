@@ -529,15 +529,31 @@ type SyncDirectoriesOptions struct {
 	Source      string
 	Destination string
 	AllowedDirs []string
+	DryRun      bool
 }
 
-// SyncResult represents sync result
+// maxPlannedPaths bounds the preview. A sync of 50,000 files must not answer
+// with 50,000 strings; files_copied stays the authoritative count, and planned
+// is a sample of what would be written.
+const maxPlannedPaths = 100
+
+// SyncResult represents sync result.
+//
+// DryRun is the discriminator, and it carries the same field names in both
+// modes so the shape never forks. The existing --dry-run commands mark a preview
+// only in their TEXT renderer, which leaves a dry run byte-identical to a real
+// one in TOON and JSON — the default and the machine format. That bug is not
+// copied here.
 type SyncResult struct {
-	Source      string `json:"source"`
-	Destination string `json:"destination"`
-	FilesCopied int    `json:"files_copied"`
-	DirsCreated int    `json:"dirs_created"`
-	Success     bool   `json:"success"`
+	Source      string   `json:"source"`
+	Destination string   `json:"destination"`
+	FilesCopied int      `json:"files_copied"`
+	DirsCreated int      `json:"dirs_created"`
+	Success     bool     `json:"success"`
+	Failed      int      `json:"failed,omitempty"`
+	Failures    []string `json:"failures,omitempty"`
+	DryRun      bool     `json:"dry_run,omitempty"`
+	Planned     []string `json:"planned,omitempty"`
 }
 
 // SyncDirectories synchronizes two directories
@@ -566,10 +582,43 @@ func SyncDirectories(opts SyncDirectoriesOptions) (*SyncResult, error) {
 		return nil, err
 	}
 
-	var filesCopied, dirsCreated int
+	// A source that is missing or is not a directory used to walk nothing and
+	// report success with zero files. filepath.Walk hands the callback an error
+	// for an unreadable root, and the callback discarded it.
+	srcInfo, err := os.Stat(normalizedSrc)
+	if err != nil {
+		return nil, fmt.Errorf("source is not readable: %w", err)
+	}
+	if !srcInfo.IsDir() {
+		return nil, fmt.Errorf("source is not a directory: %s", normalizedSrc)
+	}
 
-	err = filepath.Walk(normalizedSrc, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
+	var filesCopied, dirsCreated int
+	var planned []string
+	var failures []string
+
+	// A dry run walks the same tree and counts the same way, skipping only the
+	// two calls that write. It must model the REAL algorithm rather than a
+	// better one: dirsCreated counts every source directory visited, whether or
+	// not MkdirAll had anything to create, and the preview reproduces that
+	// rather than quietly reporting a more accurate number. A preview that does
+	// not match the apply is worse than no preview.
+	//
+	// It predicts rather than guarantees: the real walk skips a file whose copy
+	// fails, which nothing can know in advance.
+	// Every failure is recorded rather than discarded. A bare `return nil` here
+	// is what let a sync destroy data and still report success: the copy failed,
+	// nobody counted it, and Success stayed true regardless.
+	note := func(relPath string, err error) {
+		if len(failures) < maxPlannedPaths {
+			failures = append(failures, relPath+": "+err.Error())
+		}
+	}
+
+	err = filepath.Walk(normalizedSrc, func(path string, info os.FileInfo, walkErr error) error {
+		if walkErr != nil {
+			rel, _ := filepath.Rel(normalizedSrc, path)
+			note(rel, walkErr)
 			return nil
 		}
 
@@ -577,13 +626,25 @@ func SyncDirectories(opts SyncDirectoriesOptions) (*SyncResult, error) {
 		dstPath := filepath.Join(normalizedDst, relPath)
 
 		if info.IsDir() {
-			if err := os.MkdirAll(dstPath, info.Mode()); err != nil {
-				return nil
+			if !opts.DryRun {
+				if mkErr := os.MkdirAll(dstPath, info.Mode()); mkErr != nil {
+					note(relPath, mkErr)
+					// Skip the subtree: returning nil would descend and every
+					// copy below would fail into a directory that is not there.
+					return filepath.SkipDir
+				}
 			}
 			dirsCreated++
 		} else {
-			if err := copyFile(dstPath, path); err != nil {
-				return nil
+			if !opts.DryRun {
+				// copyFile takes (src, dst). This passed (dst, src), so it
+				// opened a destination that did not exist yet and failed.
+				if cpErr := copyFile(path, dstPath); cpErr != nil {
+					note(relPath, cpErr)
+					return nil
+				}
+			} else if len(planned) < maxPlannedPaths {
+				planned = append(planned, relPath)
 			}
 			filesCopied++
 		}
@@ -599,7 +660,11 @@ func SyncDirectories(opts SyncDirectoriesOptions) (*SyncResult, error) {
 		Destination: normalizedDst,
 		FilesCopied: filesCopied,
 		DirsCreated: dirsCreated,
-		Success:     true,
+		Success:     len(failures) == 0,
+		Failed:      len(failures),
+		Failures:    failures,
+		DryRun:      opts.DryRun,
+		Planned:     planned,
 	}, nil
 }
 
