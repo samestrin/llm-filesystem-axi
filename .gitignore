@@ -15,6 +15,12 @@ coverage.html
 .idea/
 .vscode/
 
+# atcr workspace: local config plus runtime outputs (diff cache, reviewer
+# output, reconciled reports). Never committed. atcr runs in this checkout
+# before the push, so nothing downstream needs to see it — unlike the
+# technical-debt file below, which the no-mistakes worktree does need.
+.atcr/
+
 # Planning artifacts stay local, with one exception: the technical-debt record
 # is tracked so the no-mistakes pipeline can read and update it. That pipeline
 # runs in a disposable worktree built from the pushed branch, never from this
