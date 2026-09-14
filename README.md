@@ -56,13 +56,15 @@ To restrict it to specific directories, pass `--allowed-dirs /Users/me/projects,
 
 ### Telling your agent about it
 
-Append [`integrations/AGENTS.md`](integrations/AGENTS.md) to your project's `AGENTS.md` or `CLAUDE.md`. It says when to reach for this tool instead of built-in single-file tools, and covers the two behaviours that surprise agents — large reads truncate rather than fail, and deletes need `--confirm`:
+Append [`integrations/cli/AGENTS.md`](integrations/cli/AGENTS.md) to your project's `AGENTS.md` or `CLAUDE.md`. It lists all 28 commands grouped by task, says when to reach for them instead of built-in single-file tools, and covers the two behaviours that surprise agents — large reads truncate rather than fail, and deletes need `--confirm`:
 
 ```bash
-cat integrations/AGENTS.md >> ./AGENTS.md
+cat integrations/cli/AGENTS.md >> ./AGENTS.md
 ```
 
-It deliberately does not list the commands. Running `llm-filesystem` with no arguments already answers what it is and what is here, and a list in a document drifts from the binary.
+If you registered the MCP server rather than running the binary, use [`integrations/mcp/AGENTS.md`](integrations/mcp/AGENTS.md) instead. MCP tools take JSON arguments and cannot use flags, so flag-based advice is wrong for them.
+
+Both lists are checked against the binary in both directions by tests, so a command cannot be added, renamed or removed without the documentation failing CI.
 
 ### MCP server (optional)
 
