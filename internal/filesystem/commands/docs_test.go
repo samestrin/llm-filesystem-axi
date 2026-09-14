@@ -11,10 +11,10 @@ import (
 // description said 27, README said 27, and docs/llm-filesystem-commands.md said
 // 26 — against a real 28.
 //
-// It drifted because nothing could check it. CI's path filter is
-// ['**.go','go.mod','go.sum'], so a docs-only change runs no CI at all. This
-// test lives in a .go file specifically so the one claim that keeps rotting is
-// checked on every run that matters.
+// It drifted because nothing could check it: CI's path filter used to match
+// only ['**.go','go.mod','go.sum'], so a docs-only change ran no CI at all.
+// The filter now covers markdown too, but this test keeps the one claim that
+// keeps rotting checked on every local and CI run, independently of filters.
 func TestDocumentedCommandCountMatchesReality(t *testing.T) {
 	const doc = "../../../docs/llm-filesystem-commands.md"
 

@@ -1,11 +1,19 @@
 name: test
 
+# Markdown is in the filter because documentation here is under test: the
+# drift guards in internal/filesystem/commands/docs_test.go and
+# internal/filesystem/mcpserver/tools_test.go compare
+# integrations/*/AGENTS.md and docs/llm-filesystem-commands.md against the real
+# binary. Those tests were written in Go to get past a '**.go'-only filter, but
+# that only works when something else in the change is Go. A markdown-only PR
+# registered zero checks, so the one guard aimed at documentation drift was the
+# one thing a documentation-only change could never trip.
 on:
   push:
     branches: [main, master]
-    paths: ['**.go', 'go.mod', 'go.sum']
+    paths: ['**.go', 'go.mod', 'go.sum', '**.md', '.github/workflows/**']
   pull_request:
-    paths: ['**.go', 'go.mod', 'go.sum']
+    paths: ['**.go', 'go.mod', 'go.sum', '**.md', '.github/workflows/**']
 
 jobs:
   lint:
