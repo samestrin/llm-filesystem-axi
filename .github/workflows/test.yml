@@ -1,7 +1,8 @@
 name: test
 
 # Markdown is in the filter because documentation here is under test: the
-# drift guards in commands/docs_test.go and mcpserver/tools_test.go compare
+# drift guards in internal/filesystem/commands/docs_test.go and
+# internal/filesystem/mcpserver/tools_test.go compare
 # integrations/*/AGENTS.md and docs/llm-filesystem-commands.md against the real
 # binary. Those tests were written in Go to get past a '**.go'-only filter, but
 # that only works when something else in the change is Go. A markdown-only PR

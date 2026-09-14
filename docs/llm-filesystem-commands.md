@@ -2,7 +2,7 @@
 
 An agent-ergonomic filesystem CLI with 28 commands for reading, writing, editing, and managing files.
 
-Every count, flag and example in this file is checked against the binary. The command count is enforced by `TestDocumentedCommandCountMatchesReality`, because CI's path filter (`**.go`, `go.mod`, `go.sum`) means a docs-only change runs no CI at all — which is how this number drifted to 26 against a real 28.
+Every count, flag and example in this file is checked against the binary. The command count is enforced in-repo by `TestDocumentedCommandCountMatchesReality` — this number once drifted to 26 against a real 28.
 
 ## Installation
 
