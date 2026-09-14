@@ -102,6 +102,44 @@ func TestOversizedReadIsTruncatedNotRefused(t *testing.T) {
 	})
 }
 
+// The truncation help block told the agent to run --full, and on a large file
+// that loads the whole thing: 300MB in gives roughly 1.8GB resident, and with
+// LLM_FILESYSTEM_FULL=1 far more. --full meaning "everything" is the caller's
+// choice to make; the tool ACTIVELY SUGGESTING it is this branch's fault.
+//
+// Above the threshold the resume is offered instead, and --full is described
+// rather than recommended.
+func TestLargeTruncatedReadDoesNotAdvertiseFull(t *testing.T) {
+	prev := fullSuggestionLimit
+	fullSuggestionLimit = 1000 // keeps the fixture small and the test fast
+	t.Cleanup(func() { fullSuggestionLimit = prev })
+
+	path, _ := bigFile(t) // 120,000 bytes, well over the lowered threshold
+
+	stdout, _, _ := runCLI(t, "read-file", "--path", path)
+
+	if !strings.Contains(stdout, "help[") {
+		t.Fatalf("a truncated read gave no guidance: %q", truncForMsg(stdout))
+	}
+	if strings.Contains(stdout, "--full") {
+		t.Errorf("a large truncated read still recommends --full: %q", truncForMsg(stdout))
+	}
+	if !strings.Contains(stdout, "--start-offset") {
+		t.Errorf("guidance must still name the resume: %q", truncForMsg(stdout))
+	}
+}
+
+// Below the threshold --full is a reasonable thing to suggest, and must survive.
+func TestSmallTruncatedReadStillAdvertisesFull(t *testing.T) {
+	path, _ := bigFile(t)
+
+	stdout, _, _ := runCLI(t, "read-file", "--path", path)
+
+	if !strings.Contains(stdout, "--full") {
+		t.Errorf("a modestly sized truncated read should still offer --full: %q", truncForMsg(stdout))
+	}
+}
+
 // AC8: the same file and the same limit must produce the same exit code however
 // the output happens to be formatted. This is the specific defect: json exited
 // 0, toon and text exited 1.

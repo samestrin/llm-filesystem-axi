@@ -104,6 +104,20 @@ scan:
 				formatVal, formatSet = args[i+1], true
 				i++
 			}
+		case a == "--full", a == "--help", a == "--version":
+			// Known root booleans. They consume no value, so the token after
+			// them belongs to someone else and must not be skipped below.
+		case strings.HasPrefix(a, "--") && !strings.Contains(a, "="):
+			// An unrecognised long flag may take a value, and this scan cannot
+			// tell a flag from a value. Skipping the next token is what stops
+			// `--pattern --min` being read as a format request.
+			//
+			// It errs toward ignoring a stray --min, which is the safe
+			// direction. A misread normally only changes how a diagnostic is
+			// FORMATTED — but text is the one format that also changes which
+			// STREAM it lands on, and a diagnostic silently moving to stderr is
+			// exactly the failure AC7 exists to remove.
+			i++
 		}
 	}
 

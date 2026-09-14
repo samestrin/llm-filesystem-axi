@@ -109,6 +109,15 @@ func TestFormatFromArgsScansRawArgv(t *testing.T) {
 		// right outcome for the only thing this function decides — how to render
 		// a diagnostic — and it is why the returned error is discarded here.
 		{"a subcommand's own --format falls back", []string{"compress-files", "--format", "zip"}, FormatTOON, false},
+		// A flag's VALUE that looks like a format request. The scan cannot tell
+		// a flag from a value, and reading --min here selects text — which
+		// emitDiagnostic sends to STDERR, reinstating the very failure AC7
+		// removes. Searching for a literal string beginning "--min" is not
+		// exotic.
+		{"a value that looks like --min", []string{"search-code", "--path", ".", "--pattern", "--min", "--bogus"}, FormatTOON, false},
+		{"a value that looks like --json", []string{"search-code", "--path", ".", "--pattern", "--json", "--bogus"}, FormatTOON, false},
+		// A known root boolean is still honoured when it really is the flag.
+		{"a real --min after a known bool", []string{"--full", "--min"}, FormatText, true},
 	}
 
 	for _, tt := range tests {

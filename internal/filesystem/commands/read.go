@@ -8,6 +8,20 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// fullSuggestionLimit is the size above which a truncated read stops
+// RECOMMENDING --full.
+//
+// --full means "return everything", and for a caller who asks for it that is a
+// fair trade. But pulling a whole file costs a multiple of its size in memory
+// once it is read, copied, marshalled and encoded — 300MB in gives roughly
+// 1.8GB resident — and the tool SUGGESTING that on a large file is a different
+// thing from the caller choosing it. Above this size the resume is offered
+// instead.
+//
+// A var rather than a const so the test can lower it, instead of writing an
+// 11MB fixture to exercise the branch.
+var fullSuggestionLimit int64 = 10 << 20 // 10 MB
+
 func addReadCommands(rootCmd *cobra.Command) {
 	rootCmd.AddCommand(readFileCmd())
 	rootCmd.AddCommand(readMultipleFilesCmd())
@@ -57,13 +71,26 @@ func readFileCmd() *cobra.Command {
 					if !result.Truncated {
 						return nil
 					}
-					steps := []string{
-						"Whole file: llm-filesystem read-file --path " + result.Path + " --full",
-					}
+
+					var steps []string
 					if result.NextOffset > 0 {
-						steps = append([]string{fmt.Sprintf(
+						steps = append(steps, fmt.Sprintf(
 							"Continue: llm-filesystem read-file --path %s --start-offset %d",
-							result.Path, result.NextOffset)}, steps...)
+							result.Path, result.NextOffset))
+					}
+
+					// --full is only SUGGESTED for a file small enough that
+					// pulling it whole is a reasonable thing to do. Above the
+					// threshold it costs a multiple of the file in memory, and
+					// a tool recommending that is a different matter from a
+					// caller choosing it.
+					if result.TotalSize <= fullSuggestionLimit {
+						steps = append(steps,
+							"Whole file: llm-filesystem read-file --path "+result.Path+" --full")
+					} else {
+						steps = append(steps, fmt.Sprintf(
+							"This file is %d bytes; read it in windows rather than whole.",
+							result.TotalSize))
 					}
 					return steps
 				},

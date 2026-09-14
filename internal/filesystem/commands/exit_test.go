@@ -134,6 +134,25 @@ func TestUsageErrorsAreStructuredWithExitUsage(t *testing.T) {
 	}
 }
 
+// End to end: a usage error must reach STDOUT even when an earlier flag's value
+// happens to look like a format request. Getting this wrong is not cosmetic —
+// text is the one format that also changes which stream the diagnostic lands
+// on, so a misread silently empties stdout for the agent reading it.
+func TestUsageErrorStaysOnStdoutDespiteAMisleadingValue(t *testing.T) {
+	stdout, stderr, code := runCLI(t,
+		"search-code", "--path", ".", "--pattern", "--min", "--bogusflag")
+
+	if code != int(goaxi.ExitUsage) {
+		t.Errorf("exit = %d, want ExitUsage (%d)", code, goaxi.ExitUsage)
+	}
+	if stdout == "" {
+		t.Errorf("the diagnostic went to stderr because a flag VALUE was read as --min; stderr = %q", stderr)
+	}
+	if stderr != "" {
+		t.Errorf("stderr = %q, want empty", stderr)
+	}
+}
+
 // AC7: an invalid --format is the one usage error whose requested format cannot
 // be honoured, because the value naming the format is itself what is being
 // rejected. It must still produce a structured body rather than echoing the
