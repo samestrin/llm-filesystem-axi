@@ -17,9 +17,13 @@ The single `1.0.0` version reconciles the previously divergent internal versions
 
 Adopted the [AXI](https://axi.md) design principles for agent-ergonomic CLIs:
 
-- **Token-efficient TOON output by default** (`--format toon|json|text`). TOON is
-  ~50% smaller than JSON on its own; combined with minimal schemas it is roughly
-  a 90% token reduction on directory listings. The MCP server requests TOON.
+- **Token-efficient TOON output by default** (`--format toon|json|text`). Measured
+  with `benchmarks/tokens.sh` against `--full --format json`: a directory listing
+  costs **92-94% fewer tokens**, a tree 40-72%, and content-dominated commands such
+  as `search-code` and `read-file` 4-26%, since no schema choice shrinks the bytes of
+  a file you asked to read. TOON encoding alone accounts for 0-48% of that; on large
+  listings most of the saving comes from the minimal field set rather than the format.
+  The MCP server requests TOON.
 - **Minimal default field sets** with a `--full` escape hatch. Listings, trees,
   and searches emit 3-4 fields by default; `--full` (or `LLM_FILESYSTEM_FULL=1`)
   restores every field.

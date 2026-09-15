@@ -63,7 +63,19 @@ See [`docs/llm-filesystem-commands.md`](docs/llm-filesystem-commands.md) for the
 
 ## Output modes (AXI)
 
-`llm-filesystem` follows the [AXI](https://axi.md) design principles for agent-ergonomic CLIs. Output defaults to **TOON** (Token-Oriented Object Notation) with a **minimal field set**, which is roughly a 90% token reduction versus full JSON on a directory listing.
+`llm-filesystem` follows the [AXI](https://axi.md) design principles for agent-ergonomic CLIs. Output defaults to **TOON** (Token-Oriented Object Notation) with a **minimal field set**.
+
+Measured against `--full --format json`, which is byte-identical to the pre-AXI output, using tiktoken `o200k_base` ([`benchmarks/tokens.sh`](benchmarks/tokens.sh), full results in [`benchmarks/results-tokens.md`](benchmarks/results-tokens.md)):
+
+| Command | Baseline tokens | Default tokens | Reduction |
+|---------|-----------------|----------------|-----------|
+| `list-directory` (921 entries) | 147,158 | 9,101 | **93.8%** |
+| `list-directory` (41 entries) | 6,849 | 537 | **92.2%** |
+| `get-directory-tree` | 74,875 | 20,635 | **72.4%** |
+| `search-code` | 34,393 | 25,300 | 26.4% |
+| `read-file` | 268 | 258 | 3.7% |
+
+Listings are where it pays, because most of a listing is repeated field names. Commands whose output is mostly file **content** save far less — no schema choice shrinks the bytes of the file you asked for. The reduction also scales with result count: on a directory of only a handful of entries it drops to about 60%, since the fixed part of the document stops being a rounding error.
 
 TOON output is produced by [go-axi](https://github.com/samestrin/go-axi), which sanitizes it on the way out. File names and file contents are text this tool did not author and prints verbatim, and the raw codec passes ANSI escapes, `U+2028`/`U+2029`, lone C1 bytes and invalid UTF-8 straight through to whatever terminal renders them. go-axi also refuses a value the codec would silently emit as empty output, and supplies the exit codes below.
 
