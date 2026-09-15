@@ -4,6 +4,8 @@
 > *Native Go. A single static binary. An agent-ergonomic CLI.*
 
 [![Go Version](https://img.shields.io/github/go-mod/go-version/samestrin/llm-filesystem-axi)](https://go.dev/)
+[![TOON output by go-axi](https://img.shields.io/badge/TOON%20output-go--axi-00ADD8)](https://github.com/samestrin/go-axi)
+[![AXI](https://img.shields.io/badge/AXI-10%2F10%20principles-5b5bd6)](https://axi.md)
 [![License](https://img.shields.io/github/license/samestrin/llm-filesystem-axi)](LICENSE)
 
 `llm-filesystem` gives an AI agent fast, safe "hands" on the filesystem: reading, writing, editing, searching, and managing files. It follows the [AXI](https://axi.md) design principles, which treat the command line itself as the agent interface rather than something to be wrapped in a protocol.
@@ -13,24 +15,11 @@
 
 It began as a Go port of the TypeScript [`fast-filesystem-mcp`](https://github.com/efforthye/fast-filesystem-mcp), rewritten for startup speed and single-binary deployment.
 
-## Why Go
-
-LLM agents run tight loops. Paying 85ms for a Node.js process to cold-start just to read a file breaks the flow. A static Go binary starts in single-digit milliseconds.
-
-| Benchmark | Go (llm-filesystem) | TypeScript (Node) | Speedup |
-|-----------|---------------------|-------------------|---------|
-| **Cold Start** | **5.2ms** | **85.1ms** | **16.5x** |
-| MCP Handshake | 40.8ms | 110.4ms | **2.7x** |
-| File Read | 49.5ms | 108.2ms | **2.2x** |
-| Directory Tree | 50.9ms | 113.7ms | **2.2x** |
-
-> *Benchmarks run on M4 Pro 64GB macOS (arm64), 2025-12-31. See [`benchmarks/`](benchmarks/).*
-
 ## Install
 
 ```bash
 git clone https://github.com/samestrin/llm-filesystem-axi.git
-cd llm-filesystem
+cd llm-filesystem-axi
 sudo ./install.sh          # builds both binaries, installs to /usr/local/bin
 ```
 
@@ -115,6 +104,19 @@ Set `LLM_FILESYSTEM_FULL=1` to make full output the default for every command â€
 **A missing path is a failure, not an empty result.** A search against a path that does not exist reports an error rather than zero matches, so a typo cannot read as "the code you are looking for is not here".
 
 **Destructive syncs can be previewed.** `sync-directories --dry-run` reports what it would write, in every output format rather than only in the human text, and writes nothing.
+
+## Why Go
+
+LLM agents run tight loops. Paying 85ms for a Node.js process to cold-start just to read a file breaks the flow. A static Go binary starts in single-digit milliseconds.
+
+| Benchmark | Go (llm-filesystem) | TypeScript (Node) | Speedup |
+|-----------|---------------------|-------------------|---------|
+| **Cold Start** | **5.2ms** | **85.1ms** | **16.5x** |
+| MCP Handshake | 40.8ms | 110.4ms | **2.7x** |
+| File Read | 49.5ms | 108.2ms | **2.2x** |
+| Directory Tree | 50.9ms | 113.7ms | **2.2x** |
+
+> *Benchmarks run on M4 Pro 64GB macOS (arm64), 2025-12-31. See [`benchmarks/`](benchmarks/).*
 
 ## Development
 
