@@ -36,3 +36,21 @@ get-directory-tree          233        225        157        139        40.3%
 search-code               34393      34434      25300      25300        26.4%
 read-file                   268        268        258        258         3.7%
 ```
+
+## Why `json-min` can exceed `json-full`
+
+For `search-code`, look at the `json-min` column against `json-full`: minimal is the
+larger of the two. That is expected, not a defect.
+
+`search-code` already emits its minimal field set at full size - every match carries
+exactly `content`, `file` and `line` in both modes, and the 569 match items are
+byte-for-byte identical. There is nothing for the minimal projection to remove.
+
+What minimal does add is the `next_steps` payload, 101 bytes, which `--full --format
+json` deliberately omits so it stays byte-identical to the pre-AXI `--json` output.
+So for this one command minimal costs slightly more and saves nothing, and the
+reduction reported in the table above comes entirely from TOON encoding rather than
+from field selection.
+
+Changing this would mean either dropping contextual disclosure from minimal JSON or
+breaking the legacy guarantee on `--full`. Neither is worth 101 bytes.
