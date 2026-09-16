@@ -106,6 +106,7 @@ func knownIdentifiers(t *testing.T) map[string]bool {
 
 	jsonTag := regexp.MustCompile(`json:"([a-z0-9_]+)`)
 	mcpArg := regexp.MustCompile(`get(?:Int|String|Bool|Float)\(args,\s*"([a-z0-9_]+)"`)
+	directArg := regexp.MustCompile(`args\["([a-z0-9_]+)"\]`)
 	toolName := regexp.MustCompile(`ToolPrefix \+ "([a-z0-9_]+)"`)
 
 	root := "../.."
@@ -113,7 +114,7 @@ func knownIdentifiers(t *testing.T) map[string]bool {
 		if err != nil {
 			return err
 		}
-		if info.IsDir() || !strings.HasSuffix(path, ".go") {
+		if info.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
 			return nil
 		}
 		body, err := os.ReadFile(path)
@@ -121,7 +122,7 @@ func knownIdentifiers(t *testing.T) map[string]bool {
 			return err
 		}
 		text := string(body)
-		for _, re := range []*regexp.Regexp{jsonTag, mcpArg} {
+		for _, re := range []*regexp.Regexp{jsonTag, mcpArg, directArg} {
 			for _, m := range re.FindAllStringSubmatch(text, -1) {
 				known[m[1]] = true
 			}
