@@ -103,6 +103,7 @@ Two independent reviewers read the full diff. Everything below was reproduced ag
 - **`read-multiple-files` counters did not account for every file**, so `success + failed` could be less than the number of files requested, and its budget was spent in raw bytes while measured in encoded characters, overrunning the cap several times over on escape-heavy content.
 - **Tool failures carried no `help[]`**, and the landing view exited non-zero when the working directory was unknowable. Both are acceptance criteria this release claims.
 - **25 `OutputError` call sites were missing a `return`**, which became a nil-pointer panic once a search could fail.
+- **`search-code --context N` silently discarded the context lines it was asked for.** The minimal projection dropped each match's `context` field, so default-mode output was byte-identical to a search with no `--context` at all and still exited `0`. An explicitly requested field is more specific than a default schema, so the projection now keeps `context` when, and only when, `--context` asked for it. The help line read "Add `--full` for surrounding context lines", but `--full` alone returns no context; it now names `--context`, and is omitted for a caller who already passed it.
 
 ### Included
 

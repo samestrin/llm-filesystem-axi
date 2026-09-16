@@ -10,7 +10,7 @@ Severity is about consequence, not effort. **HIGH** means a caller can be misled
 |---|---|
 | HIGH | 0 |
 | MEDIUM | 2 |
-| LOW | 6 |
+| LOW | 7 |
 | INFO | 3 |
 
 ### [2026-09-13] From Sprint: AXI compliance (`feat/axi-compliance`)
