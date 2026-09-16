@@ -65,7 +65,7 @@ See [`docs/llm-filesystem-commands.md`](docs/llm-filesystem-commands.md) for the
 
 `llm-filesystem` follows the [AXI](https://axi.md) design principles for agent-ergonomic CLIs. Output defaults to **TOON** (Token-Oriented Object Notation) with a **minimal field set**.
 
-Measured against `--full --format json`, which is byte-identical to the pre-AXI output, using tiktoken `o200k_base` ([`benchmarks/tokens.sh`](benchmarks/tokens.sh), full results in [`benchmarks/results-tokens.md`](benchmarks/results-tokens.md)):
+Measured against `--full --format json`, which is byte-identical to the pre-AXI output for every command this benchmark runs, using tiktoken `o200k_base` ([`benchmarks/tokens.sh`](benchmarks/tokens.sh), full results in [`benchmarks/results-tokens.md`](benchmarks/results-tokens.md)):
 
 | Command | Baseline tokens | Default tokens | Reduction |
 |---------|-----------------|----------------|-----------|
@@ -105,7 +105,7 @@ llm-filesystem list-directory --path . --full       # all fields
 llm-filesystem list-directory --path . --format json # JSON for scripts
 ```
 
-Set `LLM_FILESYSTEM_FULL=1` to make full output the default for every command — useful for legacy consumers that expect all fields. `--full --format json` is byte-identical to the pre-AXI `--json` output. The deprecated `--json` and `--min` flags still work.
+Set `LLM_FILESYSTEM_FULL=1` to make full output the default for every command — useful for legacy consumers that expect all fields. `--full --format json` is byte-identical to the pre-AXI `--json` output, with one exception: `read-file` and `read-multiple-files` on over-budget files now return content where the old output was a `SizeExceededError` body. The deprecated `--json` and `--min` flags still work.
 
 ## Limits and safety
 

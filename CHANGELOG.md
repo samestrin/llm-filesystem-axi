@@ -36,7 +36,9 @@ Adopted the [AXI](https://axi.md) design principles for agent-ergonomic CLIs:
 - **Structured errors that fail loud**, with exit codes from go-axi's shared constants: `0` success, `1` tool failure, `2` usage error. An unknown subcommand, an unknown flag, a missing required flag and an invalid `--format` each exit `2` with a diagnostic — previously all four exited `1` printing nothing at all.
 - **Hardened TOON output** via [go-axi](https://github.com/samestrin/go-axi), replacing the raw codec. File names and contents are sanitized of ANSI escapes, `U+2028`/`U+2029`, lone C1 bytes and invalid UTF-8 before they reach a terminal, and a value the codec would emit as empty output is refused rather than printed as nothing with a zero exit.
 - Backward compatible: `--full --format json` is byte-identical to the old
-  `--json`; `--json`/`--min` remain as deprecated aliases.
+  `--json`, with one exception: `read-file` and `read-multiple-files` on
+  over-budget files now return content where the old output was a
+  `SizeExceededError` body; `--json`/`--min` remain as deprecated aliases.
 - **Ambient context** (`integrations/claude-code/`): a CLAUDE.md routing snippet
   and an on-demand skill that position llm-filesystem as a complement to Claude's
   native Read/Write/Edit — single-file work stays native, batch/specialized work
