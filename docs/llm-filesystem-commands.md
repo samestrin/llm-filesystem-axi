@@ -140,5 +140,3 @@ llm-filesystem began as a drop-in replacement for the fast-filesystem MCP:
 - **Search Results**: includes `context_before`, `context_after`, `ripgrep_used`, `search_time_ms`
 - **Pagination**: supports `continuation_token` for large results
 - **Filtering**: respects `.gitignore` patterns in `find-large-files`
-
-See the [Migration Guide](llm-filesystem-migration.md) for details on migrating from fast-filesystem.
