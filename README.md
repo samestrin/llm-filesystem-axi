@@ -4,6 +4,8 @@
 > *Native Go. A single static binary. An agent-ergonomic CLI.*
 
 [![Go Version](https://img.shields.io/github/go-mod/go-version/samestrin/llm-filesystem-axi)](https://go.dev/)
+[![TOON output by go-axi](https://img.shields.io/badge/TOON%20output-go--axi-00ADD8)](https://github.com/samestrin/go-axi)
+[![AXI](https://img.shields.io/badge/AXI-10%2F10%20principles-5b5bd6)](https://axi.md)
 [![License](https://img.shields.io/github/license/samestrin/llm-filesystem-axi)](LICENSE)
 
 `llm-filesystem` gives an AI agent fast, safe "hands" on the filesystem: reading, writing, editing, searching, and managing files. It follows the [AXI](https://axi.md) design principles, which treat the command line itself as the agent interface rather than something to be wrapped in a protocol.
@@ -13,24 +15,11 @@
 
 It began as a Go port of the TypeScript [`fast-filesystem-mcp`](https://github.com/efforthye/fast-filesystem-mcp), rewritten for startup speed and single-binary deployment.
 
-## Why Go
-
-LLM agents run tight loops. Paying 85ms for a Node.js process to cold-start just to read a file breaks the flow. A static Go binary starts in single-digit milliseconds.
-
-| Benchmark | Go (llm-filesystem) | TypeScript (Node) | Speedup |
-|-----------|---------------------|-------------------|---------|
-| **Cold Start** | **5.2ms** | **85.1ms** | **16.5x** |
-| MCP Handshake | 40.8ms | 110.4ms | **2.7x** |
-| File Read | 49.5ms | 108.2ms | **2.2x** |
-| Directory Tree | 50.9ms | 113.7ms | **2.2x** |
-
-> *Benchmarks run on M4 Pro 64GB macOS (arm64), 2025-12-31. See [`benchmarks/`](benchmarks/).*
-
 ## Install
 
 ```bash
 git clone https://github.com/samestrin/llm-filesystem-axi.git
-cd llm-filesystem
+cd llm-filesystem-axi
 sudo ./install.sh          # builds both binaries, installs to /usr/local/bin
 ```
 
@@ -74,7 +63,19 @@ See [`docs/llm-filesystem-commands.md`](docs/llm-filesystem-commands.md) for the
 
 ## Output modes (AXI)
 
-`llm-filesystem` follows the [AXI](https://axi.md) design principles for agent-ergonomic CLIs. Output defaults to **TOON** (Token-Oriented Object Notation) with a **minimal field set**, which is roughly a 90% token reduction versus full JSON on a directory listing.
+`llm-filesystem` follows the [AXI](https://axi.md) design principles for agent-ergonomic CLIs. Output defaults to **TOON** (Token-Oriented Object Notation) with a **minimal field set**.
+
+Measured against `--full --format json`, which is byte-identical to the pre-AXI output for every command this benchmark runs, using tiktoken `o200k_base` ([`benchmarks/tokens.sh`](benchmarks/tokens.sh), full results in [`benchmarks/results-tokens.md`](benchmarks/results-tokens.md)):
+
+| Command | Baseline tokens | Default tokens | Reduction |
+|---------|-----------------|----------------|-----------|
+| `list-directory` (`/usr/bin`, 921 entries) | 147,158 | 9,101 | **93.8%** |
+| `list-directory` (`/usr/share`, 41 entries) | 6,443 | 447 | **93.1%** |
+| `get-directory-tree` (`/usr/share`) | 35,608 | 15,245 | **57.2%** |
+| `search-code` (this repo's `internal/`) | 26,742 | 17,543 | 34.4% |
+| `read-file` (this repo's `go.mod`) | 253 | 242 | 4.3% |
+
+Listings are where it pays, because most of a listing is repeated field names. Commands whose output is mostly file **content** save far less — no schema choice shrinks the bytes of the file you asked for. The reduction also scales with result count: on a directory of only a handful of entries it drops to about 62%, since the fixed part of the document stops being a rounding error. And the tree row needs subdirectories to pay off — the benchmark does not pass `--include-files`, so on a flat directory like `/usr/bin` the tree is a single node and every mode prints the same small document (0%).
 
 TOON output is produced by [go-axi](https://github.com/samestrin/go-axi), which sanitizes it on the way out. File names and file contents are text this tool did not author and prints verbatim, and the raw codec passes ANSI escapes, `U+2028`/`U+2029`, lone C1 bytes and invalid UTF-8 straight through to whatever terminal renders them. go-axi also refuses a value the codec would silently emit as empty output, and supplies the exit codes below.
 
@@ -104,7 +105,7 @@ llm-filesystem list-directory --path . --full       # all fields
 llm-filesystem list-directory --path . --format json # JSON for scripts
 ```
 
-Set `LLM_FILESYSTEM_FULL=1` to make full output the default for every command — useful for legacy consumers that expect all fields. `--full --format json` is byte-identical to the pre-AXI `--json` output. The deprecated `--json` and `--min` flags still work.
+Set `LLM_FILESYSTEM_FULL=1` to make full output the default for every command — useful for legacy consumers that expect all fields. `--full --format json` is byte-identical to the pre-AXI `--json` output, with one exception: `read-file` and `read-multiple-files` on over-budget files now return content where the old output was a `SizeExceededError` body. The deprecated `--json` and `--min` flags still work.
 
 ## Limits and safety
 
@@ -115,6 +116,19 @@ Set `LLM_FILESYSTEM_FULL=1` to make full output the default for every command �
 **A missing path is a failure, not an empty result.** A search against a path that does not exist reports an error rather than zero matches, so a typo cannot read as "the code you are looking for is not here".
 
 **Destructive syncs can be previewed.** `sync-directories --dry-run` reports what it would write, in every output format rather than only in the human text, and writes nothing.
+
+## Why Go
+
+LLM agents run tight loops. Paying 85ms for a Node.js process to cold-start just to read a file breaks the flow. A static Go binary starts in single-digit milliseconds.
+
+| Benchmark | Go (llm-filesystem) | TypeScript (Node) | Speedup |
+|-----------|---------------------|-------------------|---------|
+| **Cold Start** | **5.2ms** | **85.1ms** | **16.5x** |
+| MCP Handshake | 40.8ms | 110.4ms | **2.7x** |
+| File Read | 49.5ms | 108.2ms | **2.2x** |
+| Directory Tree | 50.9ms | 113.7ms | **2.2x** |
+
+> *Benchmarks run on M4 Pro 64GB macOS (arm64), 2025-12-31. See [`benchmarks/`](benchmarks/).*
 
 ## Development
 

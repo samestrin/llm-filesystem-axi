@@ -122,6 +122,8 @@ Errors are structured documents on **stdout** in the active format, each carryin
 
 ## MCP Integration
 
+The CLI above is the interface. AXI treats the command line as the agent interface rather than something to wrap in a protocol, so reach for the MCP server only when a client cannot run a CLI at all.
+
 The MCP wrapper (`llm-filesystem-mcp`) exposes **17 tools** with the `llm_filesystem_` prefix, shelling out to this same CLI:
 
 `batch_file_operations`, `compress_files`, `copy_file`, `delete_file`, `edit_blocks`, `extract_archive`, `extract_lines`, `get_directory_tree`, `list_directory`, `move_file`, `read_file`, `read_multiple_files`, `search_and_replace`, `search_code`, `search_files`, `write_file`, `write_multiple_files`
@@ -129,16 +131,3 @@ The MCP wrapper (`llm-filesystem-mcp`) exposes **17 tools** with the `llm_filesy
 The server passes `--confirm` itself for deletions, since the tool call is the confirmation.
 
 **Note:** the CLI exposes all 28 commands. For setup, see [`integrations/claude-code/`](../integrations/claude-code/).
-
-## API Parity with fast-filesystem
-
-llm-filesystem began as a drop-in replacement for the fast-filesystem MCP:
-
-- **Output Structure**: uses `items` instead of `entries`, `tree` instead of `root`
-- **File Info**: includes `type` ("file"/"directory"), `size_readable`, `permissions`, `extension`, `mime_type`
-- **Access Checks**: provides `is_readable` and `is_writable` fields
-- **Search Results**: includes `context_before`, `context_after`, `ripgrep_used`, `search_time_ms`
-- **Pagination**: supports `continuation_token` for large results
-- **Filtering**: respects `.gitignore` patterns in `find-large-files`
-
-See the [Migration Guide](llm-filesystem-migration.md) for details on migrating from fast-filesystem.

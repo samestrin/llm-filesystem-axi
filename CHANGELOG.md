@@ -17,9 +17,18 @@ The single `1.0.0` version reconciles the previously divergent internal versions
 
 Adopted the [AXI](https://axi.md) design principles for agent-ergonomic CLIs:
 
-- **Token-efficient TOON output by default** (`--format toon|json|text`). TOON is
-  ~50% smaller than JSON on its own; combined with minimal schemas it is roughly
-  a 90% token reduction on directory listings. The MCP server requests TOON.
+- **Token-efficient TOON output by default** (`--format toon|json|text`). Measured
+  with `benchmarks/tokens.sh` against `--full --format json`: a directory listing
+  costs **62-94% fewer tokens** (93-94% on directories of 41-921 entries, about 62%
+  on a handful), a tree 43-57% on directories with subdirectories to expand, and
+  content-dominated commands such as `search-code` and `read-file` 4-45% —
+  `read-file` is 4.3% on every target, while `search-code` runs 34.4% on this
+  repository's `internal/` up to 45.3% on `/usr/share` — since no schema choice
+  shrinks the bytes of a file you asked to read. TOON encoding alone accounts for
+  0-46% of that (0% for the flat `/usr/bin` tree, 46% for `list-directory` on
+  `/usr/share`); on large listings most of the saving comes from the minimal field
+  set rather than the format.
+  The MCP server requests TOON.
 - **Minimal default field sets** with a `--full` escape hatch. Listings, trees,
   and searches emit 3-4 fields by default; `--full` (or `LLM_FILESYSTEM_FULL=1`)
   restores every field.
@@ -27,7 +36,9 @@ Adopted the [AXI](https://axi.md) design principles for agent-ergonomic CLIs:
 - **Structured errors that fail loud**, with exit codes from go-axi's shared constants: `0` success, `1` tool failure, `2` usage error. An unknown subcommand, an unknown flag, a missing required flag and an invalid `--format` each exit `2` with a diagnostic — previously all four exited `1` printing nothing at all.
 - **Hardened TOON output** via [go-axi](https://github.com/samestrin/go-axi), replacing the raw codec. File names and contents are sanitized of ANSI escapes, `U+2028`/`U+2029`, lone C1 bytes and invalid UTF-8 before they reach a terminal, and a value the codec would emit as empty output is refused rather than printed as nothing with a zero exit.
 - Backward compatible: `--full --format json` is byte-identical to the old
-  `--json`; `--json`/`--min` remain as deprecated aliases.
+  `--json`, with one exception: `read-file` and `read-multiple-files` on
+  over-budget files now return content where the old output was a
+  `SizeExceededError` body; `--json`/`--min` remain as deprecated aliases.
 - **Ambient context** (`integrations/claude-code/`): a CLAUDE.md routing snippet
   and an on-demand skill that position llm-filesystem as a complement to Claude's
   native Read/Write/Edit — single-file work stays native, batch/specialized work
@@ -94,6 +105,13 @@ Two independent reviewers read the full diff. Everything below was reproduced ag
 - **`read-multiple-files` counters did not account for every file**, so `success + failed` could be less than the number of files requested, and its budget was spent in raw bytes while measured in encoded characters, overrunning the cap several times over on escape-heavy content.
 - **Tool failures carried no `help[]`**, and the landing view exited non-zero when the working directory was unknowable. Both are acceptance criteria this release claims.
 - **25 `OutputError` call sites were missing a `return`**, which became a nil-pointer panic once a search could fail.
+- **`search-code --context N` silently discarded the context lines it was asked for.** The minimal projection dropped each match's `context` field, so default-mode output was byte-identical to a search with no `--context` at all and still exited `0`. An explicitly requested field is more specific than a default schema, so the projection now keeps `context` when, and only when, `--context` asked for it. The help line read "Add `--full` for surrounding context lines", but `--full` alone returns no context; it now names `--context`, and is omitted for a caller who already passed it.
+
+### Removed — a migration guide that documented an API this tool does not have
+
+- **`docs/llm-filesystem-migration.md` is deleted.** It opened by calling this a "drop-in replacement with 100% API compatibility" and then listed its own Breaking Changes two lines later, which cannot both be true once `entries` is renamed to `items`. Checking the rest against the binary, about half of it described fields that have never existed here: `context_before`, `context_after`, `ripgrep_used`, `search_time_ms`, `continuation_token`, `auto_chunked`, `chunk_index`, `total_chunks` and `has_more` appear nowhere in the codebase. It also framed the project as a Go MCP server, which stopped being the primary interface with this release.
+
+  A wrong map is worse than no map, and `--help` is generated from the binary and cannot drift. If migration demand appears, a short guide written from verified behaviour can replace it.
 
 ### Included
 
@@ -107,7 +125,9 @@ Everything that shipped as `llm-filesystem` inside `llm-tools` through mid-2026:
 - Size-aware reads with a `--max-size` budget (`0` = 70000-char default,
   `-1` = no limit). An over-budget read truncates rather than refusing — see
   the entry below.
-- Continuation-token pagination for large listings, reads, and searches.
+- Pagination for large listings via `--page` and `--page-size`, reporting
+  `page`, `page_size` and `total_pages`. Truncated reads resume with
+  `next_offset`; there is no continuation token anywhere in the tool.
 - Static single-binary builds for macOS, Linux, and Windows.
 
 ### Notes

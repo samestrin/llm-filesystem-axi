@@ -53,7 +53,7 @@ Every command takes `--help`. Run `llm-filesystem` with no arguments to see the 
 | Command | Use it for |
 |---|---|
 | `search-files` | Find files by name or glob |
-| `search-code` | Search file contents, ripgrep-fast |
+| `search-code` | Search file contents by pattern, with optional context lines |
 
 **Moving and deleting**
 
@@ -83,7 +83,7 @@ Every command takes `--help`. Run `llm-filesystem` with no arguments to see the 
 
 ## Reading the output
 
-TOON by default with a minimal field set — roughly 90% fewer tokens than full JSON on a listing. A trailing `help[]` block suggests the next command.
+TOON by default with a minimal field set — measured at 62-94% fewer tokens than full JSON on directory listings, far less on file content. A trailing `help[]` block suggests the next command.
 
 - `--format json` for machine parsing, `--format text` for a human.
 - `--fields name,size` to pick exact fields. An unknown name exits `2` and lists the valid ones, so one wrong guess teaches you the schema.

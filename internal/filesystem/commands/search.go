@@ -104,8 +104,19 @@ func searchCodeCmd() *cobra.Command {
 				OutputError(err)
 				return
 			}
+			// CodeMatch carries Context alongside File, Line and Content, and the
+			// minimal set omits it — correctly, since it is empty unless asked
+			// for. But when --context N asks for it the lines were read and then
+			// discarded by the projection, and the command exited 0 having
+			// returned output byte-identical to a search with no --context at
+			// all. An explicitly requested field is more specific than a default
+			// schema and wins, the same way an explicit --max-size beats --full.
+			matchFields := []string{"file", "line", "content"}
+			if contextLines > 0 {
+				matchFields = append(matchFields, "context")
+			}
 			OutputResultAXI(result,
-				map[string][]string{"matches": {"file", "line", "content"}},
+				map[string][]string{"matches": matchFields},
 				func() []string {
 					// No match means there is nothing to open, so offer the ways
 					// to widen instead of naming a file that is not there.
@@ -115,10 +126,15 @@ func searchCodeCmd() *cobra.Command {
 							"Search file names instead of contents: llm-filesystem search-files --path " + result.Path + " --pattern <name>",
 						}
 					}
-					return []string{
-						"Open a match: llm-filesystem read-file --path <file>",
-						"Add --full for surrounding context lines.",
+					steps := []string{"Open a match: llm-filesystem read-file --path <file>"}
+					// This used to read "Add --full for surrounding context
+					// lines", which returns none: context exists only when
+					// --context asked for it, so following that line ran a
+					// second search for the identical output.
+					if contextLines <= 0 {
+						steps = append(steps, "Show the lines around each match: add --context 3")
 					}
+					return steps
 				},
 				func() string {
 					var sb strings.Builder

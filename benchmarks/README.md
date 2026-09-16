@@ -21,3 +21,5 @@ cd benchmarks && ./benchmark.sh
 ./benchmark.sh <warmup> <runs>
 
 The results are saved as JSON in benchmarks/results-*.json for further analysis.
+
+For the token benchmark behind the README's token-reduction figures (TOON with a minimal field set vs full JSON), run ./tokens.sh; its generated report is results-tokens.md.
