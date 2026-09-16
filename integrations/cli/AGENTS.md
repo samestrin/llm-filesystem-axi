@@ -53,7 +53,7 @@ Every command takes `--help`. Run `llm-filesystem` with no arguments to see the 
 | Command | Use it for |
 |---|---|
 | `search-files` | Find files by name or glob |
-| `search-code` | Search file contents, ripgrep-fast |
+| `search-code` | Search file contents by pattern, with optional context lines |
 
 **Moving and deleting**
 

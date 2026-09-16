@@ -137,6 +137,3 @@ llm-filesystem began as a drop-in replacement for the fast-filesystem MCP:
 - **Output Structure**: uses `items` instead of `entries`, `tree` instead of `root`
 - **File Info**: includes `type` ("file"/"directory"), `size_readable`, `permissions`, `extension`, `mime_type`
 - **Access Checks**: provides `is_readable` and `is_writable` fields
-- **Search Results**: includes `context_before`, `context_after`, `ripgrep_used`, `search_time_ms`
-- **Pagination**: supports `continuation_token` for large results
-- **Filtering**: respects `.gitignore` patterns in `find-large-files`

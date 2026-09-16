@@ -46,7 +46,7 @@ Reach for these tools when the work is multi-file or filesystem-specialized: sev
 | Tool | Use it for |
 |---|---|
 | `llm_filesystem_search_files` | Find files by name or glob |
-| `llm_filesystem_search_code` | Search file contents, ripgrep-fast |
+| `llm_filesystem_search_code` | Search file contents by pattern, with optional context lines |
 
 **Moving and deleting**
 
