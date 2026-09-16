@@ -123,7 +123,9 @@ Everything that shipped as `llm-filesystem` inside `llm-tools` through mid-2026:
 - Size-aware reads with a `--max-size` budget (`0` = 70000-char default,
   `-1` = no limit). An over-budget read truncates rather than refusing — see
   the entry below.
-- Continuation-token pagination for large listings, reads, and searches.
+- Pagination for large listings via `--page` and `--page-size`, reporting
+  `page`, `page_size` and `total_pages`. Truncated reads resume with
+  `next_offset`; there is no continuation token anywhere in the tool.
 - Static single-binary builds for macOS, Linux, and Windows.
 
 ### Notes
