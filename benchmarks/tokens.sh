@@ -24,8 +24,12 @@ BIN="$ROOT/build/llm-filesystem"
 # Every command echoes the path it was given, and for search-code that path is
 # repeated once per match - 569 times on this repository - so the absolute
 # location of the checkout can move the total by a third. A published number
-# nobody else can reproduce is worse than no number, so a target inside the
-# repository is made relative to it and the whole run happens from $ROOT.
+# nobody else can reproduce is worse than no number. Making a repo-internal
+# target relative is not enough on its own: the binary absolutizes --path
+# (NormalizePath) and prints the absolute checkout path anyway. So the run
+# happens from $ROOT AND every captured output has the checkout prefix replaced
+# with the fixed placeholder /repo before counting, which makes the counted
+# figure identical for a reader no matter where their clone lives.
 # A target outside the repository (/usr/bin, /usr/share) keeps its absolute
 # path, which is short and identical on every machine.
 TARGET="${1:-$ROOT/internal}"
@@ -35,6 +39,9 @@ case "$TARGET" in
   "$ROOT")   TARGET="." ;;
   "$ROOT"/*) TARGET="${TARGET#"$ROOT"/}" ;;
 esac
+
+# $ROOT escaped for use as a sed regex, for the placeholder substitution above.
+ROOT_RE=$(printf '%s' "$ROOT" | sed 's/[][\.*^$/]/\\&/g')
 
 if [ ! -x "$BIN" ]; then
   echo "building $BIN first..." >&2
@@ -64,12 +71,9 @@ declare -a CASES=(
   "list-directory|--path $TARGET"
   "get-directory-tree|--path $TARGET --depth 3"
   "search-code|--path $TARGET --pattern func"
-  # Relative, and run from $ROOT, so this row does not depend on where the
-  # repository happens to live. Output echoes the path it was given, and on a
-  # document this small that dominates: measured from a normal checkout the
-  # baseline is 268 tokens, but regenerated inside a pipeline worktree - whose
-  # path is 26 tokens longer - it came out at 290, so the published number could
-  # not be reproduced by anyone running the script themselves.
+  # Relative, and run from $ROOT. read-file echoes the path it was given
+  # verbatim rather than absolutizing it, so this row never depended on
+  # where the repository happens to live.
   "read-file|--path go.mod"
 )
 
@@ -105,6 +109,11 @@ for case in "${CASES[@]}"; do
       echo "error: $cmd ($label) produced no output; refusing to count an empty file" >&2
       exit 1
     fi
+    # Normalize the absolute checkout prefix (the binary absolutizes --path
+    # and echoes it) to a fixed placeholder, so the count does not depend on
+    # where this clone lives. Portable: no sed -i, which differs BSD vs GNU.
+    sed "s|$ROOT_RE|/repo|g" "$out" > "$out.norm"
+    mv "$out.norm" "$out"
     files+=("$out")
   done
 

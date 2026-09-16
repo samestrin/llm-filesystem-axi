@@ -32,11 +32,20 @@ read-file                   253        253        242        242         4.3%
 
 ```
 command               json-full   json-min  toon-full   toon-min    reduction
-list-directory              206        116        188         82        60.2%
-get-directory-tree          233        225        157        139        40.3%
-search-code               34393      34434      25300      25300        26.4%
+list-directory              178        102        160         68        61.8%
+get-directory-tree          219        211        143        125        42.9%
+search-code               26413      26454      17320      17320        34.4%
 read-file                   253        253        242        242         4.3%
 ```
+
+The binary absolutizes `--path` and echoes the absolute checkout path in this
+table's output (once per match for `search-code` - 569 times), which would
+otherwise move every count with the length of the reader's checkout path: the
+same run measures thousands of tokens more from a deeply nested pipeline
+worktree than from a short `~/src` clone. The script therefore replaces the
+checkout prefix with the fixed placeholder `/repo` in the captured output
+before counting, so these are the figures any reader measures, wherever their
+clone lives.
 
 ## Why `json-min` can exceed `json-full`
 
