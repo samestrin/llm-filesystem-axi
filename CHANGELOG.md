@@ -25,7 +25,7 @@ Adopted the [AXI](https://axi.md) design principles for agent-ergonomic CLIs:
   `read-file` is 4.3% on every target, while `search-code` runs 26.4% on this
   repository's `internal/` up to 45.3% on `/usr/share` — since no schema choice
   shrinks the bytes of a file you asked to read. TOON encoding alone accounts for
-  0-46% of that; on large listings most of the saving comes from the minimal field
+  0-45% of that; on large listings most of the saving comes from the minimal field
   set rather than the format.
   The MCP server requests TOON.
 - **Minimal default field sets** with a `--full` escape hatch. Listings, trees,

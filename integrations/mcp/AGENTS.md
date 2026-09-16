@@ -74,6 +74,6 @@ Single-file read and write are served here too, but your native tools are better
 
 ## Reading the output
 
-Tools return TOON with a minimal field set — measured at 58-94% fewer tokens than full JSON on directory listings, far less on file content. Results carry aggregates such as `total`, and an empty result says so explicitly rather than returning nothing.
+Tools return TOON with a minimal field set — measured at 60-94% fewer tokens than full JSON on directory listings, far less on file content. Results carry aggregates such as `total`, and an empty result says so explicitly rather than returning nothing.
 
 A failure comes back as a structured body with `error: true`, a message, and a suggested next step — not as an empty response.
