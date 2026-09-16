@@ -12,8 +12,8 @@ github.com/inconshreveable/mousetrap v1.1.0/go.mod h1:vpF70FUmC8bwa3OWnCshd2FqLf
 github.com/modelcontextprotocol/go-sdk v1.2.0 h1:Y23co09300CEk8iZ/tMxIX1dVmKZkzoSBZOpJwUnc/s=
 github.com/modelcontextprotocol/go-sdk v1.2.0/go.mod h1:6fM3LCm3yV7pAs8isnKLn07oKtB0MP9LHd3DfAcKw10=
 github.com/russross/blackfriday/v2 v2.1.0/go.mod h1:+Rmxgy9KzJVeS9/2gXHxylqXiyQDYRxCVz55jmeOWTM=
-github.com/samestrin/go-axi v0.3.0 h1:VnmIVOX2B/5BcXpzWAGN5Q5WfnIhFeIUvY8B+9ExYq4=
-github.com/samestrin/go-axi v0.3.0/go.mod h1:xb9XmQ5adGISAZAgFRrf2k7afTPscsavmP4RaXcnp+g=
+github.com/samestrin/go-axi v0.3.1 h1:MxZrkpv0F06lL772DtOw8eMIeTce6eTgv4yoitSduaw=
+github.com/samestrin/go-axi v0.3.1/go.mod h1:xb9XmQ5adGISAZAgFRrf2k7afTPscsavmP4RaXcnp+g=
 github.com/spf13/cobra v1.8.0 h1:7aJaZx1B85qltLMc546zn58BxxfZdR/W22ej9CFoEf0=
 github.com/spf13/cobra v1.8.0/go.mod h1:WXLWApfZ71AjXPya3WOlMsY9yMs7YeiHhFVlvLyhcho=
 github.com/spf13/pflag v1.0.5 h1:iy+VFUOCP1a+8yFto/drg2CJ5u0yRoB7fZw3DKv/JXA=
