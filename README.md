@@ -69,13 +69,13 @@ Measured against `--full --format json`, which is byte-identical to the pre-AXI 
 
 | Command | Baseline tokens | Default tokens | Reduction |
 |---------|-----------------|----------------|-----------|
-| `list-directory` (921 entries) | 147,158 | 9,101 | **93.8%** |
-| `list-directory` (41 entries) | 6,443 | 447 | **93.1%** |
-| `get-directory-tree` | 35,608 | 15,245 | **57.2%** |
-| `search-code` | 46,933 | 37,840 | 19.4% |
-| `read-file` | 290 | 280 | 3.4% |
+| `list-directory` (`/usr/bin`, 921 entries) | 147,158 | 9,101 | **93.8%** |
+| `list-directory` (`/usr/share`, 41 entries) | 6,443 | 447 | **93.1%** |
+| `get-directory-tree` (`/usr/share`) | 35,608 | 15,245 | **57.2%** |
+| `search-code` (this repo's `internal/`) | 46,933 | 37,840 | 19.4% |
+| `read-file` (this repo's `go.mod`) | 290 | 280 | 3.4% |
 
-Listings are where it pays, because most of a listing is repeated field names. Commands whose output is mostly file **content** save far less — no schema choice shrinks the bytes of the file you asked for. The reduction also scales with result count: on a directory of only a handful of entries it drops to about 60%, since the fixed part of the document stops being a rounding error.
+Listings are where it pays, because most of a listing is repeated field names. Commands whose output is mostly file **content** save far less — no schema choice shrinks the bytes of the file you asked for. The reduction also scales with result count: on a directory of only a handful of entries it drops to about 60%, since the fixed part of the document stops being a rounding error. And the tree row needs subdirectories to pay off — the benchmark does not pass `--include-files`, so on a flat directory like `/usr/bin` the tree is a single node and every mode prints the same small document (0%).
 
 TOON output is produced by [go-axi](https://github.com/samestrin/go-axi), which sanitizes it on the way out. File names and file contents are text this tool did not author and prints verbatim, and the raw codec passes ANSI escapes, `U+2028`/`U+2029`, lone C1 bytes and invalid UTF-8 straight through to whatever terminal renders them. go-axi also refuses a value the codec would silently emit as empty output, and supplies the exit codes below.
 
