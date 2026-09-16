@@ -18,6 +18,17 @@ var paramAliases = map[string][]string{
 	"source": {"src", "from"},
 }
 
+// AcceptedParamNames returns every argument name the MCP server accepts on a
+// tool call: the canonical parameter names and each of their aliases.
+func AcceptedParamNames() []string {
+	names := make([]string, 0, len(paramAliases)*4)
+	for canonical, aliases := range paramAliases {
+		names = append(names, canonical)
+		names = append(names, aliases...)
+	}
+	return names
+}
+
 // normalizeArgs converts aliased parameter names to their canonical forms.
 // It returns a new map with normalized keys while preserving original values.
 func normalizeArgs(args map[string]interface{}) map[string]interface{} {
