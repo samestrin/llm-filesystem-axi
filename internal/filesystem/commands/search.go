@@ -131,7 +131,7 @@ func searchCodeCmd() *cobra.Command {
 					// lines", which returns none: context exists only when
 					// --context asked for it, so following that line ran a
 					// second search for the identical output.
-					if contextLines == 0 {
+					if contextLines <= 0 {
 						steps = append(steps, "Show the lines around each match: add --context 3")
 					}
 					return steps

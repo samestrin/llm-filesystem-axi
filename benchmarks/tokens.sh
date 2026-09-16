@@ -22,7 +22,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BIN="$ROOT/build/llm-filesystem"
 
 # Every command echoes the path it was given, and for search-code that path is
-# repeated once per match - 569 times on this repository - so the absolute
+# repeated once per match - 576 times on this repository - so the absolute
 # location of the checkout can move the total by a third. A published number
 # nobody else can reproduce is worse than no number. Making a repo-internal
 # target relative is not enough on its own: the binary absolutizes --path

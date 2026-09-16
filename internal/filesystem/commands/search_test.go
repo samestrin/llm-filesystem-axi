@@ -116,9 +116,35 @@ func TestSearchCodeHelpNamesTheFlagThatActuallyReturnsContext(t *testing.T) {
 		t.Errorf("help does not name --context, the flag that actually returns context:\n%s", out)
 	}
 
-	// Already asked for context: offering it again is noise.
+	// Already asked for context: offering it again is noise. The assertion is
+	// on "add --context", the string the hint emits today, so it goes red the
+	// moment the contextLines gate that suppresses the hint stops firing.
 	withCtx, _, _ := runCLI(t, "search-code", "--path", dir, "--pattern", "NEEDLE", "--context", "1")
-	if strings.Contains(withCtx, "for surrounding context lines") {
+	if strings.Contains(withCtx, "add --context") {
 		t.Errorf("help offered context to a caller who already requested it:\n%s", withCtx)
+	}
+}
+
+// Cobra accepts a negative --context and core treats it as no context (its
+// gate is contextLines > 0), so the output must match a zero-context search:
+// no context field, and the hint naming --context as the way to get it. The
+// projection and hint gates used different predicates (contextLines > 0 vs
+// contextLines == 0), so --context -1 fell between them and produced output
+// with neither context lines nor the line saying how to get them.
+func TestSearchCodeNegativeContextBehavesAsNoContext(t *testing.T) {
+	dir := searchFixture(t)
+
+	out, _, code := runCLI(t, "search-code", "--path", dir, "--pattern", "NEEDLE", "--context", "-1")
+	if code != int(goaxi.ExitOK) && code != -1 {
+		t.Fatalf("exit = %d", code)
+	}
+	if hasNestedTOONField(out, "context") {
+		t.Errorf("--context -1 emitted a context field core never populated:\n%s", out)
+	}
+	if strings.Contains(out, "line above alpha") {
+		t.Errorf("--context -1 returned surrounding lines:\n%s", out)
+	}
+	if !strings.Contains(out, "add --context") {
+		t.Errorf("--context -1 suppresses the hint that names --context, leaving no way to learn how to get context:\n%s", out)
 	}
 }
