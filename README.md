@@ -70,10 +70,10 @@ Measured against `--full --format json`, which is byte-identical to the pre-AXI 
 | Command | Baseline tokens | Default tokens | Reduction |
 |---------|-----------------|----------------|-----------|
 | `list-directory` (921 entries) | 147,158 | 9,101 | **93.8%** |
-| `list-directory` (41 entries) | 6,849 | 537 | **92.2%** |
-| `get-directory-tree` | 74,875 | 20,635 | **72.4%** |
-| `search-code` | 34,393 | 25,300 | 26.4% |
-| `read-file` | 268 | 258 | 3.7% |
+| `list-directory` (41 entries) | 6,443 | 447 | **93.1%** |
+| `get-directory-tree` | 35,608 | 15,245 | **57.2%** |
+| `search-code` | 46,933 | 37,840 | 19.4% |
+| `read-file` | 290 | 280 | 3.4% |
 
 Listings are where it pays, because most of a listing is repeated field names. Commands whose output is mostly file **content** save far less — no schema choice shrinks the bytes of the file you asked for. The reduction also scales with result count: on a directory of only a handful of entries it drops to about 60%, since the fixed part of the document stops being a rounding error.
 

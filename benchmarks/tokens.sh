@@ -77,11 +77,22 @@ for case in "${CASES[@]}"; do
     out="$WORK/$cmd.$label"
     # word-splitting on $flags and $args is intended: they are flag lists
     # shellcheck disable=SC2086
-    "$BIN" "$cmd" $args $flags > "$out" 2>/dev/null || true
+    if ! "$BIN" "$cmd" $args $flags > "$out" 2>/dev/null; then
+      echo "error: $cmd ($label) exited non-zero; refusing to count a failed invocation" >&2
+      exit 1
+    fi
+    if [ ! -s "$out" ]; then
+      echo "error: $cmd ($label) produced no output; refusing to count an empty file" >&2
+      exit 1
+    fi
     files+=("$out")
   done
 
-  mapfile -t counts < <(count_tokens "${files[@]}")
+  # while-read rather than mapfile, which stock macOS bash 3.2 does not have.
+  counts=()
+  while IFS= read -r line; do
+    counts+=("$line")
+  done < <(count_tokens "${files[@]}")
   base="${counts[0]}"
   min="${counts[3]}"
   if [ "$base" -gt 0 ]; then

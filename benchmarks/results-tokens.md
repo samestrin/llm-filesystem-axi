@@ -12,18 +12,22 @@ command               json-full   json-min  toon-full   toon-min    reduction
 list-directory           147158      28486     129493       9101        93.8%
 get-directory-tree           70         96         70         70         0.0%
 search-code               17681      17754      11237      11237        36.4%
-read-file                   268        268        258        258         3.7%
+read-file                   290        290        280        280         3.4%
 ```
 
-## A working directory (41 entries)
+The tree row is 0.0% because the benchmark does not pass `--include-files` and
+`/usr/bin` is flat: a directories-only tree of one directory is a single node, so
+every mode prints the same small document.
+
+## A system directory (`/usr/share`, 41 entries)
 
 ```
 
 command               json-full   json-min  toon-full   toon-min    reduction
-list-directory             6849       1377       3871        537        92.2%
-get-directory-tree        74875      48836      38573      20635        72.4%
-search-code               68144      68193      52010      52010        23.7%
-read-file                   268        268        258        258         3.7%
+list-directory             6443       1290       3461        447        93.1%
+get-directory-tree        35608      24584      23607      15245        57.2%
+search-code               74540      74611      40761      40761        45.3%
+read-file                   290        290        280        280         3.4%
 ```
 
 ## This repository (`internal/`)
@@ -31,10 +35,10 @@ read-file                   268        268        258        258         3.7%
 ```
 
 command               json-full   json-min  toon-full   toon-min    reduction
-list-directory              206        116        188         82        60.2%
-get-directory-tree          233        225        157        139        40.3%
-search-code               34393      34434      25300      25300        26.4%
-read-file                   268        268        258        258         3.7%
+list-directory              250        138        232        104        58.4%
+get-directory-tree          255        247        179        161        36.9%
+search-code               46933      46974      37840      37840        19.4%
+read-file                   290        290        280        280         3.4%
 ```
 
 ## Why `json-min` can exceed `json-full`
@@ -42,15 +46,19 @@ read-file                   268        268        258        258         3.7%
 For `search-code`, look at the `json-min` column against `json-full`: minimal is the
 larger of the two. That is expected, not a defect.
 
-`search-code` already emits its minimal field set at full size - every match carries
-exactly `content`, `file` and `line` in both modes, and the 569 match items are
-byte-for-byte identical. There is nothing for the minimal projection to remove.
+`search-code` already emits its minimal field set at full size - in the benchmarked
+invocation every match carries exactly `content`, `file` and `line` in both modes, and
+the 569 match items on this repository's `internal/` hold identical values in both
+modes, serialized in a different key order. There is nothing for the minimal
+projection to remove here because the benchmark ran without `--context`; with
+`--context N`, full JSON adds each match's `context` field (`CodeMatch.context`) and
+the minimal projection drops it, so minimal would then come out smaller than full.
 
-What minimal does add is the `next_steps` payload, 101 bytes, which `--full --format
+What minimal does add is the `next_steps` payload, 141 bytes, which `--full --format
 json` deliberately omits so it stays byte-identical to the pre-AXI `--json` output.
 So for this one command minimal costs slightly more and saves nothing, and the
 reduction reported in the table above comes entirely from TOON encoding rather than
 from field selection.
 
 Changing this would mean either dropping contextual disclosure from minimal JSON or
-breaking the legacy guarantee on `--full`. Neither is worth 101 bytes.
+breaking the legacy guarantee on `--full`. Neither is worth 141 bytes.
