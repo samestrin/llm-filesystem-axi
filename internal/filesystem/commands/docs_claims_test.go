@@ -1,12 +1,15 @@
 package commands
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
 	"testing"
+
+	"github.com/samestrin/llm-filesystem-axi/internal/filesystem/mcpserver"
 )
 
 // The command lists in integrations/*/AGENTS.md are checked against the binary
@@ -93,21 +96,36 @@ func referenceDocs(t *testing.T) []string {
 }
 
 // knownIdentifiers is every snake_case name this tool actually answers to:
-// struct tags it emits, arguments the MCP server reads, tool names it exposes,
-// and its own command names.
+// struct tags it emits, arguments the MCP server reads, the parameter names
+// and aliases it accepts, tool names it exposes, and its own command names.
 //
-// These are read out of the source rather than listed here, so the set cannot
-// drift the way a hand-maintained list would - which is the failure this whole
-// file exists to prevent.
+// What can be read from the mcpserver package at runtime is read there, so the
+// set cannot drift the way a hand-maintained list would; the rest is read out
+// of the source for the same reason - drift is the failure this whole file
+// exists to prevent.
 func knownIdentifiers(t *testing.T) map[string]bool {
 	t.Helper()
 
 	known := map[string]bool{}
 
+	// Tool names, schema property names and accepted parameter aliases, from
+	// the mcpserver package itself rather than from its source text.
+	for _, def := range mcpserver.GetToolDefinitions() {
+		known[def.Name] = true // prefixed, as integrations/mcp writes it
+		known[strings.TrimPrefix(def.Name, mcpserver.ToolPrefix)] = true
+		var schema map[string]interface{}
+		if err := json.Unmarshal(def.InputSchema, &schema); err != nil {
+			t.Fatalf("parsing input schema for %s: %v", def.Name, err)
+		}
+		schemaProperties(schema, known)
+	}
+	for _, name := range mcpserver.AcceptedParamNames() {
+		known[name] = true
+	}
+
 	jsonTag := regexp.MustCompile(`json:"([a-z0-9_]+)`)
 	mcpArg := regexp.MustCompile(`get(?:Int|String|Bool|Float)\(args,\s*"([a-z0-9_]+)"`)
 	directArg := regexp.MustCompile(`args\["([a-z0-9_]+)"\]`)
-	toolName := regexp.MustCompile(`ToolPrefix \+ "([a-z0-9_]+)"`)
 
 	root := "../.."
 	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
@@ -127,10 +145,6 @@ func knownIdentifiers(t *testing.T) map[string]bool {
 				known[m[1]] = true
 			}
 		}
-		for _, m := range toolName.FindAllStringSubmatch(text, -1) {
-			known[m[1]] = true                   // bare, as docs/ writes it
-			known["llm_filesystem_"+m[1]] = true // prefixed, as integrations/mcp writes it
-		}
 		return nil
 	})
 	if err != nil {
@@ -146,4 +160,24 @@ func knownIdentifiers(t *testing.T) map[string]bool {
 		t.Fatalf("only %d identifiers found; the source scan is broken and this test would pass vacuously", len(known))
 	}
 	return known
+}
+
+// schemaProperties adds every property name declared anywhere in a JSON
+// schema, including nested object and array-item schemas.
+func schemaProperties(node map[string]interface{}, known map[string]bool) {
+	for key, val := range node {
+		sub, ok := val.(map[string]interface{})
+		if key == "properties" && ok {
+			for name, prop := range sub {
+				known[name] = true
+				if m, ok := prop.(map[string]interface{}); ok {
+					schemaProperties(m, known)
+				}
+			}
+			continue
+		}
+		if ok {
+			schemaProperties(sub, known)
+		}
+	}
 }
