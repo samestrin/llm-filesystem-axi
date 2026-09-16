@@ -7,12 +7,11 @@ Baseline is `--full --format json`, which is byte-identical to the pre-AXI `--js
 ## A large directory (`/usr/bin`, 921 entries)
 
 ```
-
 command               json-full   json-min  toon-full   toon-min    reduction
 list-directory           147158      28486     129493       9101        93.8%
 get-directory-tree           70         96         70         70         0.0%
 search-code               17681      17754      11237      11237        36.4%
-read-file                   290        290        280        280         3.4%
+read-file                   253        253        242        242         4.3%
 ```
 
 The tree row is 0.0% because the benchmark does not pass `--include-files` and
@@ -22,23 +21,21 @@ every mode prints the same small document.
 ## A system directory (`/usr/share`, 41 entries)
 
 ```
-
 command               json-full   json-min  toon-full   toon-min    reduction
 list-directory             6443       1290       3461        447        93.1%
 get-directory-tree        35608      24584      23607      15245        57.2%
 search-code               74540      74611      40761      40761        45.3%
-read-file                   290        290        280        280         3.4%
+read-file                   253        253        242        242         4.3%
 ```
 
 ## This repository (`internal/`)
 
 ```
-
 command               json-full   json-min  toon-full   toon-min    reduction
-list-directory              250        138        232        104        58.4%
-get-directory-tree          255        247        179        161        36.9%
-search-code               46933      46974      37840      37840        19.4%
-read-file                   290        290        280        280         3.4%
+list-directory              206        116        188         82        60.2%
+get-directory-tree          233        225        157        139        40.3%
+search-code               34393      34434      25300      25300        26.4%
+read-file                   253        253        242        242         4.3%
 ```
 
 ## Why `json-min` can exceed `json-full`

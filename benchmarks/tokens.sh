@@ -20,7 +20,21 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BIN="$ROOT/build/llm-filesystem"
+
+# Every command echoes the path it was given, and for search-code that path is
+# repeated once per match - 569 times on this repository - so the absolute
+# location of the checkout can move the total by a third. A published number
+# nobody else can reproduce is worse than no number, so a target inside the
+# repository is made relative to it and the whole run happens from $ROOT.
+# A target outside the repository (/usr/bin, /usr/share) keeps its absolute
+# path, which is short and identical on every machine.
 TARGET="${1:-$ROOT/internal}"
+TARGET="$(cd "$TARGET" 2>/dev/null && pwd || echo "$TARGET")"
+cd "$ROOT"
+case "$TARGET" in
+  "$ROOT")   TARGET="." ;;
+  "$ROOT"/*) TARGET="${TARGET#"$ROOT"/}" ;;
+esac
 
 if [ ! -x "$BIN" ]; then
   echo "building $BIN first..." >&2
@@ -50,7 +64,13 @@ declare -a CASES=(
   "list-directory|--path $TARGET"
   "get-directory-tree|--path $TARGET --depth 3"
   "search-code|--path $TARGET --pattern func"
-  "read-file|--path $ROOT/go.mod"
+  # Relative, and run from $ROOT, so this row does not depend on where the
+  # repository happens to live. Output echoes the path it was given, and on a
+  # document this small that dominates: measured from a normal checkout the
+  # baseline is 268 tokens, but regenerated inside a pipeline worktree - whose
+  # path is 26 tokens longer - it came out at 290, so the published number could
+  # not be reproduced by anyone running the script themselves.
+  "read-file|--path go.mod"
 )
 
 declare -a MODES=(

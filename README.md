@@ -72,8 +72,8 @@ Measured against `--full --format json`, which is byte-identical to the pre-AXI 
 | `list-directory` (`/usr/bin`, 921 entries) | 147,158 | 9,101 | **93.8%** |
 | `list-directory` (`/usr/share`, 41 entries) | 6,443 | 447 | **93.1%** |
 | `get-directory-tree` (`/usr/share`) | 35,608 | 15,245 | **57.2%** |
-| `search-code` (this repo's `internal/`) | 46,933 | 37,840 | 19.4% |
-| `read-file` (this repo's `go.mod`) | 290 | 280 | 3.4% |
+| `search-code` (this repo's `internal/`) | 34,393 | 25,300 | 26.4% |
+| `read-file` (this repo's `go.mod`) | 253 | 242 | 4.3% |
 
 Listings are where it pays, because most of a listing is repeated field names. Commands whose output is mostly file **content** save far less — no schema choice shrinks the bytes of the file you asked for. The reduction also scales with result count: on a directory of only a handful of entries it drops to about 60%, since the fixed part of the document stops being a rounding error. And the tree row needs subdirectories to pay off — the benchmark does not pass `--include-files`, so on a flat directory like `/usr/bin` the tree is a single node and every mode prints the same small document (0%).
 
