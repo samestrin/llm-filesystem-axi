@@ -1,14 +1,27 @@
 name: release
 
+# A pushed v* tag verifies, builds, checksums and publishes a release.
+#
+# A manual run (Actions > release > Run workflow), or a pull request that
+# changes this file, runs the same verify, build and checksum steps and
+# publishes nothing, so the release path can be proven before a tag is pushed.
+# Its binaries and SHA256SUMS.txt are kept as the run's "dist" artifact.
+#
+# Only the publish job can write to the repository, and it runs only on a
+# tag push. A manual run started from a tag does not publish.
+# internal/filesystem/commands/release_workflow_test.go guards all of this.
 on:
   push:
     tags: ['v*']
+  workflow_dispatch:
+  pull_request:
+    paths: ['.github/workflows/release.yml']
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  release:
+  build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -26,7 +39,13 @@ jobs:
 
       - name: build all platforms
         run: |
-          VERSION="${GITHUB_REF_NAME}"
+          # A tag stamps its own name. Anything else is not a release, so the
+          # version says so instead of claiming a branch name or "16/merge".
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            VERSION="${GITHUB_REF_NAME}"
+          else
+            VERSION="dev-${GITHUB_SHA::12}"
+          fi
           mkdir -p dist
           CLI_LDFLAGS="-s -w -X github.com/samestrin/llm-filesystem-axi/internal/filesystem/commands.Version=$VERSION"
           for platform in darwin/amd64 darwin/arm64 linux/amd64 linux/arm64 windows/amd64; do
@@ -35,6 +54,34 @@ jobs:
             GOOS=$os GOARCH=$arch go build -ldflags "$CLI_LDFLAGS" -o dist/llm-filesystem-$os-$arch$ext ./cmd/llm-filesystem
           done
           cd dist && sha256sum * > SHA256SUMS.txt
+
+      # Check the output instead of trusting the loop: five binaries, five
+      # checksum lines, and every checksum matches.
+      - name: check the build
+        working-directory: dist
+        run: |
+          cat SHA256SUMS.txt
+          test "$(ls llm-filesystem-* | wc -l)" -eq 5
+          test "$(wc -l < SHA256SUMS.txt)" -eq 5
+          sha256sum -c SHA256SUMS.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
 
       - name: publish
         uses: softprops/action-gh-release@v1
