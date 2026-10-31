@@ -114,7 +114,7 @@ Two independent reviewers read the full diff. Everything below was reproduced ag
 
 ### Removed — the MCP server
 
-- **`llm-filesystem-mcp` is gone, and so is `integrations/mcp/`.** It was a second front end that shelled out to this CLI, so every command change had to land twice, and the two drifted. AXI treats the command line as the agent interface; an agent that can run a command uses `llm-filesystem` directly. `make build` and `install.sh` now build one binary, and the README, the command reference and the Claude Code integration no longer tell you to install or register the server. A test fails if the name comes back anywhere outside this file.
+- **`llm-filesystem-mcp` is gone, and so is `integrations/mcp/`.** It was a second front end that shelled out to this CLI, so every command change had to land twice, and the two drifted. AXI treats the command line as the agent interface; an agent that can run a command uses `llm-filesystem` directly. `make build` and `install.sh` now build one binary, and the README, the command reference and the Claude Code integration no longer tell you to install or register the server. Tests fail if the name comes back in the Go source, `go.mod`, the `Makefile`, `install.sh`, the CI workflows, or any Markdown, shell, JSON or YAML file other than this one.
 
 ### Removed — a migration guide that documented an API this tool does not have
 

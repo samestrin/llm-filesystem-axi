@@ -9,7 +9,7 @@ Every count, flag and example in this file is checked against the binary. The co
 ```bash
 git clone https://github.com/samestrin/llm-filesystem-axi.git
 cd llm-filesystem-axi
-sudo ./install.sh          # builds both binaries, installs to /usr/local/bin
+sudo ./install.sh          # builds the binary, installs to /usr/local/bin
 ```
 
 Or directly:
