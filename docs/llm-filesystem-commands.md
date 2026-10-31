@@ -9,7 +9,7 @@ Every count, flag and example in this file is checked against the binary. The co
 ```bash
 git clone https://github.com/samestrin/llm-filesystem-axi.git
 cd llm-filesystem-axi
-sudo ./install.sh          # builds both binaries, installs to /usr/local/bin
+sudo ./install.sh          # builds the binary, installs to /usr/local/bin
 ```
 
 Or directly:
@@ -122,14 +122,6 @@ A search path that does not exist, or that is a file rather than a directory, is
 
 Errors are structured documents on **stdout** in the active format, each carrying a `help[]` block naming a concrete next command. `--format text` keeps its `Error: <msg>` shape on stderr.
 
-## MCP Integration
+## MCP
 
-The CLI above is the interface. AXI treats the command line as the agent interface rather than something to wrap in a protocol, so reach for the MCP server only when a client cannot run a CLI at all.
-
-The MCP wrapper (`llm-filesystem-mcp`) exposes **17 tools** with the `llm_filesystem_` prefix, shelling out to this same CLI:
-
-`batch_file_operations`, `compress_files`, `copy_file`, `delete_file`, `edit_blocks`, `extract_archive`, `extract_lines`, `get_directory_tree`, `list_directory`, `move_file`, `read_file`, `read_multiple_files`, `search_and_replace`, `search_code`, `search_files`, `write_file`, `write_multiple_files`
-
-The server passes `--confirm` itself for deletions, since the tool call is the confirmation.
-
-**Note:** the CLI exposes all 28 commands. For setup, see [`integrations/claude-code/`](../integrations/claude-code/).
+There is no MCP server. The MCP wrapper was removed: it shelled out to this same CLI, so every command change had to land twice, and the two drifted. AXI treats the command line as the agent interface, so an agent that can run a command uses the CLI directly. For Claude Code setup, see [`integrations/claude-code/`](../integrations/claude-code/).

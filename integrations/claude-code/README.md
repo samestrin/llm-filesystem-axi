@@ -29,23 +29,3 @@ cp skill/SKILL.md ~/.claude/skills/llm-filesystem/SKILL.md
 ```
 
 Use a project-level `.claude/skills/` instead of `~/.claude/` to scope it to one project.
-
-## 3. MCP server (optional, for clients without a shell)
-
-Claude Code does not need this — it can run the binary directly, and the server only shells out to that same binary. Register it if you want the tools available to a client that cannot run a CLI:
-
-```json
-{
-  "mcpServers": {
-    "llm-filesystem": {
-      "command": "/usr/local/bin/llm-filesystem-mcp"
-    }
-  }
-}
-```
-
-Both binaries must be installed; see the project [README](../../README.md). To restrict access, add `"args": ["--allowed-dirs", "/path/a,/path/b"]`.
-
-If you register it, use [`../mcp/AGENTS.md`](../mcp/AGENTS.md) for routing instead — the tool names differ from the command names, and MCP tools take JSON arguments rather than flags.
-
-Registering it costs a tool schema per session whether the tools are used or not, which is the per-session cost the on-demand skill above exists to avoid. If you can run the CLI, prefer it.
