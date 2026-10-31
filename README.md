@@ -62,13 +62,13 @@ Measured against `--full --format json`, which is byte-identical to the pre-AXI 
 
 | Command | Baseline tokens | Default tokens | Reduction |
 |---------|-----------------|----------------|-----------|
-| `list-directory` (`/usr/bin`, 921 entries) | 147,158 | 9,101 | **93.8%** |
-| `list-directory` (`/usr/share`, 41 entries) | 6,443 | 447 | **93.1%** |
-| `get-directory-tree` (`/usr/share`) | 35,608 | 15,245 | **57.2%** |
-| `search-code` (this repo's `internal/`) | 26,742 | 17,543 | 34.4% |
-| `read-file` (this repo's `go.mod`) | 253 | 242 | 4.3% |
+| `list-directory` (`/usr/bin`, 523 entries) | 78,833 | 5,285 | **93.3%** |
+| `list-directory` (`/usr/share`, 56 entries) | 8,441 | 729 | **91.4%** |
+| `get-directory-tree` (`/usr/share`) | 24,453 | 10,714 | **56.2%** |
+| `search-code` (this repo's `internal/`) | 24,067 | 15,797 | 34.4% |
+| `read-file` (this repo's `go.mod`) | 182 | 171 | 6.0% |
 
-Listings are where it pays, because most of a listing is repeated field names. Commands whose output is mostly file **content** save far less — no schema choice shrinks the bytes of the file you asked for. The reduction also scales with result count: on a directory of only a handful of entries it drops to about 62%, since the fixed part of the document stops being a rounding error. And the tree row needs subdirectories to pay off — the benchmark does not pass `--include-files`, so on a flat directory like `/usr/bin` the tree is a single node and every mode prints the same small document (0%).
+Listings are where it pays, because most of a listing is repeated field names. Commands whose output is mostly file **content** save far less — no schema choice shrinks the bytes of the file you asked for. The reduction also scales with result count: on a directory of only a handful of entries it drops to about 60%, since the fixed part of the document stops being a rounding error. And the tree row needs subdirectories to pay off — the benchmark does not pass `--include-files`, so on a flat directory like `/usr/bin` the tree is a single node and every mode prints the same small document (0%).
 
 TOON output is produced by [go-axi](https://github.com/samestrin/go-axi), which sanitizes it on the way out. File names and file contents are text this tool did not author and prints verbatim, and the raw codec passes ANSI escapes, `U+2028`/`U+2029`, lone C1 bytes and invalid UTF-8 straight through to whatever terminal renders them. go-axi also refuses a value the codec would silently emit as empty output, and supplies the exit codes below.
 
@@ -112,16 +112,15 @@ Set `LLM_FILESYSTEM_FULL=1` to make full output the default for every command �
 
 ## Why Go
 
-LLM agents run tight loops. Paying 85ms for a Node.js process to cold-start just to read a file breaks the flow. A static Go binary starts in single-digit milliseconds.
+LLM agents run tight loops. Paying 150ms for a Node.js process to cold-start just to read a file breaks the flow. A static Go binary starts in single-digit milliseconds.
 
 | Benchmark | Go (llm-filesystem) | TypeScript (Node) | Speedup |
 |-----------|---------------------|-------------------|---------|
-| **Cold Start** | **5.2ms** | **85.1ms** | **16.5x** |
-| MCP Handshake | 40.8ms | 110.4ms | **2.7x** |
-| File Read | 49.5ms | 108.2ms | **2.2x** |
-| Directory Tree | 50.9ms | 113.7ms | **2.2x** |
+| **Cold Start** | **1.9ms** | **150.1ms** | **78x** |
+| File Read | 1.9ms | 194.3ms | **103x** |
+| Directory Tree | 6.1ms | 176.7ms | **29x** |
 
-> *Benchmarks run on M4 Pro 64GB macOS (arm64), 2025-12-31. See [`benchmarks/`](benchmarks/).*
+> *Benchmarks run on an Intel Xeon W-2295 (36 threads), 141 GB RAM, Debian 13 container on Linux 7.0 (x86_64), Node 24, 2026-10-31. TypeScript is `fast-filesystem-mcp` 3.5.2, reachable only over MCP, so its read and tree figures are a server start, an initialize and one tool call, and include about 22ms for the Python client that drives it. See [`benchmarks/`](benchmarks/).*
 
 ## Development
 
