@@ -10,8 +10,7 @@
 
 `llm-filesystem` gives an AI agent fast, safe "hands" on the filesystem: reading, writing, editing, searching, and managing files. It follows the [AXI](https://axi.md) design principles, which treat the command line itself as the agent interface rather than something to be wrapped in a protocol.
 
-- **`llm-filesystem`** — the CLI, 28 commands. This is the tool.
-- **`llm-filesystem-mcp`** — an optional MCP server that shells out to that same CLI, for clients without shell access.
+It ships as one binary, `llm-filesystem`: a CLI with 28 commands. There is no MCP server; an agent that can run a command can run this.
 
 It began as a Go port of the TypeScript [`fast-filesystem-mcp`](https://github.com/efforthye/fast-filesystem-mcp), rewritten for startup speed and single-binary deployment.
 
@@ -20,7 +19,7 @@ It began as a Go port of the TypeScript [`fast-filesystem-mcp`](https://github.c
 ```bash
 git clone https://github.com/samestrin/llm-filesystem-axi.git
 cd llm-filesystem-axi
-sudo ./install.sh          # builds both binaries, installs to /usr/local/bin
+sudo ./install.sh          # builds the binary, installs to /usr/local/bin
 ```
 
 Or build without installing:
@@ -51,13 +50,7 @@ Append [`integrations/cli/AGENTS.md`](integrations/cli/AGENTS.md) to your projec
 cat integrations/cli/AGENTS.md >> ./AGENTS.md
 ```
 
-If you registered the MCP server rather than running the binary, use [`integrations/mcp/AGENTS.md`](integrations/mcp/AGENTS.md) instead. MCP tools take JSON arguments and cannot use flags, so flag-based advice is wrong for them.
-
-Both lists are checked against the binary in both directions by tests, so a command cannot be added, renamed or removed without the documentation failing CI.
-
-### MCP server (optional)
-
-For an MCP client that cannot run a CLI, `llm-filesystem-mcp` wraps this same binary over stdio. It is a subprocess wrapper, not a second implementation, and it costs a tool schema of context per session — if your client has shell access, use the CLI directly. Setup and the Claude Code routing rules live in [`integrations/claude-code/`](integrations/claude-code/).
+That list is checked against the binary in both directions by tests, so a command cannot be added, renamed or removed without the documentation failing CI. Claude Code setup, including an on-demand skill, lives in [`integrations/claude-code/`](integrations/claude-code/).
 
 See [`docs/llm-filesystem-commands.md`](docs/llm-filesystem-commands.md) for the full command reference.
 

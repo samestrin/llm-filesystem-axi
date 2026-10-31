@@ -91,7 +91,3 @@ TOON by default with a minimal field set — measured at 62-94% fewer tokens tha
 - `--allowed-dirs a,b` to restrict it to given directories.
 
 Exit codes: `0` success, `1` the tool tried and failed, `2` the invocation was malformed. **`2` means nothing was touched** — fix the command rather than retrying it. Every error is a structured document on stdout carrying a next step.
-
-## If your client cannot run a CLI
-
-An optional MCP server wraps this same binary over stdio. Its guidance is in `integrations/mcp/AGENTS.md`, and the tool names differ from the commands above. If you can run the CLI, prefer it.

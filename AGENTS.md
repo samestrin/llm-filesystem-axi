@@ -2,7 +2,7 @@
 
 House rules for an agent making changes **to this repository**.
 
-> Not to be confused with `integrations/cli/AGENTS.md` and `integrations/mcp/AGENTS.md`. Those are shipped artefacts telling an agent how to *use* the tool. This file is about *building* it.
+> Not to be confused with `integrations/cli/AGENTS.md`. That is a shipped artefact telling an agent how to *use* the tool. This file is about *building* it.
 
 ## What this is
 
@@ -18,10 +18,10 @@ A refusal that exits 0. A read that returns part of a file and calls it whole. A
 make test        # go test ./...
 make test-race   # race detector — CI runs this
 make lint        # go vet + gofmt check
-make build       # both binaries into ./build/ — REQUIRED before the MCP e2e tests run
+make build       # the binary into ./build/ — needed before the end-to-end tests run
 ```
 
-CI runs `gofmt -s -l`, `go vet`, and `go test -race`. It builds into `./build/` first, because four MCP end-to-end tests exec the real binary and skip without it. They **fail** rather than skip when `CI` is set, so that gap cannot reopen silently.
+CI runs `gofmt -s -l`, `go vet`, and `go test -race`. It builds into `./build/` first, because the end-to-end tests in `cmd/llm-filesystem` exec the real binary and skip without it.
 
 ## Testing
 
@@ -37,7 +37,7 @@ Five things this codebase has taught the hard way:
 
 ## Documentation is under test
 
-`integrations/cli/AGENTS.md` and `integrations/mcp/AGENTS.md` list every command and every tool, and tests compare those lists to the binary **in both directions**. Add a command without documenting it and CI fails; document one that does not exist and CI fails.
+`integrations/cli/AGENTS.md` lists every command, and a test compares that list to the binary **in both directions**. Add a command without documenting it and CI fails; document one that does not exist and CI fails.
 
 The command count in `docs/llm-filesystem-commands.md` is checked the same way. These guards exist because that number drifted to 26, 27 and 28 across three files simultaneously.
 

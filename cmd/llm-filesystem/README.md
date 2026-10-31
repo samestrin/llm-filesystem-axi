@@ -2,15 +2,13 @@
 
 The `llm-filesystem` CLI — 28 commands for reading, writing, editing, searching and managing files, built to the [AXI](https://axi.md) principles. The command line is the agent interface; output defaults to token-efficient TOON.
 
-This is the primary binary. The optional [`llm-filesystem-mcp`](../llm-filesystem-mcp/) server wraps it over stdio for MCP clients that cannot run a CLI.
-
 ## Build and install
 
 From the repository root:
 
 ```bash
 make build            # outputs ./build/llm-filesystem
-sudo ./install.sh     # builds both binaries, installs to /usr/local/bin
+sudo ./install.sh     # builds the binary, installs to /usr/local/bin
 ```
 
 Or via `go install`:

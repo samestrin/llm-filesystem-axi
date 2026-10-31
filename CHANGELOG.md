@@ -11,7 +11,8 @@ First standalone release. `llm-filesystem` was extracted from the
 repository so it can be released and versioned independently.
 
 The single `1.0.0` version reconciles the previously divergent internal versions
-(CLI `1.5.0`, MCP `1.7.0`) into one ldflags-stamped version shared by both binaries.
+(CLI `1.5.0`, MCP `1.7.0`) into one ldflags-stamped version. The MCP server does
+not ship in this release; see *Removed — the MCP server* below.
 
 ### Added — AXI compliance
 
@@ -28,7 +29,6 @@ Adopted the [AXI](https://axi.md) design principles for agent-ergonomic CLIs:
   0-46% of that (0% for the flat `/usr/bin` tree, 46% for `list-directory` on
   `/usr/share`); on large listings most of the saving comes from the minimal field
   set rather than the format.
-  The MCP server requests TOON.
 - **Minimal default field sets** with a `--full` escape hatch. Listings, trees,
   and searches emit 3-4 fields by default; `--full` (or `LLM_FILESYSTEM_FULL=1`)
   restores every field.
@@ -112,6 +112,10 @@ Two independent reviewers read the full diff. Everything below was reproduced ag
 - **25 `OutputError` call sites were missing a `return`**, which became a nil-pointer panic once a search could fail.
 - **`search-code --context N` silently discarded the context lines it was asked for.** The minimal projection dropped each match's `context` field, so default-mode output was byte-identical to a search with no `--context` at all and still exited `0`. An explicitly requested field is more specific than a default schema, so the projection now keeps `context` when, and only when, `--context` asked for it. The help line read "Add `--full` for surrounding context lines", but `--full` alone returns no context; it now names `--context`, and is omitted for a caller who already passed it.
 
+### Removed — the MCP server
+
+- **`llm-filesystem-mcp` is gone, and so is `integrations/mcp/`.** It was a second front end that shelled out to this CLI, so every command change had to land twice, and the two drifted. AXI treats the command line as the agent interface; an agent that can run a command uses `llm-filesystem` directly. `make build` and `install.sh` now build one binary, and the README, the command reference and the Claude Code integration no longer tell you to install or register the server. A test fails if the name comes back anywhere outside this file.
+
 ### Removed — a migration guide that documented an API this tool does not have
 
 - **`docs/llm-filesystem-migration.md` is deleted.** It opened by calling this a "drop-in replacement with 100% API compatibility" and then listed its own Breaking Changes two lines later, which cannot both be true once `entries` is renamed to `items`. Checking the rest against the binary, about half of it described fields that have never existed here: `context_before`, `context_after`, `ripgrep_used`, `search_time_ms`, `continuation_token`, `auto_chunked`, `chunk_index`, `total_chunks` and `has_more` appear nowhere in the codebase. It also framed the project as a Go MCP server, which stopped being the primary interface with this release.
@@ -124,8 +128,9 @@ Everything that shipped as `llm-filesystem` inside `llm-tools` through mid-2026:
 
 - **CLI (`llm-filesystem`)** — 28 commands for reading, writing, editing,
   directory operations, search, file operations, and archive handling.
-- **MCP server (`llm-filesystem-mcp`)** — 17 batch/specialized tools under the
-  `llm_filesystem_` prefix, wrapping the CLI over stdio.
+- ~~**MCP server (`llm-filesystem-mcp`)**~~ — 17 batch/specialized tools under the
+  `llm_filesystem_` prefix, wrapping the CLI over stdio. Removed before this
+  release; see *Removed — the MCP server* above.
 - Path sandboxing via `--allowed-dirs`.
 - Size-aware reads with a `--max-size` budget (`0` = 70000-char default,
   `-1` = no limit). An over-budget read truncates rather than refusing — see
