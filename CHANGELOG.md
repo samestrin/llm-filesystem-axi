@@ -56,6 +56,11 @@ Adopted the [AXI](https://axi.md) design principles for agent-ergonomic CLIs:
   destination that did not exist; the walk discarded the error and reported
   `files_copied: 0` with `success: true`. The directories it did create left the
   destination looking populated.
+- **A `safe-edit` or `search-and-replace` dry run looked like a real one in TOON
+  and JSON.** Only the human text was prefixed `[DRY RUN]`; in the default and
+  machine formats a `search-and-replace` preview was byte-identical to an
+  applied run, and `safe-edit` differed only in a prose message. Both now carry
+  `dry_run: true` in every format, as `sync-directories` does.
 
 ### Changed — reads truncate instead of refusing
 
