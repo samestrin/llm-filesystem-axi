@@ -29,12 +29,10 @@ jobs:
           VERSION="${GITHUB_REF_NAME}"
           mkdir -p dist
           CLI_LDFLAGS="-s -w -X github.com/samestrin/llm-filesystem-axi/internal/filesystem/commands.Version=$VERSION"
-          MCP_LDFLAGS="-s -w -X main.serverVersion=$VERSION"
           for platform in darwin/amd64 darwin/arm64 linux/amd64 linux/arm64 windows/amd64; do
             os=${platform%/*}; arch=${platform#*/}
             ext=""; [ "$os" = "windows" ] && ext=".exe"
             GOOS=$os GOARCH=$arch go build -ldflags "$CLI_LDFLAGS" -o dist/llm-filesystem-$os-$arch$ext ./cmd/llm-filesystem
-            GOOS=$os GOARCH=$arch go build -ldflags "$MCP_LDFLAGS" -o dist/llm-filesystem-mcp-$os-$arch$ext ./cmd/llm-filesystem-mcp
           done
           cd dist && sha256sum * > SHA256SUMS.txt
 

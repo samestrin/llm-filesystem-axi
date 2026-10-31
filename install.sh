@@ -10,16 +10,13 @@ NC='\033[0m' # No Color
 INSTALL_DIR="/usr/local/bin"
 BUILD_DIR="build"
 
-# Binaries to build and install. The CLI must come first: the MCP server
-# resolves the CLI binary at startup (see internal/filesystem/mcpserver).
+# Binaries to build and install.
 BINARIES=(
     "llm-filesystem"
-    "llm-filesystem-mcp"
 )
 
 VERSION="$(git describe --tags --always --dirty 2>/dev/null || echo dev)"
 CLI_LDFLAGS="-s -w -X github.com/samestrin/llm-filesystem-axi/internal/filesystem/commands.Version=$VERSION"
-MCP_LDFLAGS="-s -w -X main.serverVersion=$VERSION"
 
 echo -e "${YELLOW}llm-filesystem installer${NC}"
 echo "========================"
@@ -46,8 +43,6 @@ mkdir -p "$BUILD_DIR"
 
 echo "  Building llm-filesystem..."
 go build -ldflags "$CLI_LDFLAGS" -o "$BUILD_DIR/llm-filesystem" ./cmd/llm-filesystem
-echo "  Building llm-filesystem-mcp..."
-go build -ldflags "$MCP_LDFLAGS" -o "$BUILD_DIR/llm-filesystem-mcp" ./cmd/llm-filesystem-mcp
 
 echo -e "${GREEN}Installing to $INSTALL_DIR...${NC}"
 for bin in "${BINARIES[@]}"; do
@@ -75,26 +70,13 @@ echo "Verifying installation..."
 FAILED=0
 for bin in "${BINARIES[@]}"; do
     if [[ -x "$INSTALL_DIR/$bin" ]]; then
-        # MCP binaries need stdin, so just check they start without being killed
-        if [[ "$bin" == *"-mcp" ]]; then
-            # Send empty input and check it doesn't get killed (exit 137 = killed)
-            echo "" | timeout 2 "$INSTALL_DIR/$bin" >/dev/null 2>&1
-            EXIT_CODE=$?
-            if [[ $EXIT_CODE -eq 137 || $EXIT_CODE -eq 143 ]]; then
-                echo -e "  ${RED}✗${NC} $bin (killed by macOS)"
-                FAILED=1
-            else
-                echo -e "  ${GREEN}✓${NC} $bin"
-            fi
+        # Try --version first, fall back to --help
+        if timeout 2 "$INSTALL_DIR/$bin" --version >/dev/null 2>&1 || \
+           timeout 2 "$INSTALL_DIR/$bin" --help >/dev/null 2>&1; then
+            echo -e "  ${GREEN}✓${NC} $bin"
         else
-            # CLI binaries - try --version first, fall back to --help
-            if timeout 2 "$INSTALL_DIR/$bin" --version >/dev/null 2>&1 || \
-               timeout 2 "$INSTALL_DIR/$bin" --help >/dev/null 2>&1; then
-                echo -e "  ${GREEN}✓${NC} $bin"
-            else
-                echo -e "  ${RED}✗${NC} $bin"
-                FAILED=1
-            fi
+            echo -e "  ${RED}✗${NC} $bin"
+            FAILED=1
         fi
     else
         echo -e "  ${RED}✗${NC} $bin (not found)"

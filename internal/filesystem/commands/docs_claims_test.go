@@ -1,7 +1,6 @@
 package commands
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -9,7 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/samestrin/llm-filesystem-axi/internal/filesystem/mcpserver"
+	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 )
 
 // The command lists in integrations/*/AGENTS.md are checked against the binary
@@ -24,8 +24,8 @@ import (
 // document was writing against nothing, and nothing in CI could notice.
 //
 // This closes that gap for the shape of identifier that actually gets invented:
-// a multi-word snake_case name in backticks, which is what a response field, an
-// MCP argument or a tool is called here. Single words are deliberately not
+// a multi-word snake_case name in backticks, which is what a response field, a
+// flag or a command is called here. Single words are deliberately not
 // checked - "context", "items" and "total" are also ordinary English, and
 // flagging them would bury a real failure in noise.
 //
@@ -66,7 +66,7 @@ func TestDocumentedFieldNamesExist(t *testing.T) {
 
 	sort.Slice(bad, func(i, j int) bool { return bad[i].token < bad[j].token })
 	for _, c := range bad {
-		t.Errorf("%s names `%s`, which is not a field, MCP argument, tool or command this tool has — "+
+		t.Errorf("%s names `%s`, which is not a field, flag or command this tool has — "+
 			"a reader writing code against it gets nothing", c.file, c.token)
 	}
 }
@@ -96,11 +96,10 @@ func referenceDocs(t *testing.T) []string {
 }
 
 // knownIdentifiers is every snake_case name this tool actually answers to:
-// struct tags it emits, arguments the MCP server reads, the parameter names
-// and aliases it accepts, tool names it exposes, and its own command names.
+// struct tags it emits, its command names and its flag names.
 //
-// What can be read from the mcpserver package at runtime is read there, so the
-// set cannot drift the way a hand-maintained list would; the rest is read out
+// Commands and flags are read from the command tree at runtime, so the set
+// cannot drift the way a hand-maintained list would; struct tags are read out
 // of the source for the same reason - drift is the failure this whole file
 // exists to prevent.
 func knownIdentifiers(t *testing.T) map[string]bool {
@@ -108,24 +107,7 @@ func knownIdentifiers(t *testing.T) map[string]bool {
 
 	known := map[string]bool{}
 
-	// Tool names, schema property names and accepted parameter aliases, from
-	// the mcpserver package itself rather than from its source text.
-	for _, def := range mcpserver.GetToolDefinitions() {
-		known[def.Name] = true // prefixed, as integrations/mcp writes it
-		known[strings.TrimPrefix(def.Name, mcpserver.ToolPrefix)] = true
-		var schema map[string]interface{}
-		if err := json.Unmarshal(def.InputSchema, &schema); err != nil {
-			t.Fatalf("parsing input schema for %s: %v", def.Name, err)
-		}
-		schemaProperties(schema, known)
-	}
-	for _, name := range mcpserver.AcceptedParamNames() {
-		known[name] = true
-	}
-
 	jsonTag := regexp.MustCompile(`json:"([a-z0-9_]+)`)
-	mcpArg := regexp.MustCompile(`get(?:Int|String|Bool|Float)\(args,\s*"([a-z0-9_]+)"`)
-	directArg := regexp.MustCompile(`args\["([a-z0-9_]+)"\]`)
 
 	root := "../.."
 	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
@@ -140,10 +122,8 @@ func knownIdentifiers(t *testing.T) map[string]bool {
 			return err
 		}
 		text := string(body)
-		for _, re := range []*regexp.Regexp{jsonTag, mcpArg, directArg} {
-			for _, m := range re.FindAllStringSubmatch(text, -1) {
-				known[m[1]] = true
-			}
+		for _, m := range jsonTag.FindAllStringSubmatch(text, -1) {
+			known[m[1]] = true
 		}
 		return nil
 	})
@@ -151,33 +131,23 @@ func knownIdentifiers(t *testing.T) map[string]bool {
 		t.Fatalf("scanning source: %v", err)
 	}
 
-	// Command names, from the binary rather than the source.
-	for _, c := range RootCmd().Commands() {
-		known[strings.ReplaceAll(c.Name(), "-", "_")] = true
+	// Command and flag names, from the binary rather than the source. A doc
+	// may write either in snake_case, so both spellings count.
+	snake := func(name string) string { return strings.ReplaceAll(name, "-", "_") }
+	var walk func(c *cobra.Command)
+	walk = func(c *cobra.Command) {
+		known[snake(c.Name())] = true
+		addFlag := func(f *pflag.Flag) { known[snake(f.Name)] = true }
+		c.LocalFlags().VisitAll(addFlag)
+		c.PersistentFlags().VisitAll(addFlag)
+		for _, sub := range c.Commands() {
+			walk(sub)
+		}
 	}
+	walk(RootCmd())
 
 	if len(known) < 50 {
 		t.Fatalf("only %d identifiers found; the source scan is broken and this test would pass vacuously", len(known))
 	}
 	return known
-}
-
-// schemaProperties adds every property name declared anywhere in a JSON
-// schema, including nested object and array-item schemas.
-func schemaProperties(node map[string]interface{}, known map[string]bool) {
-	for key, val := range node {
-		sub, ok := val.(map[string]interface{})
-		if key == "properties" && ok {
-			for name, prop := range sub {
-				known[name] = true
-				if m, ok := prop.(map[string]interface{}); ok {
-					schemaProperties(m, known)
-				}
-			}
-			continue
-		}
-		if ok {
-			schemaProperties(sub, known)
-		}
-	}
 }
