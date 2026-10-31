@@ -13,6 +13,9 @@ import (
 // Unmatched counts edits that found no target. It is a field rather than only a
 // sentence in Message because a caller must be able to detect a partial result
 // without parsing prose — the whole reason this tool emits structured output.
+// DryRun marks a preview in every format, the way SyncResult does; a marker in
+// the TEXT renderer alone leaves TOON and JSON unable to tell a preview from an
+// applied edit.
 type EditResult struct {
 	Path       string `json:"path"`
 	Success    bool   `json:"success"`
@@ -22,6 +25,7 @@ type EditResult struct {
 	Message    string `json:"message"`
 	OldContent string `json:"old_content,omitempty"`
 	NewContent string `json:"new_content,omitempty"`
+	DryRun     bool   `json:"dry_run,omitempty"`
 }
 
 // EditBlockOptions contains input parameters for EditBlock
@@ -220,6 +224,7 @@ func SafeEdit(opts SafeEditOptions) (*EditResult, error) {
 		Changes:    1,
 		OldContent: contentStr,
 		NewContent: newContent,
+		DryRun:     opts.DryRun,
 	}
 
 	if opts.DryRun {
@@ -347,12 +352,14 @@ type SearchReplaceOptions struct {
 	AllowedDirs []string
 }
 
-// SearchReplaceResult represents results from search and replace
+// SearchReplaceResult represents results from search and replace.
+// DryRun marks a preview in every format, as on EditResult.
 type SearchReplaceResult struct {
 	Path          string       `json:"path"`
 	FilesModified int          `json:"files_modified"`
 	TotalChanges  int          `json:"total_changes"`
 	Results       []EditResult `json:"results"`
+	DryRun        bool         `json:"dry_run,omitempty"`
 }
 
 // SearchAndReplace performs search and replace across files
@@ -459,6 +466,7 @@ func SearchAndReplace(opts SearchReplaceOptions) (*SearchReplaceResult, error) {
 		FilesModified: len(results),
 		TotalChanges:  totalChanges,
 		Results:       results,
+		DryRun:        opts.DryRun,
 	}, nil
 }
 

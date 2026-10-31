@@ -540,10 +540,10 @@ const maxPlannedPaths = 100
 // SyncResult represents sync result.
 //
 // DryRun is the discriminator, and it carries the same field names in both
-// modes so the shape never forks. The existing --dry-run commands mark a preview
-// only in their TEXT renderer, which leaves a dry run byte-identical to a real
-// one in TOON and JSON — the default and the machine format. That bug is not
-// copied here.
+// modes so the shape never forks. safe-edit and search-and-replace once marked
+// a preview only in their TEXT renderer, which left a dry run indistinguishable
+// from a real one in TOON and JSON — the default and the machine format. They
+// now carry dry_run too.
 type SyncResult struct {
 	Source      string   `json:"source"`
 	Destination string   `json:"destination"`

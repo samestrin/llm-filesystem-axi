@@ -68,6 +68,8 @@ A read larger than the size budget is **truncated, not refused**. The result car
 | `edit-file` | Line-based editing | `llm-filesystem edit-file --path file.txt --operation insert --line 5 --content "new line"` |
 | `search-and-replace` | Regex replace across files | `llm-filesystem search-and-replace --path ./src --pattern "old" --replacement "new"` |
 
+`safe-edit --dry-run` and `search-and-replace --dry-run` write nothing, and their output carries `dry_run: true` in every format, not only in the human text. A real run omits the field.
+
 ### Directory Operations
 
 | Command | Description | Example |
