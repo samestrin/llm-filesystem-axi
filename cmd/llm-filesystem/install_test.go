@@ -247,6 +247,26 @@ func TestInstallScriptRefusesStalledDownload(t *testing.T) {
 	assertNothingInstalled(t, home, out)
 }
 
+// A malformed timeout must be refused, not handed to curl, where an empty
+// or zero value would mean no limit at all.
+func TestInstallScriptRefusesBadDownloadTimeout(t *testing.T) {
+	asset := releaseAsset()
+	srv := fakeRelease(t, map[string]string{
+		asset:            fakeBinary,
+		"SHA256SUMS.txt": sha256Hex(fakeBinary) + "  " + asset + "\n",
+	})
+	for _, v := range []string{"0", "abc", "-5", "1.5"} {
+		t.Run(v, func(t *testing.T) {
+			home := t.TempDir()
+			out, code := runInstaller(t, srv.URL, home, "LLM_FILESYSTEM_DOWNLOAD_TIMEOUT="+v)
+			if code == 0 {
+				t.Errorf("install.sh exited 0 with timeout %q\noutput:\n%s", v, out)
+			}
+			assertNothingInstalled(t, home, out)
+		})
+	}
+}
+
 // Every other way the release can be unusable: the binary or the checksum
 // file missing, or a checksum file with no line for this platform. Each one
 // must refuse rather than install something unverified.

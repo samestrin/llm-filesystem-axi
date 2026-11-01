@@ -13,6 +13,8 @@
 #   LLM_FILESYSTEM_VERSION   release tag, e.g. v1.0.0 (default: latest)
 #   LLM_FILESYSTEM_BASE_URL  URL the assets are fetched from; overrides the
 #                            version (used by the tests)
+#   LLM_FILESYSTEM_DOWNLOAD_TIMEOUT
+#                            seconds before a download is abandoned (default: 300)
 set -euo pipefail
 
 REPO="samestrin/llm-filesystem-axi"
@@ -46,11 +48,15 @@ else
     base="https://github.com/$REPO/releases/download/$version"
 fi
 install_dir="${INSTALL_DIR:-$HOME/.local/bin}"
+timeout="${LLM_FILESYSTEM_DOWNLOAD_TIMEOUT:-300}"
+[[ "$timeout" =~ ^[1-9][0-9]*$ ]] || die "LLM_FILESYSTEM_DOWNLOAD_TIMEOUT must be a whole number of seconds, got '$timeout'"
 
 if command -v curl >/dev/null 2>&1; then
-    fetch() { curl -fsSL -o "$2" "$1"; }
+    # A stalled connection must fail, not hang the install.
+    fetch() { curl -fsSL --connect-timeout 15 --max-time "$timeout" -o "$2" "$1"; }
 elif command -v wget >/dev/null 2>&1; then
-    fetch() { wget -q -O "$2" "$1"; }
+    # wget has no overall limit; --timeout bounds each connect and read stall.
+    fetch() { wget -q --timeout="$timeout" --tries=1 -O "$2" "$1"; }
 else
     die "neither curl nor wget is installed"
 fi
