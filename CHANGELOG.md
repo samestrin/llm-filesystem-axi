@@ -112,6 +112,10 @@ Two independent reviewers read the full diff. Everything below was reproduced ag
 - **25 `OutputError` call sites were missing a `return`**, which became a nil-pointer panic once a search could fail.
 - **`search-code --context N` silently discarded the context lines it was asked for.** The minimal projection dropped each match's `context` field, so default-mode output was byte-identical to a search with no `--context` at all and still exited `0`. An explicitly requested field is more specific than a default schema, so the projection now keeps `context` when, and only when, `--context` asked for it. The help line read "Add `--full` for surrounding context lines", but `--full` alone returns no context; it now names `--context`, and is omitted for a caller who already passed it.
 
+### Added — release installer
+
+- **`install.sh`** downloads the release binary for the platform (Linux/macOS, amd64/arm64), verifies it against the release's `SHA256SUMS.txt`, and installs it to `~/.local/bin` (override with `INSTALL_DIR`; pin a tag with `LLM_FILESYSTEM_VERSION`). A failed download or a checksum mismatch installs nothing. The README's Install section documents the one-line `curl | bash` invocation, and a Support section states that support is best-effort via GitHub issues.
+
 ### Removed — the MCP server
 
 - **`llm-filesystem-mcp` is gone, and so is `integrations/mcp/`.** It was a second front end that shelled out to this CLI, so every command change had to land twice, and the two drifted. AXI treats the command line as the agent interface; an agent that can run a command uses `llm-filesystem` directly. `make build` and `install.sh` now build one binary, and the README, the command reference and the Claude Code integration no longer tell you to install or register the server. Tests fail if the name comes back in the Go source, `go.mod`, the `Makefile`, `install.sh`, the CI workflows, or any Markdown, shell, JSON or YAML file other than this one.

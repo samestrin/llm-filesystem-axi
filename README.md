@@ -18,14 +18,19 @@ It began as a Go port of the TypeScript [`fast-filesystem-mcp`](https://github.c
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/samestrin/llm-filesystem-axi/main/install.sh | bash
-# downloads the release binary, verifies its SHA256 checksum, installs to ~/.local/bin (no sudo)
 ```
+
+The installer downloads the release binary for your platform (Linux or macOS, amd64 or arm64), verifies it against the release's SHA256 checksums, and installs it to `~/.local/bin`. On a failed download or a checksum mismatch it installs nothing. Set `INSTALL_DIR` to install elsewhere, or `LLM_FILESYSTEM_VERSION` to pin a release tag.
 
 Or build without installing:
 
 ```bash
 make build                 # outputs to ./build/
 ```
+
+## Support
+
+Support is best-effort. Report bugs or request features by opening an issue at [github.com/samestrin/llm-filesystem-axi/issues](https://github.com/samestrin/llm-filesystem-axi/issues). There is no SLA and no guaranteed response time.
 
 ## Usage
 
