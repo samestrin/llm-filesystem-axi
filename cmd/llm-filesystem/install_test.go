@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -13,6 +14,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 )
 
 // install.sh downloads a release binary and installs it without sudo. These
@@ -54,8 +56,13 @@ func fakeRelease(t *testing.T, files map[string]string) *httptest.Server {
 }
 
 // runInstaller runs install.sh with HOME pointed at a temp directory and
-// returns that HOME, the combined output and the exit status.
-func runInstaller(t *testing.T, baseURL string, home string) (string, int) {
+// returns the combined output and the exit status. extraEnv is appended.
+//
+// The script is read here and fed to "bash -s", the same way the documented
+// "curl ... | bash" runs it. Reading it through os.ReadFile is what makes Go's
+// test cache depend on install.sh: handing bash the path instead let an
+// install.sh-only edit report a cached PASS without running anything.
+func runInstaller(t *testing.T, baseURL string, home string, extraEnv ...string) (string, int) {
 	t.Helper()
 	if runtime.GOOS == "windows" {
 		t.Skip("install.sh does not target Windows")
@@ -64,7 +71,17 @@ func runInstaller(t *testing.T, baseURL string, home string) (string, int) {
 		t.Skip("bash not available")
 	}
 
-	cmd := exec.Command("bash", installScript)
+	script, err := os.ReadFile(installScript)
+	if err != nil {
+		t.Fatalf("reading %s: %v", installScript, err)
+	}
+	// Bounded, so a download that hangs fails the test instead of the run.
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "bash", "-s")
+	cmd.Stdin = bytes.NewReader(script)
+	// Killing bash leaves curl holding the output pipe; stop waiting on it.
+	cmd.WaitDelay = 5 * time.Second
 	var env []string
 	for _, kv := range os.Environ() {
 		// Drop anything that would redirect the install away from $HOME.
@@ -74,11 +91,14 @@ func runInstaller(t *testing.T, baseURL string, home string) (string, int) {
 		}
 		env = append(env, kv)
 	}
-	cmd.Env = append(env, "HOME="+home, "LLM_FILESYSTEM_BASE_URL="+baseURL)
+	cmd.Env = append(append(env, "HOME="+home, "LLM_FILESYSTEM_BASE_URL="+baseURL), extraEnv...)
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = &out
-	err := cmd.Run()
+	err = cmd.Run()
+	if ctx.Err() != nil {
+		t.Fatalf("install.sh did not finish within 60s\noutput:\n%s", out.String())
+	}
 	if err == nil {
 		return out.String(), 0
 	}
@@ -187,6 +207,44 @@ func TestInstallScriptBadChecksumKeepsExistingBinary(t *testing.T) {
 	if len(entries) != 1 {
 		t.Errorf("refused install left extra files: %v", entries)
 	}
+}
+
+// A download that connects and then stalls is the failed download a user is
+// most likely to hit. Without a timeout "curl ... | bash" hangs on it instead
+// of refusing. LLM_FILESYSTEM_DOWNLOAD_TIMEOUT shortens the limit so the test
+// does not wait out the default.
+func TestInstallScriptRefusesStalledDownload(t *testing.T) {
+	asset := releaseAsset()
+	release := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch strings.TrimPrefix(r.URL.Path, "/") {
+		case asset:
+			w.Header().Set("Content-Length", "1000000")
+			_, _ = w.Write([]byte(fakeBinary))
+			w.(http.Flusher).Flush()
+			select {
+			case <-release:
+			case <-r.Context().Done():
+			}
+		case "SHA256SUMS.txt":
+			_, _ = w.Write([]byte(sha256Hex(fakeBinary) + "  " + asset + "\n"))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	t.Cleanup(func() { close(release) }) // runs first, so Close does not wait on the handler
+	home := t.TempDir()
+
+	start := time.Now()
+	out, code := runInstaller(t, srv.URL, home, "LLM_FILESYSTEM_DOWNLOAD_TIMEOUT=2")
+	if code == 0 {
+		t.Errorf("install.sh exited 0 on a stalled download\noutput:\n%s", out)
+	}
+	if elapsed := time.Since(start); elapsed > 30*time.Second {
+		t.Errorf("install.sh took %v to give up on a stalled download", elapsed)
+	}
+	assertNothingInstalled(t, home, out)
 }
 
 // Every other way the release can be unusable: the binary or the checksum
