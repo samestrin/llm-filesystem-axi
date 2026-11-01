@@ -7,9 +7,8 @@ Every count, flag and example in this file is checked against the binary. The co
 ## Installation
 
 ```bash
-git clone https://github.com/samestrin/llm-filesystem-axi.git
-cd llm-filesystem-axi
-sudo ./install.sh          # builds the binary, installs to /usr/local/bin
+curl -fsSL https://raw.githubusercontent.com/samestrin/llm-filesystem-axi/main/install.sh | bash
+# downloads the release binary, verifies its SHA256 checksum, installs to ~/.local/bin (no sudo)
 ```
 
 Or directly:

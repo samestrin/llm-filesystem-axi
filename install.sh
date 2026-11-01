@@ -1,93 +1,100 @@
-#!/bin/bash
-set -e
+#!/usr/bin/env bash
+# Install llm-filesystem from a GitHub release. No sudo, no Go toolchain.
+#
+#   curl -fsSL https://raw.githubusercontent.com/samestrin/llm-filesystem-axi/main/install.sh | bash
+#
+# Downloads the binary for this platform and SHA256SUMS.txt, verifies the
+# binary against it, and installs to $HOME/.local/bin. On a failed download or
+# a checksum mismatch it installs nothing and exits non-zero; an existing
+# binary is only ever replaced by one that verified.
+#
+# Environment:
+#   INSTALL_DIR              where to install (default: $HOME/.local/bin)
+#   LLM_FILESYSTEM_VERSION   release tag, e.g. v1.0.0 (default: latest)
+#   LLM_FILESYSTEM_BASE_URL  URL the assets are fetched from; overrides the
+#                            version (used by the tests)
+#   LLM_FILESYSTEM_DOWNLOAD_TIMEOUT
+#                            seconds before a download is abandoned (default: 300)
+set -euo pipefail
 
-# Colors for output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-NC='\033[0m' # No Color
+REPO="samestrin/llm-filesystem-axi"
+BIN="llm-filesystem"
+SUMS="SHA256SUMS.txt"
 
-INSTALL_DIR="/usr/local/bin"
-BUILD_DIR="build"
-
-# Binaries to build and install.
-BINARIES=(
-    "llm-filesystem"
-)
-
-VERSION="$(git describe --tags --always --dirty 2>/dev/null || echo dev)"
-CLI_LDFLAGS="-s -w -X github.com/samestrin/llm-filesystem-axi/internal/filesystem/commands.Version=$VERSION"
-
-echo -e "${YELLOW}llm-filesystem installer${NC}"
-echo "========================"
-
-# Check if running as root (needed for /usr/local/bin)
-if [[ $EUID -ne 0 ]]; then
-    echo -e "${RED}Error: This script must be run with sudo${NC}"
-    echo "Usage: sudo ./install.sh"
+die() {
+    echo "Error: $*" >&2
+    echo "Nothing was installed." >&2
     exit 1
+}
+
+case "$(uname -s)" in
+    Linux) os=linux ;;
+    Darwin) os=darwin ;;
+    *) die "unsupported OS $(uname -s); download a binary from https://github.com/$REPO/releases" ;;
+esac
+case "$(uname -m)" in
+    x86_64 | amd64) arch=amd64 ;;
+    aarch64 | arm64) arch=arm64 ;;
+    *) die "unsupported architecture $(uname -m); download a binary from https://github.com/$REPO/releases" ;;
+esac
+asset="$BIN-$os-$arch"
+
+version="${LLM_FILESYSTEM_VERSION:-latest}"
+if [[ -n "${LLM_FILESYSTEM_BASE_URL:-}" ]]; then
+    base="${LLM_FILESYSTEM_BASE_URL%/}"
+elif [[ "$version" == "latest" ]]; then
+    base="https://github.com/$REPO/releases/latest/download"
+else
+    base="https://github.com/$REPO/releases/download/$version"
+fi
+install_dir="${INSTALL_DIR:-$HOME/.local/bin}"
+timeout="${LLM_FILESYSTEM_DOWNLOAD_TIMEOUT:-300}"
+[[ "$timeout" =~ ^[1-9][0-9]*$ ]] || die "LLM_FILESYSTEM_DOWNLOAD_TIMEOUT must be a whole number of seconds, got '$timeout'"
+
+if command -v curl >/dev/null 2>&1; then
+    # A stalled connection must fail, not hang the install.
+    fetch() { curl -fsSL --connect-timeout 15 --max-time "$timeout" -o "$2" "$1"; }
+elif command -v wget >/dev/null 2>&1; then
+    # wget has no overall limit; --timeout bounds each connect and read stall.
+    fetch() { wget -q --timeout="$timeout" --tries=1 -O "$2" "$1"; }
+else
+    die "neither curl nor wget is installed"
 fi
 
-# Get the directory where the script is located
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-cd "$SCRIPT_DIR"
-
-# Check for go
-if ! command -v go &> /dev/null; then
-    echo -e "${RED}Error: go is not installed${NC}"
-    exit 1
+if command -v sha256sum >/dev/null 2>&1; then
+    sha256_check() { sha256sum -c --status -; }
+elif command -v shasum >/dev/null 2>&1; then
+    sha256_check() { shasum -a 256 -c --status -; }
+else
+    die "neither sha256sum nor shasum is installed, so the download cannot be verified"
 fi
 
-echo -e "${GREEN}Building binaries...${NC}"
-mkdir -p "$BUILD_DIR"
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT
 
-echo "  Building llm-filesystem..."
-go build -ldflags "$CLI_LDFLAGS" -o "$BUILD_DIR/llm-filesystem" ./cmd/llm-filesystem
+echo "Downloading $asset ($version) from $base"
+fetch "$base/$asset" "$tmp/$asset" || die "could not download $base/$asset"
+fetch "$base/$SUMS" "$tmp/$SUMS" || die "could not download $base/$SUMS"
 
-echo -e "${GREEN}Installing to $INSTALL_DIR...${NC}"
-for bin in "${BINARIES[@]}"; do
-    echo "  Installing $bin..."
-    # Clear xattrs on source before copying
-    xattr -cr "$BUILD_DIR/$bin" 2>/dev/null || true
-    # Remove old binary first
-    rm -f "$INSTALL_DIR/$bin"
-    # Copy binary
-    cp "$BUILD_DIR/$bin" "$INSTALL_DIR/$bin"
-    # Clear all extended attributes recursively
-    xattr -cr "$INSTALL_DIR/$bin" 2>/dev/null || true
-    # Re-sign with ad-hoc signature (required for Apple Silicon)
-    codesign --force --sign - "$INSTALL_DIR/$bin" 2>/dev/null || true
-    chmod 755 "$INSTALL_DIR/$bin"
-done
+# Exactly this asset's line. sha256sum writes "hash  name", or "hash *name" in
+# binary mode.
+line="$(awk -v n="$asset" '$2 == n || $2 == "*" n' "$tmp/$SUMS")"
+[[ -n "$line" ]] || die "$SUMS has no checksum for $asset"
+[[ "$(printf '%s\n' "$line" | wc -l)" -eq 1 ]] || die "$SUMS has more than one checksum for $asset"
+(cd "$tmp" && printf '%s\n' "$line" | sha256_check) ||
+    die "checksum mismatch for $asset: the download does not match $SUMS"
+echo "Checksum verified."
 
-echo ""
-echo -e "${GREEN}Installation complete!${NC}"
-echo "Installed ${#BINARIES[@]} binaries to $INSTALL_DIR"
+# Stage beside the destination, then rename, so the install is all or nothing.
+mkdir -p "$install_dir" || die "could not create $install_dir"
+staged="$install_dir/.$BIN.tmp.$$"
+trap 'rm -rf "$tmp"; rm -f "$staged"' EXIT
+cp "$tmp/$asset" "$staged" || die "could not write to $install_dir"
+chmod 755 "$staged"
+mv -f "$staged" "$install_dir/$BIN" || die "could not install to $install_dir/$BIN"
 
-# Verify installation
-echo ""
-echo "Verifying installation..."
-FAILED=0
-for bin in "${BINARIES[@]}"; do
-    if [[ -x "$INSTALL_DIR/$bin" ]]; then
-        # Try --version first, fall back to --help
-        if timeout 2 "$INSTALL_DIR/$bin" --version >/dev/null 2>&1 || \
-           timeout 2 "$INSTALL_DIR/$bin" --help >/dev/null 2>&1; then
-            echo -e "  ${GREEN}✓${NC} $bin"
-        else
-            echo -e "  ${RED}✗${NC} $bin"
-            FAILED=1
-        fi
-    else
-        echo -e "  ${RED}✗${NC} $bin (not found)"
-        FAILED=1
-    fi
-done
-
-if [[ $FAILED -eq 1 ]]; then
-    echo -e "${RED}Some binaries failed to install${NC}"
-    exit 1
-fi
-
-echo ""
-echo -e "${GREEN}All binaries installed successfully!${NC}"
+echo "Installed $install_dir/$BIN"
+case ":$PATH:" in
+    *":$install_dir:"*) ;;
+    *) echo "Note: $install_dir is not on your PATH. Add it, e.g.: export PATH=\"$install_dir:\$PATH\"" ;;
+esac

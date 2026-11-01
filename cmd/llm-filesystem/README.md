@@ -8,7 +8,7 @@ From the repository root:
 
 ```bash
 make build            # outputs ./build/llm-filesystem
-sudo ./install.sh     # builds the binary, installs to /usr/local/bin
+./install.sh          # downloads the verified release binary to ~/.local/bin (no sudo)
 ```
 
 Or via `go install`:
