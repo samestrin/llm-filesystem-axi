@@ -20,13 +20,13 @@ Adopted the [AXI](https://axi.md) design principles for agent-ergonomic CLIs:
 
 - **Token-efficient TOON output by default** (`--format toon|json|text`). Measured
   with `benchmarks/tokens.sh` against `--full --format json`: a directory listing
-  costs **62-94% fewer tokens** (93-94% on directories of 41-921 entries, about 62%
-  on a handful), a tree 43-57% on directories with subdirectories to expand, and
-  content-dominated commands such as `search-code` and `read-file` 4-45% —
-  `read-file` is 4.3% on every target, while `search-code` runs 34.4% on this
-  repository's `internal/` up to 45.3% on `/usr/share` — since no schema choice
+  costs **60-93% fewer tokens** (91-93% on directories of 56-523 entries, about 60%
+  on a handful), a tree 35-56% on directories with subdirectories to expand, and
+  content-dominated commands such as `search-code` and `read-file` 6-38% —
+  `read-file` is 6.0% on every target, while `search-code` runs 34.4% on this
+  repository's `internal/` up to 38.3% on `/usr/share` — since no schema choice
   shrinks the bytes of a file you asked to read. TOON encoding alone accounts for
-  0-46% of that (0% for the flat `/usr/bin` tree, 46% for `list-directory` on
+  0-48% of that (0% for the flat `/usr/bin` tree, 48% for `list-directory` on
   `/usr/share`); on large listings most of the saving comes from the minimal field
   set rather than the format.
 - **Minimal default field sets** with a `--full` escape hatch. Listings, trees,
@@ -115,6 +115,7 @@ Two independent reviewers read the full diff. Everything below was reproduced ag
 ### Removed — the MCP server
 
 - **`llm-filesystem-mcp` is gone, and so is `integrations/mcp/`.** It was a second front end that shelled out to this CLI, so every command change had to land twice, and the two drifted. AXI treats the command line as the agent interface; an agent that can run a command uses `llm-filesystem` directly. `make build` and `install.sh` now build one binary, and the README, the command reference and the Claude Code integration no longer tell you to install or register the server. Tests fail if the name comes back in the Go source, `go.mod`, the `Makefile`, `install.sh`, the CI workflows, or any Markdown, shell, JSON or YAML file other than this one.
+- **The speed benchmark no longer speaks MCP to `llm-filesystem`.** Its read and tree benchmarks had been sending JSON-RPC to a server that no longer exists; they now time the CLI command, the MCP handshake benchmark and `benchmarks/mcp-client.sh` are deleted, and the README's speed and token figures were re-measured on 2026-10-31. The MCP client that still drives `fast-filesystem-mcp` now fails the run on an error response rather than timing a refused call as a read.
 
 ### Removed — a migration guide that documented an API this tool does not have
 
