@@ -4,7 +4,7 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.0.0] - Unreleased
+## [1.0.0] - 2026-11-01
 
 First standalone release. `llm-filesystem` was extracted from the
 [`llm-tools`](https://github.com/samestrin/llm-tools) monorepo into its own
@@ -112,9 +112,22 @@ Two independent reviewers read the full diff. Everything below was reproduced ag
 - **25 `OutputError` call sites were missing a `return`**, which became a nil-pointer panic once a search could fail.
 - **`search-code --context N` silently discarded the context lines it was asked for.** The minimal projection dropped each match's `context` field, so default-mode output was byte-identical to a search with no `--context` at all and still exited `0`. An explicitly requested field is more specific than a default schema, so the projection now keeps `context` when, and only when, `--context` asked for it. The help line read "Add `--full` for surrounding context lines", but `--full` alone returns no context; it now names `--context`, and is omitted for a caller who already passed it.
 
-### Added — release installer
+### Changed — installation
 
-- **`install.sh`** downloads the release binary for the platform (Linux/macOS, amd64/arm64), verifies it against the release's `SHA256SUMS.txt`, and installs it to `~/.local/bin` (override with `INSTALL_DIR`; pin a tag with `LLM_FILESYSTEM_VERSION`). A failed download or a checksum mismatch installs nothing. The README's Install section documents the one-line `curl | bash` invocation, and a Support section states that support is best-effort via GitHub issues.
+- **`install.sh` no longer builds from source or needs sudo.** It downloads the
+  release binary for the platform (Linux/macOS, amd64/arm64) and the release's
+  `SHA256SUMS.txt`, verifies the checksum, and installs to `~/.local/bin`
+  (override with `INSTALL_DIR`; pin a tag with `LLM_FILESYSTEM_VERSION`). A
+  failed or stalled download or a checksum mismatch installs nothing and exits
+  non-zero; the previous installer required root, a Go toolchain, and a
+  checkout, and wrote to `/usr/local/bin`. The README's Install section
+  documents the one-line `curl | bash` invocation, and a Support section
+  states that support is best-effort via GitHub issues.
+- **Reinstall over any pre-release copy.** An older `llm-filesystem` already on
+  your machine — one installed to `/usr/local/bin` from before the AXI work —
+  does not know `--confirm` and fails every delete routed through it. The new
+  installer does not remove a stale `/usr/local/bin/llm-filesystem`; delete it
+  yourself or make sure `$HOME/.local/bin` comes first on your `PATH`.
 
 ### Removed — the MCP server
 
