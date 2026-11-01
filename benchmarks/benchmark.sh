@@ -3,17 +3,23 @@
 #
 # Measures:
 # 1. Cold start time (time to first output)
-# 2. MCP handshake + tool list
-# 3. File read operation
-# 4. Directory tree operation
+# 2. File read operation
+# 3. Directory tree operation
+#
+# llm-filesystem is a CLI, so each operation is one process invocation.
+# fast-filesystem-mcp is only reachable over MCP, so each of its operations is
+# a server start, an initialize and one tools/call. That is what an agent pays
+# per operation with each tool.
 #
 # Usage: ./benchmark.sh [warmup_runs] [benchmark_runs]
+#
+# BENCH_DIR selects the test directory; it must contain a package.json.
 
 set -e
 
 WARMUP=${1:-3}
 RUNS=${2:-10}
-TEST_DIR="$HOME/Documents/GitHub/llm-interface"
+TEST_DIR="${BENCH_DIR:-$HOME/Documents/GitHub/llm-interface}"
 BENCHMARK_DIR="$(dirname "$0")"
 
 # Colors
@@ -22,12 +28,17 @@ BLUE='\033[0;34m'
 YELLOW='\033[0;33m'
 NC='\033[0m'
 
-echo -e "${BLUE}=== MCP Filesystem Benchmark ===${NC}"
+echo -e "${BLUE}=== Filesystem Benchmark ===${NC}"
 echo "Test directory: $TEST_DIR"
 echo "Files in test dir: $(find "$TEST_DIR" -type f 2>/dev/null | wc -l | tr -d ' ')"
 echo "Warmup runs: $WARMUP"
 echo "Benchmark runs: $RUNS"
 echo ""
+
+if [ ! -f "$TEST_DIR/package.json" ]; then
+    echo "Error: $TEST_DIR/package.json not found (set BENCH_DIR)"
+    exit 1
+fi
 
 # Check tools
 for cmd in llm-filesystem fast-filesystem-mcp hyperfine python3; do
@@ -44,11 +55,14 @@ echo "  fast-filesystem-mcp: $(fast-filesystem-mcp --version 2>&1 | head -1)"
 echo ""
 
 # ============================================================================
-# Create Python MCP test clients
+# Create Python MCP test client (fast-filesystem-mcp only)
 # ============================================================================
 
-# Generic MCP client that sends requests and reads responses
-cat > /tmp/mcp-bench-client.py << 'PYSCRIPT'
+MCP_CLIENT="$(mktemp)"
+trap 'rm -f "$MCP_CLIENT"' EXIT
+
+# MCP client that sends requests and reads responses
+cat > "$MCP_CLIENT" << 'PYSCRIPT'
 #!/usr/bin/env python3
 """MCP Benchmark Client - sends requests and measures response time."""
 import subprocess
@@ -58,7 +72,7 @@ import threading
 import time
 
 def run_mcp_test(server_cmd, requests, timeout=5):
-    """Run MCP server, send requests, count responses."""
+    """Run MCP server, send requests, return the responses."""
     proc = subprocess.Popen(
         server_cmd,
         stdin=subprocess.PIPE,
@@ -91,21 +105,16 @@ def run_mcp_test(server_cmd, requests, timeout=5):
     t.join(timeout=timeout)
     proc.terminate()
 
-    return len(responses)
+    return responses
 
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument("--server", required=True, choices=["go", "ts"])
-    parser.add_argument("--test", required=True, choices=["handshake", "read", "tree"])
-    parser.add_argument("--dir", default="/tmp")
+    parser.add_argument("--test", required=True, choices=["read", "tree"])
+    parser.add_argument("--dir", required=True)
     args = parser.parse_args()
 
-    # Server command
-    if args.server == "go":
-        server_cmd = ["llm-filesystem", "--allowed-dirs", args.dir]
-    else:
-        server_cmd = ["fast-filesystem-mcp"]
+    server_cmd = ["fast-filesystem-mcp", "--allow", args.dir]
 
     # Build requests based on test type
     init_req = {
@@ -114,37 +123,35 @@ if __name__ == "__main__":
                    "clientInfo": {"name": "bench", "version": "1.0"}}
     }
 
-    if args.test == "handshake":
-        requests = [
-            init_req,
-            {"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}}
-        ]
-    elif args.test == "read":
-        tool_name = "fast_read_file" if args.server == "go" else "read_file"
+    if args.test == "read":
         requests = [
             init_req,
             {"jsonrpc": "2.0", "id": 2, "method": "tools/call",
-             "params": {"name": tool_name, "arguments": {"path": f"{args.dir}/package.json"}}}
+             "params": {"name": "fast_read_file", "arguments": {"path": f"{args.dir}/package.json"}}}
         ]
     elif args.test == "tree":
-        tool_name = "fast_get_directory_tree" if args.server == "go" else "get_directory_tree"
         requests = [
             init_req,
             {"jsonrpc": "2.0", "id": 2, "method": "tools/call",
-             "params": {"name": tool_name, "arguments": {"path": args.dir, "depth": 3}}}
+             "params": {"name": "fast_get_directory_tree", "arguments": {"path": args.dir, "max_depth": 3}}}
         ]
 
-    count = run_mcp_test(server_cmd, requests)
-    print(f"Responses: {count}/{len(requests)}")
-    sys.exit(0 if count == len(requests) else 1)
+    responses = run_mcp_test(server_cmd, requests)
+    print(f"Responses: {len(responses)}/{len(requests)}")
+    # A refused or failed call still produces a response; timing it would
+    # benchmark the error path, so it fails the run instead.
+    failed = [r for r in responses
+              if "error" in r or r.get("result", {}).get("isError")]
+    if failed:
+        print(f"Error response: {json.dumps(failed[0])[:300]}", file=sys.stderr)
+    sys.exit(0 if len(responses) == len(requests) and not failed else 1)
 PYSCRIPT
-chmod +x /tmp/mcp-bench-client.py
 
 # ============================================================================
 # Benchmark 1: Cold Start Time
 # ============================================================================
 echo -e "${GREEN}Benchmark 1: Cold Start Time${NC}"
-echo "Measures time for server to start and output banner."
+echo "Measures time for the process to start and print its first line."
 echo ""
 
 hyperfine \
@@ -152,35 +159,17 @@ hyperfine \
     --runs "$RUNS" \
     --export-json "$BENCHMARK_DIR/results-coldstart.json" \
     --command-name "llm-filesystem (Go)" \
-    "llm-filesystem --allowed-dirs '$TEST_DIR' < /dev/null 2>&1 | head -1" \
+    "llm-filesystem --version 2>&1 | head -1" \
     --command-name "fast-filesystem-mcp (TS)" \
     "fast-filesystem-mcp < /dev/null 2>&1 | head -1"
 
 echo ""
 
 # ============================================================================
-# Benchmark 2: MCP Handshake
+# Benchmark 2: File Read
 # ============================================================================
-echo -e "${GREEN}Benchmark 2: MCP Initialize + Tools List${NC}"
-echo "Measures full MCP handshake including tool registration."
-echo ""
-
-hyperfine \
-    --warmup "$WARMUP" \
-    --runs "$RUNS" \
-    --export-json "$BENCHMARK_DIR/results-handshake.json" \
-    --command-name "llm-filesystem (Go)" \
-    "python3 /tmp/mcp-bench-client.py --server go --test handshake --dir '$TEST_DIR'" \
-    --command-name "fast-filesystem-mcp (TS)" \
-    "python3 /tmp/mcp-bench-client.py --server ts --test handshake --dir '$TEST_DIR'"
-
-echo ""
-
-# ============================================================================
-# Benchmark 3: File Read
-# ============================================================================
-echo -e "${GREEN}Benchmark 3: Read File via MCP${NC}"
-echo "Measures init + read package.json."
+echo -e "${GREEN}Benchmark 2: Read File${NC}"
+echo "Measures one read of package.json (TS: server start + init + read)."
 echo ""
 
 hyperfine \
@@ -188,17 +177,17 @@ hyperfine \
     --runs "$RUNS" \
     --export-json "$BENCHMARK_DIR/results-read.json" \
     --command-name "llm-filesystem (Go)" \
-    "python3 /tmp/mcp-bench-client.py --server go --test read --dir '$TEST_DIR'" \
+    "llm-filesystem read-file --path '$TEST_DIR/package.json' > /dev/null" \
     --command-name "fast-filesystem-mcp (TS)" \
-    "python3 /tmp/mcp-bench-client.py --server ts --test read --dir '$TEST_DIR'"
+    "python3 '$MCP_CLIENT' --test read --dir '$TEST_DIR'"
 
 echo ""
 
 # ============================================================================
-# Benchmark 4: Directory Tree
+# Benchmark 3: Directory Tree
 # ============================================================================
-echo -e "${GREEN}Benchmark 4: Directory Tree (depth 3)${NC}"
-echo "Measures init + get directory tree."
+echo -e "${GREEN}Benchmark 3: Directory Tree (depth 3)${NC}"
+echo "Measures one directory tree (TS: server start + init + tree)."
 echo ""
 
 hyperfine \
@@ -206,9 +195,9 @@ hyperfine \
     --runs "$RUNS" \
     --export-json "$BENCHMARK_DIR/results-tree.json" \
     --command-name "llm-filesystem (Go)" \
-    "python3 /tmp/mcp-bench-client.py --server go --test tree --dir '$TEST_DIR'" \
+    "llm-filesystem get-directory-tree --path '$TEST_DIR' --depth 3 > /dev/null" \
     --command-name "fast-filesystem-mcp (TS)" \
-    "python3 /tmp/mcp-bench-client.py --server ts --test tree --dir '$TEST_DIR'"
+    "python3 '$MCP_CLIENT' --test tree --dir '$TEST_DIR'"
 
 echo ""
 
@@ -252,9 +241,6 @@ for f in sorted(glob.glob(os.path.join(benchmark_dir, "results-*.json"))):
         print(f"  fast-filesystem (TS):   {ts_time:7.1f}ms ± {ts_std:.1f}ms")
         print(f"  Go is {speedup:.1f}x faster")
 PYSUMMARY
-
-# Cleanup
-rm -f /tmp/mcp-bench-client.py
 
 echo ""
 echo "Done!"
