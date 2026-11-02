@@ -1,7 +1,12 @@
 package commands
 
 import (
+	"archive/tar"
+	"archive/zip"
+	"bytes"
+	"compress/gzip"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -178,5 +183,169 @@ func assertDestinationEmpty(t *testing.T, dst string) {
 	}
 	if len(entries) != 0 {
 		t.Errorf("a dry run wrote %d entries into the destination", len(entries))
+	}
+}
+
+// writeArchive builds a zip or tar.gz in t.TempDir() from name -> body pairs,
+// in order. A name ending "/" is a directory entry. The core package has the
+// full fixture set; this is the minimum the command layer needs.
+func writeArchive(t *testing.T, format string, entries [][2]string) string {
+	t.Helper()
+
+	var buf bytes.Buffer
+	switch format {
+	case "zip":
+		zw := zip.NewWriter(&buf)
+		for _, e := range entries {
+			w, err := zw.Create(e[0])
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := io.WriteString(w, e[1]); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := zw.Close(); err != nil {
+			t.Fatal(err)
+		}
+	case "tar.gz":
+		gw := gzip.NewWriter(&buf)
+		tw := tar.NewWriter(gw)
+		for _, e := range entries {
+			hdr := &tar.Header{Name: e[0], Mode: 0o644, Size: int64(len(e[1])), Typeflag: tar.TypeReg}
+			if strings.HasSuffix(e[0], "/") {
+				hdr.Typeflag, hdr.Mode = tar.TypeDir, 0o755
+			}
+			if err := tw.WriteHeader(hdr); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := io.WriteString(tw, e[1]); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := tw.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if err := gw.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	path := filepath.Join(t.TempDir(), "fixture."+format)
+	if err := os.WriteFile(path, buf.Bytes(), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func hasTOONLine(out, line string) bool {
+	for _, l := range strings.Split(out, "\n") {
+		if l == line {
+			return true
+		}
+	}
+	return false
+}
+
+// extract-archive printed files_extracted: 1, success: true and exited 0 for an
+// archive whose `../` entry it had refused. A partial run now says so in every
+// format, and exits 1 (owner decision Q2) — after printing the result, so the
+// caller still learns which entry was dropped and why.
+func TestExtractArchiveReportsAPartialRun(t *testing.T) {
+	for _, archiveFmt := range []string{"zip", "tar.gz"} {
+		t.Run(archiveFmt, func(t *testing.T) {
+			archive := writeArchive(t, archiveFmt, [][2]string{{"ok.txt", "ok"}, {"../escape.txt", "x"}})
+
+			t.Run("toon", func(t *testing.T) {
+				out, _, code := runCLI(t, "extract-archive", "--archive", archive, "--dest", t.TempDir())
+
+				if code != 1 {
+					t.Errorf("a partial run exited %d, want 1", code)
+				}
+				for _, want := range []string{"files_extracted: 1", "failed: 1", "success: false"} {
+					if !hasTOONLine(out, want) {
+						t.Errorf("TOON output lacks %q:\n%s", want, out)
+					}
+				}
+				if !hasTOONField(out, "failures") {
+					t.Errorf("TOON output lacks failures[]:\n%s", out)
+				}
+				// The help[] block, not only the payload, names the entry.
+				i := strings.Index(out, "\nhelp[")
+				if i < 0 || !strings.Contains(out[i:], "../escape.txt") {
+					t.Errorf("the help[] block does not name the failed entry:\n%s", out)
+				}
+			})
+
+			t.Run("json", func(t *testing.T) {
+				out, _, code := runCLI(t, "--format", "json", "extract-archive", "--archive", archive, "--dest", t.TempDir())
+
+				if code != 1 {
+					t.Errorf("a partial run exited %d, want 1", code)
+				}
+				var doc struct {
+					FilesExtracted int      `json:"files_extracted"`
+					Failed         int      `json:"failed"`
+					Failures       []string `json:"failures"`
+					Success        *bool    `json:"success"`
+					NextSteps      []string `json:"next_steps"`
+				}
+				if err := json.Unmarshal([]byte(out), &doc); err != nil {
+					t.Fatalf("not JSON: %v\n%s", err, out)
+				}
+				if doc.FilesExtracted != 1 || doc.Failed != 1 || doc.Success == nil || *doc.Success {
+					t.Errorf("want files_extracted 1, failed 1, success false; got %s", out)
+				}
+				if len(doc.Failures) != 1 || !strings.HasPrefix(doc.Failures[0], "../escape.txt: ") {
+					t.Errorf("failures = %q, want the entry name and a reason", doc.Failures)
+				}
+				if !strings.Contains(strings.Join(doc.NextSteps, "\n"), "../escape.txt") {
+					t.Errorf("next_steps = %q, want the failed entry named", doc.NextSteps)
+				}
+			})
+
+			t.Run("text", func(t *testing.T) {
+				out, _, code := runCLI(t, "--format", "text", "extract-archive", "--archive", archive, "--dest", t.TempDir())
+
+				if code != 1 {
+					t.Errorf("a partial run exited %d, want 1", code)
+				}
+				if !strings.Contains(out, "1 failed") || !strings.Contains(out, "../escape.txt") {
+					t.Errorf("text output hides the failure:\n%s", out)
+				}
+			})
+		})
+	}
+}
+
+// The other side of the partial-run exit: a clean run — including the `./`
+// entry `tar czf x.tgz -C dir .` writes — must still exit 0 with failed: 0, or
+// exit 1 stops meaning anything. An overwrite is reported, not failed.
+func TestExtractArchiveCleanRunExitsZero(t *testing.T) {
+	for _, archiveFmt := range []string{"zip", "tar.gz"} {
+		t.Run(archiveFmt, func(t *testing.T) {
+			archive := writeArchive(t, archiveFmt, [][2]string{{"./", ""}, {"./a.txt", "a"}})
+			dest := t.TempDir()
+			if err := os.WriteFile(filepath.Join(dest, "a.txt"), []byte("old"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+
+			out, _, code := runCLI(t, "extract-archive", "--archive", archive, "--dest", dest)
+
+			if code != -1 && code != 0 {
+				t.Errorf("a clean run exited %d:\n%s", code, out)
+			}
+			for _, want := range []string{"failed: 0", "success: true", "overwritten: 1"} {
+				if !hasTOONLine(out, want) {
+					t.Errorf("TOON output lacks %q:\n%s", want, out)
+				}
+			}
+			if hasTOONField(out, "failures") {
+				t.Errorf("a clean run carries failures[]:\n%s", out)
+			}
+			if got, _ := os.ReadFile(filepath.Join(dest, "a.txt")); string(got) != "a" {
+				t.Errorf("a.txt = %q, want the archive's content", got)
+			}
+		})
 	}
 }
