@@ -471,8 +471,6 @@ func entryTarget(destination, name string) (path string, isDest bool, err error)
 	return path, rel == ".", nil
 }
 
-var errEntryIsDest = errors.New("refused: a file entry cannot replace the destination directory")
-
 // createExtractedFile is a variable so a test can make Close fail, which no
 // real test filesystem does.
 var createExtractedFile = func(path string) (io.WriteCloser, error) {
@@ -538,11 +536,9 @@ func extractZip(archive, destination string, tally *extractTally) error {
 			}
 			continue
 		}
-		if isDest {
-			tally.fail(file.Name, errEntryIsDest)
-			continue
-		}
 
+		// As in the tar case, a file entry naming the destination itself
+		// fails at create and is reported there.
 		rc, err := file.Open()
 		if err != nil {
 			tally.fail(file.Name, fmt.Errorf("open: %w", err))
@@ -615,10 +611,8 @@ func extractTarGz(archive, destination string, tally *extractTally) error {
 				tally.fail(header.Name, err)
 			}
 		case tar.TypeReg:
-			if isDest {
-				tally.fail(header.Name, errEntryIsDest)
-				continue
-			}
+			// A file entry naming the destination itself fails at create,
+			// because the destination is a directory, and is reported there.
 			writeEntry(path, header.Name, tarReader, tally)
 		default:
 			kind, ok := tarTypeNames[header.Typeflag]
