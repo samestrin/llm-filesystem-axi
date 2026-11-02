@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	goaxi "github.com/samestrin/go-axi"
 	"github.com/samestrin/llm-filesystem-axi/internal/filesystem/core"
 	"github.com/spf13/cobra"
 )
@@ -138,10 +139,31 @@ func extractArchiveCmd() *cobra.Command {
 				OutputError(err)
 				return
 			}
-			OutputResult(result, func() string {
-				return fmt.Sprintf("Extracted %s to %s\n%d files extracted",
-					result.Archive, result.Destination, result.FilesExtracted)
-			})
+			OutputResultAXI(result, nil,
+				func() []string {
+					if result.Failed == 0 {
+						return nil
+					}
+					step := fmt.Sprintf("Not extracted (%d): %s",
+						result.Failed, strings.Join(result.Failures, "; "))
+					if more := result.Failed - len(result.Failures); more > 0 {
+						step += fmt.Sprintf("; and %d more", more)
+					}
+					return []string{step}
+				},
+				func() string {
+					return fmt.Sprintf("Extracted %s to %s\n%d files extracted, %d overwritten, %d failed",
+						result.Archive, result.Destination,
+						result.FilesExtracted, result.Overwritten, result.Failed)
+				})
+
+			// The result is printed first so the caller learns which entries
+			// were dropped and why; the exit code then says the run was partial
+			// (owner decision, epic 04 Q2). sync-directories still exits 0 here.
+			if result.Failed > 0 {
+				exitFunc(int(goaxi.ExitError))
+				return
+			}
 		},
 	}
 
