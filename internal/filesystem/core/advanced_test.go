@@ -726,3 +726,37 @@ func TestExtractArchiveReportsAFileEntryNamingTheDestination(t *testing.T) {
 		})
 	}
 }
+
+// Input the command cannot act on is an error, never a result: a result with
+// files_extracted: 0 and success: true would say an empty archive was extracted.
+func TestExtractArchiveRefusesBadInput(t *testing.T) {
+	dir := t.TempDir()
+	notGzip := filepath.Join(dir, "plain.tgz")
+	if err := os.WriteFile(notGzip, []byte("not gzip"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	good := buildZip(t, []archiveEntry{{name: "a.txt", body: "a"}})
+
+	cases := []struct {
+		name string
+		opts ExtractArchiveOptions
+	}{
+		{"no archive", ExtractArchiveOptions{Destination: dir}},
+		{"no destination", ExtractArchiveOptions{Archive: good}},
+		{"unknown extension", ExtractArchiveOptions{Archive: filepath.Join(dir, "x.rar"), Destination: dir}},
+		{"missing zip", ExtractArchiveOptions{Archive: filepath.Join(dir, "missing.zip"), Destination: dir}},
+		{"missing tar.gz", ExtractArchiveOptions{Archive: filepath.Join(dir, "missing.tar.gz"), Destination: dir}},
+		{"not gzip", ExtractArchiveOptions{Archive: notGzip, Destination: dir}},
+		{"archive outside the sandbox", ExtractArchiveOptions{Archive: good, Destination: dir, AllowedDirs: []string{dir}}},
+		{"destination outside the sandbox", ExtractArchiveOptions{Archive: good, Destination: dir, AllowedDirs: []string{filepath.Dir(good)}}},
+		{"destination is a file", ExtractArchiveOptions{Archive: good, Destination: notGzip}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			res, err := ExtractArchive(c.opts)
+			if err == nil {
+				t.Errorf("want an error, got %+v", res)
+			}
+		})
+	}
+}
