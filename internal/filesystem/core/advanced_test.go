@@ -710,3 +710,19 @@ func TestExtractArchiveBoundsFailures(t *testing.T) {
 		t.Errorf("len(failures) = %d, want it bounded at %d", len(res.Failures), maxPlannedPaths)
 	}
 }
+
+// The `./` no-op is for a DIRECTORY entry. A file entry that resolves to the
+// destination cannot be written over a directory, and that must be a reported
+// failure rather than a second no-op.
+func TestExtractArchiveReportsAFileEntryNamingTheDestination(t *testing.T) {
+	for _, f := range archiveFormats {
+		t.Run(f.name, func(t *testing.T) {
+			res := extract(t, f.build(t, []archiveEntry{{name: ".", body: "x"}}), t.TempDir())
+
+			if res.FilesExtracted != 0 {
+				t.Errorf("files_extracted = %d", res.FilesExtracted)
+			}
+			assertFailureNamed(t, res, ".")
+		})
+	}
+}
