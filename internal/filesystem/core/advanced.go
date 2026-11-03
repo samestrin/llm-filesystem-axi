@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"archive/zip"
 	"compress/gzip"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -365,12 +366,36 @@ type ExtractArchiveOptions struct {
 	AllowedDirs []string
 }
 
-// ExtractResult represents extraction result
+// ExtractResult represents extraction result.
+//
+// Success is Failed == 0, as in SyncResult. An extract that refused an entry
+// used to print files_extracted: 1, success: true, and the caller had no way
+// to learn anything was dropped. Failed is the true count; Failures is a
+// sample of at most maxPlannedPaths "name: reason" lines, because the names
+// come from the archive and a hostile one can hold any number of them.
 type ExtractResult struct {
-	Archive        string `json:"archive"`
-	Destination    string `json:"destination"`
-	FilesExtracted int    `json:"files_extracted"`
-	Success        bool   `json:"success"`
+	Archive        string   `json:"archive"`
+	Destination    string   `json:"destination"`
+	FilesExtracted int      `json:"files_extracted"`
+	Overwritten    int      `json:"overwritten"`
+	Failed         int      `json:"failed"`
+	Failures       []string `json:"failures,omitempty"`
+	Success        bool     `json:"success"`
+}
+
+// extractTally counts what an extraction did and did not do.
+type extractTally struct {
+	extracted   int
+	overwritten int
+	failed      int
+	failures    []string
+}
+
+func (t *extractTally) fail(entry string, err error) {
+	t.failed++
+	if len(t.failures) < maxPlannedPaths {
+		t.failures = append(t.failures, entry+": "+err.Error())
+	}
 }
 
 // ExtractArchive extracts an archive to a destination
@@ -404,13 +429,13 @@ func ExtractArchive(opts ExtractArchiveOptions) (*ExtractResult, error) {
 		return nil, fmt.Errorf("failed to create destination directory: %w", err)
 	}
 
-	var filesExtracted int
+	var tally extractTally
 
 	// Detect format
 	if strings.HasSuffix(normalizedArchive, ".zip") {
-		filesExtracted, err = extractZip(normalizedArchive, normalizedDest)
+		err = extractZip(normalizedArchive, normalizedDest, &tally)
 	} else if strings.HasSuffix(normalizedArchive, ".tar.gz") || strings.HasSuffix(normalizedArchive, ".tgz") {
-		filesExtracted, err = extractTarGz(normalizedArchive, normalizedDest)
+		err = extractTarGz(normalizedArchive, normalizedDest, &tally)
 	} else {
 		return nil, fmt.Errorf("unsupported archive format")
 	}
@@ -422,71 +447,135 @@ func ExtractArchive(opts ExtractArchiveOptions) (*ExtractResult, error) {
 	return &ExtractResult{
 		Archive:        normalizedArchive,
 		Destination:    normalizedDest,
-		FilesExtracted: filesExtracted,
-		Success:        true,
+		FilesExtracted: tally.extracted,
+		Overwritten:    tally.overwritten,
+		Failed:         tally.failed,
+		Failures:       tally.failures,
+		Success:        tally.failed == 0,
 	}, nil
 }
 
-func extractZip(archive, destination string) (int, error) {
+var errEntryEscapes = errors.New("refused: resolves outside the destination")
+
+// entryTarget resolves an archive entry name under destination. isDest is true
+// for an entry that names the destination itself, such as the `./` that
+// `tar czf x.tgz -C dir .` writes: that is not an escape. The old guard
+// compared against destination+"/", which the destination itself fails, so
+// once every refusal is reported an ordinary archive would have read as broken.
+func entryTarget(destination, name string) (path string, isDest bool, err error) {
+	path = filepath.Join(destination, name)
+	rel, err := filepath.Rel(destination, path)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+		return "", false, errEntryEscapes
+	}
+	return path, rel == ".", nil
+}
+
+// createExtractedFile is a variable so a test can make Close fail, which no
+// real test filesystem does.
+var createExtractedFile = func(path string) (io.WriteCloser, error) {
+	return os.Create(path)
+}
+
+// writeEntry writes one regular file and counts it. Every error is the
+// entry's failure: mkdir, create, copy and close were each discarded once, and
+// a dropped Close error is how a write that never reached the disk got counted.
+func writeEntry(path, entry string, r io.Reader, tally *extractTally) {
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		tally.fail(entry, err)
+		return
+	}
+
+	_, statErr := os.Lstat(path)
+	existed := statErr == nil
+
+	out, err := createExtractedFile(path)
+	if err != nil {
+		tally.fail(entry, err)
+		return
+	}
+	// Create has truncated the old file, so it is overwritten whether or not
+	// the copy that follows succeeds.
+	if existed {
+		tally.overwritten++
+	}
+
+	if _, err := io.Copy(out, r); err != nil {
+		_ = out.Close()
+		tally.fail(entry, fmt.Errorf("copy: %w", err))
+		return
+	}
+	if err := out.Close(); err != nil {
+		tally.fail(entry, fmt.Errorf("close: %w", err))
+		return
+	}
+	tally.extracted++
+}
+
+func extractZip(archive, destination string, tally *extractTally) error {
 	reader, err := zip.OpenReader(archive)
 	if err != nil {
-		return 0, err
+		return err
 	}
 	defer reader.Close()
 
-	count := 0
 	for _, file := range reader.File {
-		path := filepath.Join(destination, file.Name)
-
 		// Prevent zip slip vulnerability
-		if !strings.HasPrefix(path, filepath.Clean(destination)+string(os.PathSeparator)) {
+		path, isDest, err := entryTarget(destination, file.Name)
+		if err != nil {
+			tally.fail(file.Name, err)
 			continue
 		}
 
 		if file.FileInfo().IsDir() {
-			os.MkdirAll(path, file.Mode())
+			if isDest {
+				continue
+			}
+			if err := os.MkdirAll(path, file.Mode()); err != nil {
+				tally.fail(file.Name, err)
+			}
 			continue
 		}
 
-		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
-			continue
-		}
-
+		// As in the tar case, a file entry naming the destination itself
+		// fails at create and is reported there.
 		rc, err := file.Open()
 		if err != nil {
+			tally.fail(file.Name, fmt.Errorf("open: %w", err))
 			continue
 		}
-
-		outFile, err := os.Create(path)
-		if err != nil {
-			rc.Close()
-			continue
-		}
-
-		io.Copy(outFile, rc)
-		outFile.Close()
-		rc.Close()
-		count++
+		writeEntry(path, file.Name, rc, tally)
+		// The read side: a bad checksum or a damaged stream surfaces in the
+		// copy, which writeEntry has already reported.
+		_ = rc.Close()
 	}
 
-	return count, nil
+	return nil
 }
 
-func extractTarGz(archive, destination string) (int, error) {
+// tarTypeNames names the entry types extract-archive does not write.
+var tarTypeNames = map[byte]string{
+	tar.TypeSymlink: "symlink",
+	tar.TypeLink:    "hard link",
+	tar.TypeChar:    "character device",
+	tar.TypeBlock:   "block device",
+	tar.TypeFifo:    "fifo",
+}
+
+func extractTarGz(archive, destination string, tally *extractTally) error {
 	file, err := os.Open(archive)
 	if err != nil {
-		return 0, err
+		return err
 	}
 	defer file.Close()
 
 	gzipReader, err := gzip.NewReader(file)
 	if err != nil {
-		return 0, err
+		return err
 	}
 	defer gzipReader.Close()
 
 	tarReader := tar.NewReader(gzipReader)
-	count := 0
 
 	for {
 		header, err := tarReader.Next()
@@ -494,34 +583,47 @@ func extractTarGz(archive, destination string) (int, error) {
 			break
 		}
 		if err != nil {
-			return count, err
+			// A damaged stream ends the run, but what was already written is
+			// still reported rather than thrown away with the error.
+			tally.fail(filepath.Base(archive), fmt.Errorf("read: %w", err))
+			break
 		}
 
-		path := filepath.Join(destination, header.Name)
+		// A pax global header is metadata for the archive, not an entry.
+		// `git archive` writes one into every tarball.
+		if header.Typeflag == tar.TypeXGlobalHeader {
+			continue
+		}
 
 		// Prevent tar slip vulnerability
-		if !strings.HasPrefix(path, filepath.Clean(destination)+string(os.PathSeparator)) {
+		path, isDest, err := entryTarget(destination, header.Name)
+		if err != nil {
+			tally.fail(header.Name, err)
 			continue
 		}
 
 		switch header.Typeflag {
 		case tar.TypeDir:
-			os.MkdirAll(path, os.FileMode(header.Mode))
+			if isDest {
+				continue
+			}
+			if err := os.MkdirAll(path, os.FileMode(header.Mode)); err != nil {
+				tally.fail(header.Name, err)
+			}
 		case tar.TypeReg:
-			if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
-				continue
+			// A file entry naming the destination itself fails at create,
+			// because the destination is a directory, and is reported there.
+			writeEntry(path, header.Name, tarReader, tally)
+		default:
+			kind, ok := tarTypeNames[header.Typeflag]
+			if !ok {
+				kind = fmt.Sprintf("type %q", header.Typeflag)
 			}
-			outFile, err := os.Create(path)
-			if err != nil {
-				continue
-			}
-			io.Copy(outFile, tarReader)
-			outFile.Close()
-			count++
+			tally.fail(header.Name, fmt.Errorf("refused: unsupported entry type (%s)", kind))
 		}
 	}
 
-	return count, nil
+	return nil
 }
 
 // SyncDirectoriesOptions contains input parameters for SyncDirectories
