@@ -52,7 +52,7 @@ jobs:
           echo "Total coverage: $pct%"
           # Floor = total measured when this gate was added (71.2%), rounded
           # down. Raise it when coverage rises; never lower it to pass.
-          floor=99
+          floor=71
           if awk -v p="$pct" -v f="$floor" 'BEGIN{exit !(p+0 < f+0)}'; then
             echo "Coverage $pct% is below the $floor% floor"; exit 1
           fi
