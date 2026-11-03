@@ -9,31 +9,91 @@ import (
 
 // The documented command count drifted three ways at once: the CLI's own
 // description said 27, README said 27, and docs/llm-filesystem-commands.md said
-// 26 — against a real 28.
+// 26 — against a real 28. It drifted again when T4 had to correct five files.
 //
 // It drifted because nothing could check it: CI's path filter used to match
 // only ['**.go','go.mod','go.sum'], so a docs-only change ran no CI at all.
 // The filter now covers markdown too, but this test keeps the one claim that
 // keeps rotting checked on every local and CI run, independently of filters.
+//
+// Every file that states a count is checked, not only the commands doc.
+// CHANGELOG.md is deliberately absent: its 1.0.0 entry says 28 commands and
+// that is history, not a claim about the current binary.
+var countStatingFiles = []string{
+	"../../../README.md",
+	"../../../cmd/llm-filesystem/README.md",
+	"../../../integrations/claude-code/README.md",
+	"../../../docs/llm-filesystem-commands.md",
+	"../../../release/axi-catalog-entry.md",
+}
+
+var commandCountRe = regexp.MustCompile(`(\d+) commands`)
+
+// countMismatches returns one message per "N commands" claim in body that
+// differs from actual, or a message if body states no count at all.
+func countMismatches(name string, body []byte, actual int) []string {
+	ms := commandCountRe.FindAllSubmatch(body, -1)
+	if ms == nil {
+		return []string{name + " no longer states a command count; either restore it or remove it from countStatingFiles"}
+	}
+	var out []string
+	for _, m := range ms {
+		documented, err := strconv.Atoi(string(m[1]))
+		if err != nil {
+			out = append(out, name+": parsing the documented count: "+err.Error())
+			continue
+		}
+		if documented != actual {
+			out = append(out, name+" says "+strconv.Itoa(documented)+" commands, the binary has "+strconv.Itoa(actual))
+		}
+	}
+	return out
+}
+
 func TestDocumentedCommandCountMatchesReality(t *testing.T) {
-	const doc = "../../../docs/llm-filesystem-commands.md"
-
-	body, err := os.ReadFile(doc)
-	if err != nil {
-		t.Fatalf("reading %s: %v", doc, err)
+	actual := realCommandCount()
+	for _, doc := range countStatingFiles {
+		body, err := os.ReadFile(doc)
+		if err != nil {
+			t.Fatalf("reading %s: %v", doc, err)
+		}
+		for _, msg := range countMismatches(doc, body, actual) {
+			t.Error(msg)
+		}
 	}
+}
 
-	m := regexp.MustCompile(`(\d+) commands`).FindSubmatch(body)
-	if m == nil {
-		t.Fatalf("%s no longer states a command count; either restore it or delete this test", doc)
+// Proves the guard can fail: a file stating the old count (28) must be
+// flagged, wherever it appears, and a file with no count must be flagged too.
+// Without this, the loop above could pass by checking nothing.
+func TestCountGuardFlagsStaleOrMissingCount(t *testing.T) {
+	actual := realCommandCount()
+	stale := strconv.Itoa(actual - 1)
+	cases := []struct {
+		name string
+		body string
+		want int
+	}{
+		{"current count", "a CLI with " + strconv.Itoa(actual) + " commands", 0},
+		{"stale count", "a CLI with " + stale + " commands", 1},
+		{"stale second mention", strconv.Itoa(actual) + " commands, later " + stale + " commands", 1},
+		{"no count", "a CLI", 1},
 	}
-	documented, err := strconv.Atoi(string(m[1]))
-	if err != nil {
-		t.Fatalf("parsing the documented count: %v", err)
+	for _, c := range cases {
+		if got := countMismatches("f.md", []byte(c.body), actual); len(got) != c.want {
+			t.Errorf("%s: got %d problems %v, want %d", c.name, len(got), got, c.want)
+		}
 	}
-
-	if actual := realCommandCount(); documented != actual {
-		t.Errorf("%s says %d commands, the binary has %d", doc, documented, actual)
+	// Each real file, with its count rewritten to the stale number, must fail.
+	for _, doc := range countStatingFiles {
+		body, err := os.ReadFile(doc)
+		if err != nil {
+			t.Fatalf("reading %s: %v", doc, err)
+		}
+		mutated := commandCountRe.ReplaceAll(body, []byte(stale+" commands"))
+		if len(countMismatches(doc, mutated, actual)) == 0 {
+			t.Errorf("%s: stating %s commands was not flagged", doc, stale)
+		}
 	}
 }
 
