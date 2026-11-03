@@ -547,7 +547,13 @@ func TestSetupWritesEachFileByRename(t *testing.T) {
 	if _, _, code := runCLI(t, "setup"); code != -1 {
 		t.Fatalf("exit %d", code)
 	}
-	want := []string{filepath.Join(dir, setupSettingsRel), filepath.Join(dir, setupSkillRel)}
+	// macOS reports t.TempDir() under /var, a symlink to /private/var; the
+	// rename sees the resolved path, so compare against that.
+	real, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{filepath.Join(real, setupSettingsRel), filepath.Join(real, setupSkillRel)}
 	if len(moves) != len(want) {
 		t.Fatalf("renames = %v, want one per file", moves)
 	}
