@@ -207,11 +207,11 @@ func applySetup(dir string, plans []setupPlan, dryRun bool) setupResult {
 // it into place, so a reader sees the old file or the new one, never a mix.
 func writeFileByRename(path string, content []byte, mode fs.FileMode) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
+		return fmt.Errorf("write %s: %w", path, err)
 	}
 	tmp, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".tmp-*")
 	if err != nil {
-		return err
+		return fmt.Errorf("write %s: %w", path, err)
 	}
 	name := tmp.Name()
 	_, err = tmp.Write(content)
