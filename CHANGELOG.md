@@ -6,6 +6,16 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **`docs/axi-audit.md`: a hand audit of the v1.0.0 binary against the ten
+  principles on axi.md**, in the same format as the sibling tools. Each
+  principle has a verdict and one line of evidence; the archive
+  partial-failure finding fixed by epic 04 (not in the tag) and two
+  unscheduled gaps (a `create-directory` false `created: true`, and the
+  home view's `bin` path not tilde-rendered) are recorded with what closes
+  them. Principle 7 is met only through the manual copy until `setup` lands.
+
 ### Fixed — archive commands no longer report success for work that did not happen
 
 - **`extract-archive` reports every entry it did not write.** An entry refused
