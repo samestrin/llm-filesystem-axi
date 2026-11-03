@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"encoding/json"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -403,6 +404,46 @@ func TestCompressFilesReportsAPartialRun(t *testing.T) {
 			t.Errorf("failures = %q, want the missing path and a reason", doc.Failures)
 		}
 	})
+
+	// The text renderer is the only place a human reads the failed count.
+	// The local --format shadows the global one until T3, so text is reached
+	// through the legacy --min.
+	t.Run("text", func(t *testing.T) {
+		out, _, code := runCLI(t, "--min", "compress-files", "--paths", paths, "--output", filepath.Join(t.TempDir(), "o.zip"))
+
+		if code != 1 {
+			t.Errorf("a partial run exited %d, want 1", code)
+		}
+		if !strings.Contains(out, "1 files added, 1 failed") {
+			t.Errorf("text output hides the failed count:\n%s", out)
+		}
+		if !strings.Contains(out, "Not added (1): "+missing+": ") {
+			t.Errorf("text output does not name the missing input:\n%s", out)
+		}
+	})
+}
+
+// failures[] is capped at maxPlannedPaths, so the help[] step must say how many
+// more were left out, or a run with 105 missing inputs reads as 100.
+func TestCompressFilesHelpCountsFailuresBeyondTheSample(t *testing.T) {
+	dir := t.TempDir()
+	ok := filepath.Join(dir, "ok.txt")
+	if err := os.WriteFile(ok, []byte("ok"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	paths := []string{ok}
+	for i := 0; i < 105; i++ {
+		paths = append(paths, filepath.Join(dir, fmt.Sprintf("missing%d.txt", i)))
+	}
+
+	out, _, code := runCLI(t, "--min", "compress-files", "--paths", strings.Join(paths, ","), "--output", filepath.Join(t.TempDir(), "o.zip"))
+
+	if code != 1 {
+		t.Errorf("a partial run exited %d, want 1", code)
+	}
+	if !strings.Contains(out, "Not added (105): ") || !strings.Contains(out, "; and 5 more") {
+		t.Errorf("the help step does not count the failures beyond the sample:\n%s", out)
+	}
 }
 
 // An existing --output is replaced and reported, and a clean run exits 0.
@@ -428,6 +469,11 @@ func TestCompressFilesReportsAnOverwriteAndExitsZero(t *testing.T) {
 	}
 	if got, _ := os.ReadFile(output); string(got) == "old" {
 		t.Errorf("the output still holds the old content")
+	}
+
+	out, _, _ = runCLI(t, "--min", "compress-files", "--paths", in, "--output", output)
+	if !strings.Contains(out, "(zip format, replaced the existing file)") || !strings.Contains(out, "1 files added, 0 failed") {
+		t.Errorf("text output does not report the overwrite:\n%s", out)
 	}
 }
 
