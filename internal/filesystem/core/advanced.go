@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -159,13 +160,21 @@ type CompressFilesOptions struct {
 	AllowedDirs []string
 }
 
-// CompressResult represents compression result
+// CompressResult represents compression result.
+//
+// Success is Failed == 0, as in ExtractResult. A missing input, a Walk error
+// and an add error were each skipped and the run still printed success: true.
+// Failures is a sample of at most maxPlannedPaths "path: reason" lines; Failed
+// is the true count. Overwritten is true when Output already existed.
 type CompressResult struct {
-	Output     string `json:"output"`
-	Format     string `json:"format"`
-	Size       int64  `json:"size"`
-	FilesAdded int    `json:"files_added"`
-	Success    bool   `json:"success"`
+	Output      string   `json:"output"`
+	Format      string   `json:"format"`
+	Size        int64    `json:"size"`
+	FilesAdded  int      `json:"files_added"`
+	Overwritten bool     `json:"overwritten"`
+	Failed      int      `json:"failed"`
+	Failures    []string `json:"failures,omitempty"`
+	Success     bool     `json:"success"`
 }
 
 // CompressFiles compresses files into an archive
@@ -204,74 +213,126 @@ func CompressFiles(opts CompressFilesOptions) (*CompressResult, error) {
 		paths[i] = normalized
 	}
 
-	var filesAdded int
-	var archiveSize int64
-
+	var writeArchive func([]string, io.Writer, *extractTally) error
 	switch format {
 	case "zip":
-		filesAdded, err = createZipArchive(paths, normalizedOutput)
+		writeArchive = createZipArchive
 	case "tar.gz", "tgz":
-		filesAdded, err = createTarGzArchive(paths, normalizedOutput)
+		writeArchive = createTarGzArchive
 	default:
 		return nil, fmt.Errorf("unsupported format: %s", format)
 	}
 
+	// Checked before the create truncates it. Only a file this run created or
+	// replaced is removed if the archive cannot be finished: an --output that
+	// names a device or a symlink is not ours to delete.
+	prior, statErr := os.Lstat(normalizedOutput)
+	overwritten := statErr == nil
+	removable := !overwritten || prior.Mode().IsRegular()
+
+	file, err := createArchiveFile(normalizedOutput)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create archive: %w", err)
 	}
 
-	info, _ := os.Stat(normalizedOutput)
-	if info != nil {
+	var tally extractTally
+	err = writeArchive(paths, file, &tally)
+	if closeErr := file.Close(); err == nil && closeErr != nil {
+		err = fmt.Errorf("close: %w", closeErr)
+	}
+	if err != nil {
+		if removable {
+			_ = os.Remove(normalizedOutput)
+		}
+		return nil, fmt.Errorf("failed to create archive: %w", err)
+	}
+
+	var archiveSize int64
+	if info, err := os.Stat(normalizedOutput); err == nil {
 		archiveSize = info.Size()
 	}
 
 	return &CompressResult{
-		Output:     normalizedOutput,
-		Format:     format,
-		Size:       archiveSize,
-		FilesAdded: filesAdded,
-		Success:    true,
+		Output:      normalizedOutput,
+		Format:      format,
+		Size:        archiveSize,
+		FilesAdded:  tally.extracted,
+		Overwritten: overwritten,
+		Failed:      tally.failed,
+		Failures:    tally.failures,
+		Success:     tally.failed == 0,
 	}, nil
 }
 
-func createZipArchive(paths []string, output string) (int, error) {
-	file, err := os.Create(output)
-	if err != nil {
-		return 0, err
+// createArchiveFile is a variable so a test can make the archive's Close or
+// writes fail, which no real test filesystem does.
+var createArchiveFile = func(path string) (io.WriteCloser, error) {
+	return os.Create(path)
+}
+
+// failInput records an input that was not added. The path is already the
+// failure's name, so an *fs.PathError naming the same path is trimmed to its
+// operation and cause rather than printing the path twice.
+func failInput(tally *extractTally, path string, err error) {
+	var pe *fs.PathError
+	if errors.As(err, &pe) && pe.Path == path {
+		err = fmt.Errorf("%s: %w", pe.Op, pe.Err)
 	}
-	defer file.Close()
+	tally.fail(path, err)
+}
 
-	zipWriter := zip.NewWriter(file)
-	defer zipWriter.Close()
-
-	count := 0
+// addInputs walks every input and hands each regular file to add, under the
+// name it takes in the archive. The tally's extracted count is files added.
+// A missing input, a Walk error and an add error are each a reported failure:
+// all three were once skipped while the run said success.
+func addInputs(paths []string, tally *extractTally, add func(filePath, name string) error) {
 	for _, path := range paths {
 		info, err := os.Stat(path)
 		if err != nil {
+			failInput(tally, path, err)
 			continue
 		}
 
-		if info.IsDir() {
-			filepath.Walk(path, func(filePath string, info os.FileInfo, err error) error {
-				if err != nil || info.IsDir() {
-					return nil
-				}
-				relPath, _ := filepath.Rel(filepath.Dir(path), filePath)
-				if err := addToZip(zipWriter, filePath, relPath); err != nil {
-					return nil
-				}
-				count++
-				return nil
-			})
-		} else {
-			if err := addToZip(zipWriter, path, filepath.Base(path)); err != nil {
+		if !info.IsDir() {
+			if err := add(path, filepath.Base(path)); err != nil {
+				failInput(tally, path, err)
 				continue
 			}
-			count++
+			tally.extracted++
+			continue
 		}
-	}
 
-	return count, nil
+		_ = filepath.Walk(path, func(filePath string, info os.FileInfo, err error) error {
+			if err != nil {
+				failInput(tally, filePath, err)
+				return nil
+			}
+			if info.IsDir() {
+				return nil
+			}
+			relPath, err := filepath.Rel(filepath.Dir(path), filePath)
+			if err != nil {
+				failInput(tally, filePath, err)
+				return nil
+			}
+			if err := add(filePath, relPath); err != nil {
+				failInput(tally, filePath, err)
+				return nil
+			}
+			tally.extracted++
+			return nil
+		})
+	}
+}
+
+// createZipArchive writes the archive to w. The zip writer's Close writes the
+// central directory and flushes, so its error is the archive's.
+func createZipArchive(paths []string, w io.Writer, tally *extractTally) error {
+	zipWriter := zip.NewWriter(w)
+	addInputs(paths, tally, func(filePath, name string) error {
+		return addToZip(zipWriter, filePath, name)
+	})
+	return zipWriter.Close()
 }
 
 func addToZip(zipWriter *zip.Writer, filePath, name string) error {
@@ -290,47 +351,20 @@ func addToZip(zipWriter *zip.Writer, filePath, name string) error {
 	return err
 }
 
-func createTarGzArchive(paths []string, output string) (int, error) {
-	file, err := os.Create(output)
-	if err != nil {
-		return 0, err
-	}
-	defer file.Close()
-
-	gzipWriter := gzip.NewWriter(file)
-	defer gzipWriter.Close()
-
+// createTarGzArchive writes the archive to w. The tar writer's Close writes
+// the end-of-archive blocks and the gzip writer's writes the trailer; either
+// failing leaves an archive extract-archive cannot read.
+func createTarGzArchive(paths []string, w io.Writer, tally *extractTally) error {
+	gzipWriter := gzip.NewWriter(w)
 	tarWriter := tar.NewWriter(gzipWriter)
-	defer tarWriter.Close()
-
-	count := 0
-	for _, path := range paths {
-		info, err := os.Stat(path)
-		if err != nil {
-			continue
-		}
-
-		if info.IsDir() {
-			filepath.Walk(path, func(filePath string, info os.FileInfo, err error) error {
-				if err != nil || info.IsDir() {
-					return nil
-				}
-				relPath, _ := filepath.Rel(filepath.Dir(path), filePath)
-				if err := addToTar(tarWriter, filePath, relPath); err != nil {
-					return nil
-				}
-				count++
-				return nil
-			})
-		} else {
-			if err := addToTar(tarWriter, path, filepath.Base(path)); err != nil {
-				continue
-			}
-			count++
-		}
+	addInputs(paths, tally, func(filePath, name string) error {
+		return addToTar(tarWriter, filePath, name)
+	})
+	if err := tarWriter.Close(); err != nil {
+		_ = gzipWriter.Close()
+		return err
 	}
-
-	return count, nil
+	return gzipWriter.Close()
 }
 
 func addToTar(tarWriter *tar.Writer, filePath, name string) error {

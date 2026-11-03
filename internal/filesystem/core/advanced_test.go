@@ -781,3 +781,250 @@ func TestExtractArchiveSkipsAPaxGlobalHeader(t *testing.T) {
 		t.Errorf("want success, failed 0, 1 extracted; got %+v", res)
 	}
 }
+
+// compressFormats are the archive types compress-files writes. Each compress
+// test runs against both, because the zip and tar.gz paths were separate copies
+// of the same silent loop.
+var compressFormats = []string{"zip", "tar.gz"}
+
+func compress(t *testing.T, format, output string, paths ...string) *CompressResult {
+	t.Helper()
+	res, err := CompressFiles(CompressFilesOptions{Paths: paths, Output: output, Format: format})
+	if err != nil {
+		t.Fatalf("CompressFiles: %v", err)
+	}
+	return res
+}
+
+// compress-files --paths ok.txt,missing.txt printed files_added: 1 and
+// success: true. The missing input was skipped at os.Stat and nothing said so.
+func TestCompressFilesReportsAMissingInput(t *testing.T) {
+	for _, format := range compressFormats {
+		t.Run(format, func(t *testing.T) {
+			dir := t.TempDir()
+			ok := filepath.Join(dir, "ok.txt")
+			if err := os.WriteFile(ok, []byte("ok"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			missing := filepath.Join(dir, "missing.txt")
+
+			res := compress(t, format, filepath.Join(t.TempDir(), "out."+format), ok, missing)
+
+			if res.FilesAdded != 1 || res.Failed != 1 || res.Success {
+				t.Errorf("want files_added 1, failed 1, success false; got %+v", res)
+			}
+			if len(res.Failures) != 1 || !strings.HasPrefix(res.Failures[0], missing+": ") {
+				t.Errorf("failures = %q, want the missing path and a reason", res.Failures)
+			}
+		})
+	}
+}
+
+// Inside a directory input, an add error (here a dangling symlink, which Walk
+// hands over as a file that cannot be opened) and a Walk error (a subdirectory
+// that cannot be read) were each answered `return nil` and dropped.
+func TestCompressFilesReportsWalkAndAddErrors(t *testing.T) {
+	for _, format := range compressFormats {
+		t.Run(format, func(t *testing.T) {
+			src := filepath.Join(t.TempDir(), "src")
+			locked := filepath.Join(src, "locked")
+			if err := os.MkdirAll(locked, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(src, "a.txt"), []byte("a"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(locked, "hidden.txt"), []byte("h"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			dangling := filepath.Join(src, "dangling")
+			if err := os.Symlink(filepath.Join(src, "nowhere"), dangling); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Chmod(locked, 0o000); err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = os.Chmod(locked, 0o755) })
+			if _, err := os.ReadDir(locked); err == nil {
+				t.Skip("running as a user that can read a mode-000 directory")
+			}
+
+			res := compress(t, format, filepath.Join(t.TempDir(), "out."+format), src)
+
+			if res.FilesAdded != 1 || res.Failed != 2 || res.Success {
+				t.Errorf("want files_added 1, failed 2, success false; got %+v", res)
+			}
+			joined := strings.Join(res.Failures, "\n")
+			for _, want := range []string{dangling + ": ", locked + ": "} {
+				if !strings.Contains(joined, want) {
+					t.Errorf("failures %q do not name %s", res.Failures, want)
+				}
+			}
+		})
+	}
+}
+
+// os.Create truncated an existing --output without a word. It is still
+// replaced (owner decision Q5: report, not refuse), but the result says so.
+func TestCompressFilesReportsAnOverwrittenOutput(t *testing.T) {
+	for _, format := range compressFormats {
+		t.Run(format, func(t *testing.T) {
+			in := filepath.Join(t.TempDir(), "a.txt")
+			if err := os.WriteFile(in, []byte("a"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			out := filepath.Join(t.TempDir(), "out."+format)
+
+			if res := compress(t, format, out, in); res.Overwritten {
+				t.Errorf("overwritten = true for an output that did not exist")
+			}
+			res := compress(t, format, out, in)
+			if !res.Overwritten || !res.Success || res.Failed != 0 {
+				t.Errorf("want overwritten true, success true, failed 0; got %+v", res)
+			}
+		})
+	}
+}
+
+type failingWriter struct{}
+
+func (failingWriter) Write([]byte) (int, error) { return 0, errors.New("injected write failure") }
+func (failingWriter) Close() error              { return nil }
+
+// The zip, gzip and tar writers were closed only by defer, so the error that
+// finishes the archive (the zip central directory, the gzip trailer, the final
+// flush of the file) was never seen, and a truncated archive read as a
+// success. The output is created for real, then swapped for a sink that fails,
+// so the test can also prove the unfinished file is removed.
+func TestCompressFilesFailsWhenTheArchiveCannotBeFinished(t *testing.T) {
+	sinks := map[string]func() io.WriteCloser{
+		"close fails": func() io.WriteCloser { return failingClose{io.Discard} },
+		"write fails": func() io.WriteCloser { return failingWriter{} },
+	}
+	for sinkName, sink := range sinks {
+		for _, format := range compressFormats {
+			t.Run(sinkName+"/"+format, func(t *testing.T) {
+				prev := createArchiveFile
+				createArchiveFile = func(path string) (io.WriteCloser, error) {
+					f, err := os.Create(path)
+					if err != nil {
+						return nil, err
+					}
+					_ = f.Close()
+					return sink(), nil
+				}
+				t.Cleanup(func() { createArchiveFile = prev })
+
+				in := filepath.Join(t.TempDir(), "a.txt")
+				if err := os.WriteFile(in, []byte("a"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+				out := filepath.Join(t.TempDir(), "out."+format)
+
+				res, err := CompressFiles(CompressFilesOptions{Paths: []string{in}, Output: out, Format: format})
+
+				if err == nil {
+					t.Fatalf("an archive that could not be finished returned no error: %+v", res)
+				}
+				if !strings.Contains(err.Error(), "injected") {
+					t.Errorf("error %q does not carry the cause", err)
+				}
+				if _, statErr := os.Lstat(out); !os.IsNotExist(statErr) {
+					t.Errorf("the unfinished archive was left at %s (stat: %v)", out, statErr)
+				}
+			})
+		}
+	}
+}
+
+// failures[] is bounded like extract's, and failed stays the true count.
+func TestCompressFilesBoundsFailures(t *testing.T) {
+	dir := t.TempDir()
+	var paths []string
+	for i := 0; i < maxPlannedPaths+5; i++ {
+		paths = append(paths, filepath.Join(dir, fmt.Sprintf("missing%d.txt", i)))
+	}
+
+	res := compress(t, "zip", filepath.Join(t.TempDir(), "out.zip"), paths...)
+
+	if res.Failed != maxPlannedPaths+5 || len(res.Failures) != maxPlannedPaths || res.Success {
+		t.Errorf("want failed %d, %d failures, success false; got failed %d, %d failures, success %v",
+			maxPlannedPaths+5, maxPlannedPaths, res.Failed, len(res.Failures), res.Success)
+	}
+}
+
+// The other side: a clean run of a file and a directory still says success,
+// and the archive it wrote holds both, so failed: 0 is not bought by adding
+// nothing.
+func TestCompressFilesCleanRunRoundTrips(t *testing.T) {
+	for _, format := range compressFormats {
+		t.Run(format, func(t *testing.T) {
+			root := t.TempDir()
+			if err := os.MkdirAll(filepath.Join(root, "d", "sub"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			for name, body := range map[string]string{"f.txt": "f", "d/sub/g.txt": "g"} {
+				if err := os.WriteFile(filepath.Join(root, name), []byte(body), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			out := filepath.Join(t.TempDir(), "out."+format)
+
+			res := compress(t, format, out, filepath.Join(root, "f.txt"), filepath.Join(root, "d"))
+
+			if res.FilesAdded != 2 || res.Failed != 0 || !res.Success || res.Failures != nil {
+				t.Errorf("want files_added 2, failed 0, success true, no failures; got %+v", res)
+			}
+			if res.Size == 0 {
+				t.Errorf("size = 0 for a written archive")
+			}
+			dest := t.TempDir()
+			if x := extract(t, out, dest); x.FilesExtracted != 2 || x.Failed != 0 {
+				t.Fatalf("extracting the archive: %+v", x)
+			}
+			for name, body := range map[string]string{"f.txt": "f", "d/sub/g.txt": "g"} {
+				if got, _ := os.ReadFile(filepath.Join(dest, name)); string(got) != body {
+					t.Errorf("%s = %q, want %q", name, got, body)
+				}
+			}
+		})
+	}
+}
+
+// Each refusal is an error with no result, and none of them leaves a file at
+// --output: an unsupported format used to be checked only after the paths, and
+// a refusal that still created the archive would be success by side effect.
+func TestCompressFilesRefusesBadInput(t *testing.T) {
+	in := filepath.Join(t.TempDir(), "a.txt")
+	if err := os.WriteFile(in, []byte("a"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	outDir := t.TempDir()
+	out := filepath.Join(outDir, "out.zip")
+	other := t.TempDir()
+
+	cases := map[string]CompressFilesOptions{
+		"no paths":           {Output: out},
+		"no output":          {Paths: []string{in}},
+		"unsupported format": {Paths: []string{in}, Output: out, Format: "rar"},
+		"output not allowed": {Paths: []string{in}, Output: out, AllowedDirs: []string{other}},
+		"input not allowed":  {Paths: []string{in}, Output: filepath.Join(other, "o.zip"), AllowedDirs: []string{other}},
+		"output uncreatable": {Paths: []string{in}, Output: filepath.Join(outDir, "no", "such", "dir", "o.zip")},
+	}
+	for name, opts := range cases {
+		t.Run(name, func(t *testing.T) {
+			res, err := CompressFiles(opts)
+			if err == nil {
+				t.Fatalf("no error; result %+v", res)
+			}
+			if res != nil {
+				t.Errorf("a refusal returned a result: %+v", res)
+			}
+			for _, p := range []string{out, filepath.Join(other, "o.zip")} {
+				if _, statErr := os.Lstat(p); !os.IsNotExist(statErr) {
+					t.Errorf("a refusal left %s behind", p)
+				}
+			}
+		})
+	}
+}

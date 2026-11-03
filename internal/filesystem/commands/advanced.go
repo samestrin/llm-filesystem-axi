@@ -106,10 +106,34 @@ func compressFilesCmd() *cobra.Command {
 				OutputError(err)
 				return
 			}
-			OutputResult(result, func() string {
-				return fmt.Sprintf("Created %s (%s format)\n%d files added, %d bytes",
-					result.Output, result.Format, result.FilesAdded, result.Size)
-			})
+			OutputResultAXI(result, nil,
+				func() []string {
+					if result.Failed == 0 {
+						return nil
+					}
+					step := fmt.Sprintf("Not added (%d): %s",
+						result.Failed, strings.Join(result.Failures, "; "))
+					if more := result.Failed - len(result.Failures); more > 0 {
+						step += fmt.Sprintf("; and %d more", more)
+					}
+					return []string{step}
+				},
+				func() string {
+					overwrote := ""
+					if result.Overwritten {
+						overwrote = ", replaced the existing file"
+					}
+					return fmt.Sprintf("Created %s (%s format%s)\n%d files added, %d failed, %d bytes",
+						result.Output, result.Format, overwrote,
+						result.FilesAdded, result.Failed, result.Size)
+				})
+
+			// As in extract-archive: the result first, so the caller learns which
+			// inputs were left out, then exit 1 for the partial run (epic 04 Q2).
+			if result.Failed > 0 {
+				exitFunc(int(goaxi.ExitError))
+				return
+			}
 		},
 	}
 

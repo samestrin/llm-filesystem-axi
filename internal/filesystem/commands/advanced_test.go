@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"encoding/json"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -347,5 +348,158 @@ func TestExtractArchiveCleanRunExitsZero(t *testing.T) {
 				t.Errorf("a.txt = %q, want the archive's content", got)
 			}
 		})
+	}
+}
+
+// compress-files --paths ok.txt,missing.txt printed files_added: 1,
+// success: true and exited 0. A partial run now says so in every format and
+// exits 1 (owner decision Q2), after printing the result.
+func TestCompressFilesReportsAPartialRun(t *testing.T) {
+	dir := t.TempDir()
+	ok := filepath.Join(dir, "ok.txt")
+	if err := os.WriteFile(ok, []byte("ok"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	missing := filepath.Join(dir, "missing.txt")
+	paths := ok + "," + missing
+
+	t.Run("toon", func(t *testing.T) {
+		out, _, code := runCLI(t, "compress-files", "--paths", paths, "--output", filepath.Join(t.TempDir(), "o.zip"))
+
+		if code != 1 {
+			t.Errorf("a partial run exited %d, want 1", code)
+		}
+		for _, want := range []string{"files_added: 1", "failed: 1", "success: false", "overwritten: false"} {
+			if !hasTOONLine(out, want) {
+				t.Errorf("TOON output lacks %q:\n%s", want, out)
+			}
+		}
+		i := strings.Index(out, "\nhelp[")
+		if i < 0 || !strings.Contains(out[i:], "missing.txt") {
+			t.Errorf("the help[] block does not name the missing input:\n%s", out)
+		}
+	})
+
+	// compress-files owns a local --format (T3 renames it), so JSON is reached
+	// through --json here.
+	t.Run("json", func(t *testing.T) {
+		out, _, code := runCLI(t, "--json", "compress-files", "--paths", paths, "--output", filepath.Join(t.TempDir(), "o.zip"))
+
+		if code != 1 {
+			t.Errorf("a partial run exited %d, want 1", code)
+		}
+		var doc struct {
+			FilesAdded int      `json:"files_added"`
+			Failed     int      `json:"failed"`
+			Failures   []string `json:"failures"`
+			Success    *bool    `json:"success"`
+		}
+		if err := json.Unmarshal([]byte(out), &doc); err != nil {
+			t.Fatalf("not JSON: %v\n%s", err, out)
+		}
+		if doc.FilesAdded != 1 || doc.Failed != 1 || doc.Success == nil || *doc.Success {
+			t.Errorf("want files_added 1, failed 1, success false; got %s", out)
+		}
+		if len(doc.Failures) != 1 || !strings.HasPrefix(doc.Failures[0], missing+": ") {
+			t.Errorf("failures = %q, want the missing path and a reason", doc.Failures)
+		}
+	})
+
+	// The text renderer is the only place a human reads the failed count.
+	// The local --format shadows the global one until T3, so text is reached
+	// through the legacy --min.
+	t.Run("text", func(t *testing.T) {
+		out, _, code := runCLI(t, "--min", "compress-files", "--paths", paths, "--output", filepath.Join(t.TempDir(), "o.zip"))
+
+		if code != 1 {
+			t.Errorf("a partial run exited %d, want 1", code)
+		}
+		if !strings.Contains(out, "1 files added, 1 failed") {
+			t.Errorf("text output hides the failed count:\n%s", out)
+		}
+		if !strings.Contains(out, "Not added (1): "+missing+": ") {
+			t.Errorf("text output does not name the missing input:\n%s", out)
+		}
+	})
+}
+
+// failures[] is capped at maxPlannedPaths, so the help[] step must say how many
+// more were left out, or a run with 105 missing inputs reads as 100.
+func TestCompressFilesHelpCountsFailuresBeyondTheSample(t *testing.T) {
+	dir := t.TempDir()
+	ok := filepath.Join(dir, "ok.txt")
+	if err := os.WriteFile(ok, []byte("ok"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	paths := []string{ok}
+	for i := 0; i < 105; i++ {
+		paths = append(paths, filepath.Join(dir, fmt.Sprintf("missing%d.txt", i)))
+	}
+
+	out, _, code := runCLI(t, "--min", "compress-files", "--paths", strings.Join(paths, ","), "--output", filepath.Join(t.TempDir(), "o.zip"))
+
+	if code != 1 {
+		t.Errorf("a partial run exited %d, want 1", code)
+	}
+	if !strings.Contains(out, "Not added (105): ") || !strings.Contains(out, "; and 5 more") {
+		t.Errorf("the help step does not count the failures beyond the sample:\n%s", out)
+	}
+}
+
+// An existing --output is replaced and reported, and a clean run exits 0.
+func TestCompressFilesReportsAnOverwriteAndExitsZero(t *testing.T) {
+	in := filepath.Join(t.TempDir(), "a.txt")
+	if err := os.WriteFile(in, []byte("a"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	output := filepath.Join(t.TempDir(), "o.zip")
+	if err := os.WriteFile(output, []byte("old"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	out, _, code := runCLI(t, "compress-files", "--paths", in, "--output", output)
+
+	if code != -1 && code != 0 {
+		t.Errorf("a clean run exited %d:\n%s", code, out)
+	}
+	for _, want := range []string{"overwritten: true", "failed: 0", "success: true"} {
+		if !hasTOONLine(out, want) {
+			t.Errorf("TOON output lacks %q:\n%s", want, out)
+		}
+	}
+	if got, _ := os.ReadFile(output); string(got) == "old" {
+		t.Errorf("the output still holds the old content")
+	}
+
+	out, _, _ = runCLI(t, "--min", "compress-files", "--paths", in, "--output", output)
+	if !strings.Contains(out, "(zip format, replaced the existing file)") || !strings.Contains(out, "1 files added, 0 failed") {
+		t.Errorf("text output does not report the overwrite:\n%s", out)
+	}
+}
+
+// An archive that cannot be finished is an error and exits 1. /dev/full
+// accepts the open and fails the flush, so the zip writer's Close is where the
+// write error surfaces: before T2 that Close was a defer, and this printed
+// success: true. /dev/full is not a regular file, so it must also survive the
+// cleanup that removes an unfinished archive.
+func TestCompressFilesExitsOneWhenTheArchiveCannotBeFinished(t *testing.T) {
+	if _, err := os.Stat("/dev/full"); err != nil {
+		t.Skip("no /dev/full on this platform")
+	}
+	in := filepath.Join(t.TempDir(), "a.txt")
+	if err := os.WriteFile(in, []byte("a"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	out, _, code := runCLI(t, "compress-files", "--paths", in, "--output", "/dev/full")
+
+	if code != 1 {
+		t.Errorf("an unfinished archive exited %d, want 1:\n%s", code, out)
+	}
+	if hasTOONLine(out, "success: true") {
+		t.Errorf("an unfinished archive reported success:\n%s", out)
+	}
+	if _, err := os.Stat("/dev/full"); err != nil {
+		t.Errorf("cleanup removed a device it did not create: %v", err)
 	}
 }
