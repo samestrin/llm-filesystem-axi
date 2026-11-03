@@ -990,3 +990,41 @@ func TestCompressFilesCleanRunRoundTrips(t *testing.T) {
 		})
 	}
 }
+
+// Each refusal is an error with no result, and none of them leaves a file at
+// --output: an unsupported format used to be checked only after the paths, and
+// a refusal that still created the archive would be success by side effect.
+func TestCompressFilesRefusesBadInput(t *testing.T) {
+	in := filepath.Join(t.TempDir(), "a.txt")
+	if err := os.WriteFile(in, []byte("a"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	outDir := t.TempDir()
+	out := filepath.Join(outDir, "out.zip")
+	other := t.TempDir()
+
+	cases := map[string]CompressFilesOptions{
+		"no paths":           {Output: out},
+		"no output":          {Paths: []string{in}},
+		"unsupported format": {Paths: []string{in}, Output: out, Format: "rar"},
+		"output not allowed": {Paths: []string{in}, Output: out, AllowedDirs: []string{other}},
+		"input not allowed":  {Paths: []string{in}, Output: filepath.Join(other, "o.zip"), AllowedDirs: []string{other}},
+		"output uncreatable": {Paths: []string{in}, Output: filepath.Join(outDir, "no", "such", "dir", "o.zip")},
+	}
+	for name, opts := range cases {
+		t.Run(name, func(t *testing.T) {
+			res, err := CompressFiles(opts)
+			if err == nil {
+				t.Fatalf("no error; result %+v", res)
+			}
+			if res != nil {
+				t.Errorf("a refusal returned a result: %+v", res)
+			}
+			for _, p := range []string{out, filepath.Join(other, "o.zip")} {
+				if _, statErr := os.Lstat(p); !os.IsNotExist(statErr) {
+					t.Errorf("a refusal left %s behind", p)
+				}
+			}
+		})
+	}
+}
