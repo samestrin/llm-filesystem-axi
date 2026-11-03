@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -97,5 +98,63 @@ func TestToolFailureExitsOne(t *testing.T) {
 	}
 	if strings.TrimSpace(output) == "" {
 		t.Error("a tool failure must emit a structured body")
+	}
+}
+
+// Runs the skill's archive example (SKILL.md: compress a directory to
+// release.tar.gz, extract it to ./out) against the real binary, in a working
+// directory, with the same relative paths. The archive commands once reported
+// success while writing a type other than the one the extension named, so the
+// archive could not be read back. Assert the extracted files, not the exit
+// code: only the bytes on disk show the round trip worked.
+func TestSkillArchiveExampleRoundTrips(t *testing.T) {
+	bin, err := filepath.Abs(requireBinary(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	work := t.TempDir()
+	files := map[string]string{
+		"dist/app.txt":         "top-level file\n",
+		"dist/nested/deep.txt": "nested file\n",
+	}
+	for rel, body := range files {
+		p := filepath.Join(work, rel)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	run := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command(bin, args...)
+		cmd.Dir = work
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("%v: %v\n%s", args, err, out)
+		}
+	}
+	run("compress-files", "--paths", "dist", "--output", "release.tar.gz")
+	run("extract-archive", "--archive", "release.tar.gz", "--dest", "./out")
+
+	// The archive may keep or drop the leading "dist/"; accept either layout.
+	for rel, want := range files {
+		found := false
+		for _, cand := range []string{rel, strings.TrimPrefix(rel, "dist/")} {
+			got, err := os.ReadFile(filepath.Join(work, "out", cand))
+			if err != nil {
+				continue
+			}
+			found = true
+			if string(got) != want {
+				t.Errorf("%s extracted as %q, want %q", cand, got, want)
+			}
+		}
+		if !found {
+			t.Errorf("%s not found under out/ after the round trip", rel)
+		}
 	}
 }
