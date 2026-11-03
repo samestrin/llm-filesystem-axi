@@ -546,6 +546,24 @@ func TestCompressFilesArchiveTypeSelection(t *testing.T) {
 		}
 	})
 
+	// tgz and tar.gz are one format. Without normalisation, tgz against a
+	// .tar.gz output would be refused as a contradiction.
+	t.Run("--archive-format tgz agrees with a .tar.gz output", func(t *testing.T) {
+		out := filepath.Join(t.TempDir(), "a.tar.gz")
+		text, _, code := runCLI(t, "compress-files", "--paths", in, "--output", out, "--archive-format", "tgz")
+		if (code != 0 && code != -1) || !gzMagic(t, out) {
+			t.Errorf("exit %d, gzip=%v:\n%s", code, gzMagic(t, out), text)
+		}
+	})
+
+	t.Run("deprecated --format tgz still selects tar.gz", func(t *testing.T) {
+		out := filepath.Join(t.TempDir(), "a.tgz")
+		text, _, code := runCLI(t, "compress-files", "--paths", in, "--output", out, "--format", "tgz")
+		if (code != 0 && code != -1) || !gzMagic(t, out) {
+			t.Errorf("exit %d, gzip=%v:\n%s", code, gzMagic(t, out), text)
+		}
+	})
+
 	t.Run("--archive-format selects the type for an unknown extension", func(t *testing.T) {
 		out := filepath.Join(t.TempDir(), "out")
 		text, _, code := runCLI(t, "compress-files", "--paths", in, "--output", out, "--archive-format", "tar.gz")
