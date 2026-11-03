@@ -1,6 +1,6 @@
 # llm-filesystem
 
-The `llm-filesystem` CLI — 28 commands for reading, writing, editing, searching and managing files, built to the [AXI](https://axi.md) principles. The command line is the agent interface; output defaults to token-efficient TOON.
+The `llm-filesystem` CLI — 29 commands for reading, writing, editing, searching and managing files, built to the [AXI](https://axi.md) principles. The command line is the agent interface; output defaults to token-efficient TOON.
 
 ## Build and install
 

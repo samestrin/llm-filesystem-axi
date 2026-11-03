@@ -8,6 +8,17 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **`llm-filesystem setup` registers the tool with Claude Code in the working
+  directory.** It merges a SessionStart hook that runs `llm-filesystem` into
+  `.claude/settings.json`, keeping every other key and hook, and writes the
+  Agent Skill to `.claude/skills/llm-filesystem/SKILL.md`. It supports
+  `--dry-run`, is idempotent, never prompts, and writes only under the working
+  directory — never the home directory. A `settings.json` that is not a JSON
+  object, or whose `hooks` or `hooks.SessionStart` has the wrong type, is
+  refused and left untouched. The agent setup docs (`README.md` and
+  `integrations/claude-code/`) now lead with this command, and the routing
+  guidance is fetched by URL instead of copied from a clone, so a user who
+  installed the binary from the README needs no clone of this repo.
 - **`--axi` is accepted as a hidden global flag.** It is a no-op alias for the
   TOON default, so a habit from the sibling AXI tools no longer exits 2. It
   changes no output and does not override `--format` or `--json`.
@@ -17,7 +28,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   partial-failure finding fixed by epic 04 (not in the tag) and two
   unscheduled gaps (a `create-directory` false `created: true`, and the
   home view's `bin` path not tilde-rendered) are recorded with what closes
-  them. Principle 7 is met only through the manual copy until `setup` lands.
+  them. Principle 7 was met only through the manual copy until `setup` landed
+  in this release.
 
 ### Fixed — archive commands no longer report success for work that did not happen
 

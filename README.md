@@ -5,12 +5,12 @@
 
 [![Go Version](https://img.shields.io/github/go-mod/go-version/samestrin/llm-filesystem-axi)](https://go.dev/)
 [![TOON output by go-axi](https://img.shields.io/badge/TOON%20output-go--axi-00ADD8)](https://github.com/samestrin/go-axi)
-[![AXI](https://img.shields.io/badge/AXI-10%2F10%20principles-5b5bd6)](https://axi.md)
+[![AXI](https://img.shields.io/badge/AXI-10%2F10%20principles-5b5bd6)](https://axi.md) ([audit](docs/axi-audit.md))
 [![License](https://img.shields.io/github/license/samestrin/llm-filesystem-axi)](LICENSE)
 
 `llm-filesystem` gives an AI agent fast, safe "hands" on the filesystem: reading, writing, editing, searching, and managing files. It follows the [AXI](https://axi.md) design principles, which treat the command line itself as the agent interface rather than something to be wrapped in a protocol.
 
-It ships as one binary, `llm-filesystem`: a CLI with 28 commands. There is no MCP server; an agent that can run a command can run this.
+It ships as one binary, `llm-filesystem`: a CLI with 29 commands. There is no MCP server; an agent that can run a command can run this.
 
 It began as a Go port of the TypeScript [`fast-filesystem-mcp`](https://github.com/efforthye/fast-filesystem-mcp), rewritten for startup speed and single-binary deployment.
 
@@ -48,13 +48,21 @@ To restrict it to specific directories, pass `--allowed-dirs /Users/me/projects,
 
 ### Telling your agent about it
 
-Append [`integrations/cli/AGENTS.md`](integrations/cli/AGENTS.md) to your project's `AGENTS.md` or `CLAUDE.md`. It lists all 28 commands grouped by task, says when to reach for them instead of built-in single-file tools, and covers the two behaviours that surprise agents — large reads truncate rather than fail, and deletes need `--confirm`:
+With Claude Code, run one command in your project:
 
 ```bash
-cat integrations/cli/AGENTS.md >> ./AGENTS.md
+llm-filesystem setup
 ```
 
-That list is checked against the binary in both directions by tests, so a command cannot be added, renamed or removed without the documentation failing CI. Claude Code setup, including an on-demand skill, lives in [`integrations/claude-code/`](integrations/claude-code/).
+It merges a SessionStart hook into `.claude/settings.json` (keeping every other key and hook) and writes the Agent Skill to `.claude/skills/llm-filesystem/SKILL.md`. It is idempotent, never prompts, and supports `--dry-run`. See [`integrations/claude-code/`](integrations/claude-code/).
+
+For any other agent, append the routing guidance to your project's `AGENTS.md` or `CLAUDE.md`. It lists all 29 commands grouped by task, says when to reach for them instead of built-in single-file tools, and covers the two behaviours that surprise agents — large reads truncate rather than fail, and deletes need `--confirm`:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/samestrin/llm-filesystem-axi/main/integrations/cli/AGENTS.md >> ./AGENTS.md
+```
+
+That list is checked against the binary in both directions by tests, so a command cannot be added, renamed or removed without the documentation failing CI.
 
 See [`docs/llm-filesystem-commands.md`](docs/llm-filesystem-commands.md) for the full command reference.
 
