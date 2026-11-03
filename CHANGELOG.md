@@ -4,6 +4,36 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed — archive commands no longer report success for work that did not happen
+
+- **`extract-archive` reports every entry it did not write.** An entry refused
+  by the path-escape guard, an unsupported tar entry type such as a symlink, or
+  a mkdir, open, create, copy or close failure is now counted in the new
+  `failed` field with the entry name and reason in `failures[]`, and `success`
+  is `false`. Files that replaced existing destination files are counted in
+  `overwritten`. A partial run still prints the full result, then exits `1`.
+- **`compress-files` reports every input it did not add.** A missing input
+  path, a walk error or a per-file add error is counted in `failed` with the
+  reason in `failures[]`, `success` is `false`, and the run exits `1`.
+  `overwritten` reports whether `--output` already existed. The zip, gzip and
+  tar writers are now closed explicitly and their errors returned, and the
+  output file is removed when the archive could not be finished, so a
+  truncated archive can no longer pass as a success.
+
+### Changed — `compress-files` picks the archive type from `--output`
+
+- The archive type now comes from the `--output` extension (`.zip`, `.tar.gz`,
+  `.tgz`), so `compress-files --output release.tar.gz` writes a real gzip
+  archive — previously it wrote a zip under that name, and `extract-archive`
+  then failed on it. The command's local `--format` flag is renamed to
+  `--archive-format`; **`--format zip|tar.gz|tgz` remains as a deprecated
+  alias**, so the global `--format json|toon|text` works on this command again.
+  An `--archive-format` that contradicts the extension, or an `--output` with
+  no recognised extension and no `--archive-format`, is a usage error (exit 2)
+  that names the accepted extensions and writes nothing.
+
 ## [1.0.0] - 2026-11-01
 
 First standalone release. `llm-filesystem` was extracted from the

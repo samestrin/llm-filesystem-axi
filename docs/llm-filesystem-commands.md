@@ -104,19 +104,21 @@ A search path that does not exist, or that is a file rather than a directory, is
 |---------|-------------|---------|
 | `get-disk-usage` | Get disk usage stats | `llm-filesystem get-disk-usage --path /tmp` |
 | `find-large-files` | Find files over size | `llm-filesystem find-large-files --path ./src --min-size "1MB"` |
-| `compress-files` | Create archive | `llm-filesystem compress-files --paths file1.txt --paths file2.txt --output archive.zip` |
+| `compress-files` | Create archive (type from `--output` extension, or `--archive-format zip|tar.gz|tgz`) | `llm-filesystem compress-files --paths file1.txt --paths file2.txt --output archive.zip` |
 | `extract-archive` | Extract archive | `llm-filesystem extract-archive --archive file.zip --dest /tmp/extracted` |
 | `sync-directories` | Sync directories | `llm-filesystem sync-directories --source /src --dest /backup --dry-run` |
 | `list-allowed-directories` | Show allowed dirs | `llm-filesystem list-allowed-directories` |
 
 `sync-directories --dry-run` reports what it would write and writes nothing. The preview carries `dry_run: true` and a `planned[]` sample in every format, not only in the human text, and it reports the same counts the real run produces.
 
+`compress-files` and `extract-archive` account for everything they were asked to handle. A skipped input or a refused entry is counted in `failed` with the reason in `failures[]`, `success` is `false`, and the run exits `1` — a partial run never reports success. Files that replaced existing ones are counted in `overwritten`. An `--output` whose extension is not `.zip`, `.tar.gz` or `.tgz`, or an `--archive-format` that contradicts the extension, is a usage error (exit `2`) and writes nothing.
+
 ## Exit codes
 
 | Code | Meaning |
 |------|---------|
 | `0` | Success |
-| `1` | The tool failed — the operation was attempted and did not work |
+| `1` | The tool failed — the operation was attempted and did not fully work (including a partial run, such as an archive command that skipped some entries) |
 | `2` | Usage error — unknown subcommand, unknown flag, missing required flag, invalid `--format`, or a refused confirmation |
 
 Errors are structured documents on **stdout** in the active format, each carrying a `help[]` block naming a concrete next command. `--format text` keeps its `Error: <msg>` shape on stderr.
