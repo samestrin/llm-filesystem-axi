@@ -1,0 +1,30 @@
+# AXI audit: `llm-filesystem` against the ten principles on axi.md
+
+- **Audited:** 2026-11-03, on a `make build` of tag `v1.0.0` at `c3b0170`.
+- **Method:** by hand. `axi-axi` is not installed on the build host. Each principle was checked against the text on https://axi.md, by running `build/llm-filesystem` in a scratch temp directory and reading the code the output comes from (line numbers are at `v1.0.0`).
+- **Status:** a snapshot of the released binary. Epic 04 has since merged to `main` (`#24`-`#28`) and closes the principle 6 gap below; epic 05 T2 closes the principle 7 gap. Where a gap is already closed on `main`, the row says so.
+
+| # | Principle (axi.md) | Verdict | Evidence | Closed by |
+|---|---|---|---|---|
+| 1 | Token-efficient output (TOON) | **Met** | `--format` defaults to `toon` (`internal/filesystem/commands/root.go:123-124`); every probed command emits TOON. | — |
+| 2 | Minimal default schemas (3-4 fields per item) | **Met** | `list-directory` emits `items[N]{name,size_readable,type}` — three fields (`internal/filesystem/commands/directory.go:41`); `--full` and `--fields` widen it. | — |
+| 3 | Content truncation with a size hint and `--full` | **Met** | Probed: a 90,001-byte file reads as `size: 70000`, `total_size: 90001`, `truncated: true`, with `help[]` offering `--start-offset 70000` and `--full` (`internal/filesystem/commands/read.go:82-93`). | — |
+| 4 | Pre-computed aggregates, always a total | **Met** | `list-directory` prints `total: 3`; `search-code` prints `total_matches` and `total_files` (`internal/filesystem/commands/search.go:142`). | — |
+| 5 | Definitive empty states | **Met** | Probed: an empty directory prints `total: 0` and a no-match search prints `total_matches: 0`, each with `help[]`. Minor: the empty list renders as `items: null` rather than `items[0]:`; the explicit `total: 0` is what disambiguates it. | — |
+| 6 | Structured errors on stdout, exit 0/1, idempotent, never prompt, unknown flags fail loud | **Not met** at v1.0.0 (one gap) | Met in part: a missing file prints `error: true` / `message:` on stdout with exit 1; `--bogus` exits 2 with a structured error; `delete-file` refuses without `--confirm` rather than prompting. Gaps: see 6a-6b below — the archive commands reported partial work as success, and `create-directory` reports `created: true` for a directory that already existed. | 6a: epic 04 (`#24`, `#25`; docs/tests `#26`-`#28`), merged to `main` after the tag. 6b: **unscheduled** (tech debt) |
+| 7 | Ambient context (setup command, Agent Skill) | **Met only through the manual copy** until epic 05 T2 lands | There is no `setup` command (`--help` lists 28 commands, none of them `setup`). The ambient context is a manual `cat integrations/cli/AGENTS.md >> ./AGENTS.md` (`README.md:51-54`) plus the shipped Claude Code skill under `integrations/claude-code/skill/` — both of which assume a clone the README install no longer requires. | 05 T2 |
+| 8 | Content first (no-argument run shows live data, path as `~`) | **Met** (one gap) | Probed: a bare run prints `about`, `bin`, `cwd`, `home: ~`, a bounded listing (`items`, `total`) and `help[]` (`internal/filesystem/commands/home.go:62-112`). Gap: `bin` is not tilde-rendered when the executable sits under the home directory — `view.Bin` is set without `tildePath` (`home.go:68-70`); probed `bin: /paperclip/axi-audit-bin/llm-filesystem` beside `home: ~`. Filed as tech debt on the epic. | gap: unscheduled (tech debt) |
+| 9 | Contextual disclosure (`help[]` next steps) | **Met** | Every probed output — landing view, listings, searches, truncations, and errors — ends in `help[]` with concrete next-step commands (e.g. `read.go:88-92`). | — |
+| 10 | Consistent `--help` on every subcommand | **Met** | Probed: `--help` exits 0 for all 28 subcommands listed by the root help. | — |
+
+## Principle 6 in detail
+
+- **6a. `compress-files` and `extract-archive` reported partial work as success.** Probed on the v1.0.0 binary:
+  - `llm-filesystem compress-files --output out.zip --paths a.txt,missing.txt` prints `files_added: 1`, `success: true` and exits 0, with no mention that `missing.txt` was never added. The archive exists and holds only `a.txt`.
+  - `extract-archive` had the same failure class: entries not written were not reported, and a partial run exited 0.
+
+  This is the partial-failure finding epic 04 was created for, and it is the reason the "nothing may report success when it did not succeed" rule exists. Closed on `main` by epic 04: `fix(extract-archive): report every entry not written; exit 1 on a partial run` (`#24`) and `fix(compress-files): report every input not added; exit 1 on a partial run` (`#25`), with docs in `#27` and an end-to-end test in `#28`. The fixes are **not** in the audited v1.0.0 binary; they ship with the next release.
+
+- **6b. `create-directory` on an existing directory reports `created: true`.** Probed: a second `create-directory --path <same dir>` prints `created: true` / `Directory created successfully` and exits 0, though nothing was created. The mutation itself is idempotent (`os.MkdirAll`, `internal/filesystem/core/write.go:337-338`), but the report claims work that did not happen — the same failure class as 6a. Still present on `main` at the time of the audit. **Neither epic 04 nor 05 has a task for this.** Filed as tech debt on the epic.
+
+Idempotency of the remaining mutations was spot-checked, not exhaustively probed: `delete-file` without `--confirm` changes nothing (probed).
