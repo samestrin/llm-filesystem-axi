@@ -20,12 +20,17 @@ func TestBinaryBuilds(t *testing.T) {
 	}
 }
 
-// requireBinary returns the path to the built CLI, skipping when it is absent.
+// requireBinary returns the path to the built CLI. Locally an absent binary
+// skips; when CI is set it fails, because a skipped end-to-end test in CI
+// reports a green run that exercised nothing (TD #24).
 func requireBinary(t *testing.T) string {
 	t.Helper()
 
 	const path = "../../build/llm-filesystem"
 	if _, err := os.Stat(path); os.IsNotExist(err) {
+		if os.Getenv("CI") != "" {
+			t.Fatal("binary not built; CI must run make build before go test")
+		}
 		t.Skip("binary not built; run make build")
 	}
 	return path

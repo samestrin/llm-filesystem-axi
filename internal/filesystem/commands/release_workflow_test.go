@@ -129,3 +129,19 @@ func TestReleaseWorkflowBuildJobBuildsEverything(t *testing.T) {
 		}
 	}
 }
+
+// The end-to-end tests exec ./build/llm-filesystem and fail under CI when it
+// is missing, so the verify step must build it first. Without "make build"
+// ahead of "go test", every release run goes red (or, before TD #24, skipped
+// those tests and still reported green).
+func TestReleaseWorkflowVerifyBuildsBeforeTesting(t *testing.T) {
+	build := readReleaseWorkflow(t).jobs["build"]
+	mk := strings.Index(build, "make build")
+	gt := strings.Index(build, "go test -race ./...")
+	if mk < 0 {
+		t.Fatal("the verify step does not run make build; end-to-end tests have no binary")
+	}
+	if gt < 0 || mk > gt {
+		t.Error("make build must come before go test in the verify step")
+	}
+}
