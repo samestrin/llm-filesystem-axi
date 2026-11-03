@@ -360,6 +360,10 @@ func buildTarGz(t *testing.T, entries []archiveEntry, truncateAt int) string {
 		switch {
 		case e.dir:
 			hdr.Typeflag, hdr.Mode, hdr.Size = tar.TypeDir, 0o755, 0
+		case e.tarTyp == tar.TypeXGlobalHeader:
+			// What `git archive` writes: the commit id as a pax comment. The
+			// writer accepts nothing but PAXRecords on a global header.
+			hdr = &tar.Header{Typeflag: tar.TypeXGlobalHeader, PAXRecords: map[string]string{"comment": "0123456789abcdef"}}
 		case e.tarTyp == tar.TypeSymlink:
 			hdr.Typeflag, hdr.Linkname, hdr.Size = tar.TypeSymlink, "/etc/passwd", 0
 		case e.tarTyp != 0:
@@ -758,5 +762,22 @@ func TestExtractArchiveRefusesBadInput(t *testing.T) {
 				t.Errorf("want an error, got %+v", res)
 			}
 		})
+	}
+}
+
+// `git archive` writes a pax_global_header entry into every tarball. It is
+// metadata for the archive, not an entry, and reporting it as an unsupported
+// type turned every `git archive` tarball into failed: 1, exit 1 with nothing
+// wrong.
+func TestExtractArchiveSkipsAPaxGlobalHeader(t *testing.T) {
+	archive := buildTarGz(t, []archiveEntry{
+		{name: "pax_global_header", tarTyp: tar.TypeXGlobalHeader},
+		{name: "a.txt", body: "a"},
+	}, 0)
+
+	res := extract(t, archive, t.TempDir())
+
+	if !res.Success || res.Failed != 0 || res.FilesExtracted != 1 {
+		t.Errorf("want success, failed 0, 1 extracted; got %+v", res)
 	}
 }
