@@ -491,7 +491,7 @@ func TestCompressFilesExitsOneWhenTheArchiveCannotBeFinished(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	out, _, code := runCLI(t, "compress-files", "--paths", in, "--output", "/dev/full")
+	out, _, code := runCLI(t, "compress-files", "--paths", in, "--output", "/dev/full", "--archive-format", "zip")
 
 	if code != 1 {
 		t.Errorf("an unfinished archive exited %d, want 1:\n%s", code, out)
@@ -502,4 +502,89 @@ func TestCompressFilesExitsOneWhenTheArchiveCannotBeFinished(t *testing.T) {
 	if _, err := os.Stat("/dev/full"); err != nil {
 		t.Errorf("cleanup removed a device it did not create: %v", err)
 	}
+}
+
+// compress-files took its archive type from a local --format that shadowed the
+// global output format, so `--format json` was impossible on it. The type now
+// comes from --output's extension (or --archive-format), and --format keeps its
+// global meaning. These defend each rule from the T3 contract.
+func TestCompressFilesArchiveTypeSelection(t *testing.T) {
+	in := filepath.Join(t.TempDir(), "a.txt")
+	if err := os.WriteFile(in, []byte("a"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gzMagic := func(t *testing.T, p string) bool {
+		t.Helper()
+		b, err := os.ReadFile(p)
+		return err == nil && len(b) > 2 && b[0] == 0x1f && b[1] == 0x8b
+	}
+
+	for _, ext := range []string{"a.tar.gz", "a.tgz"} {
+		t.Run("extension "+ext, func(t *testing.T) {
+			out := filepath.Join(t.TempDir(), ext)
+			text, _, code := runCLI(t, "compress-files", "--paths", in, "--output", out)
+			if (code != 0 && code != -1) || !gzMagic(t, out) {
+				t.Errorf("%s: exit %d, gzip=%v:\n%s", ext, code, gzMagic(t, out), text)
+			}
+		})
+	}
+
+	t.Run("global --format json prints JSON", func(t *testing.T) {
+		out := filepath.Join(t.TempDir(), "a.zip")
+		text, _, code := runCLI(t, "compress-files", "--paths", in, "--output", out, "--format", "json")
+		var doc map[string]interface{}
+		if (code != 0 && code != -1) || json.Unmarshal([]byte(text), &doc) != nil {
+			t.Errorf("exit %d, not JSON:\n%s", code, text)
+		}
+	})
+
+	t.Run("deprecated --format tar.gz still selects tar.gz", func(t *testing.T) {
+		out := filepath.Join(t.TempDir(), "a.tar.gz")
+		text, _, code := runCLI(t, "compress-files", "--paths", in, "--output", out, "--format", "tar.gz")
+		if (code != 0 && code != -1) || !gzMagic(t, out) {
+			t.Errorf("exit %d, gzip=%v:\n%s", code, gzMagic(t, out), text)
+		}
+	})
+
+	t.Run("--archive-format selects the type for an unknown extension", func(t *testing.T) {
+		out := filepath.Join(t.TempDir(), "out")
+		text, _, code := runCLI(t, "compress-files", "--paths", in, "--output", out, "--archive-format", "tar.gz")
+		if (code != 0 && code != -1) || !gzMagic(t, out) {
+			t.Errorf("exit %d, gzip=%v:\n%s", code, gzMagic(t, out), text)
+		}
+	})
+
+	// Exit 2 means nothing was touched, so the file must not exist.
+	refusals := []struct {
+		name string
+		args []string
+		file string
+	}{
+		{"contradicting --archive-format", []string{"--archive-format", "tar.gz"}, "a.zip"},
+		{"contradicting deprecated --format", []string{"--format", "tar.gz"}, "a.zip"},
+		{"no extension and no --archive-format", nil, "out"},
+		{"unsupported --archive-format", []string{"--archive-format", "rar"}, "out"},
+	}
+	for _, r := range refusals {
+		t.Run(r.name, func(t *testing.T) {
+			out := filepath.Join(t.TempDir(), r.file)
+			args := append([]string{"compress-files", "--paths", in, "--output", out}, r.args...)
+			text, _, code := runCLI(t, args...)
+			if code != 2 {
+				t.Errorf("exit %d, want 2:\n%s", code, text)
+			}
+			if _, err := os.Stat(out); err == nil {
+				t.Errorf("a refused run wrote %s", out)
+			}
+		})
+	}
+
+	t.Run("no-extension refusal names the accepted extensions", func(t *testing.T) {
+		text, _, _ := runCLI(t, "compress-files", "--paths", in, "--output", filepath.Join(t.TempDir(), "out"))
+		for _, want := range []string{".zip", ".tar.gz", ".tgz"} {
+			if !strings.Contains(text, want) {
+				t.Errorf("diagnostic lacks %q:\n%s", want, text)
+			}
+		}
+	})
 }

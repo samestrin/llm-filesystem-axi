@@ -70,7 +70,7 @@ Every command takes `--help`. Run `llm-filesystem` with no arguments to see the 
 |---|---|
 | `get-disk-usage` | Total size, file and directory counts for a path |
 | `find-large-files` | Files at or above a `--min-size` in bytes |
-| `compress-files` | Create a zip or tar.gz |
+| `compress-files` | Create a zip or tar.gz; type comes from `--output`'s extension or `--archive-format` |
 | `extract-archive` | Extract a zip or tar.gz |
 | `sync-directories` | Copy a tree to a destination, with `--dry-run` to preview |
 | `list-allowed-directories` | Show the sandbox, if one is set |
