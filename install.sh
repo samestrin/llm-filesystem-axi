@@ -4,9 +4,10 @@
 #   curl -fsSL https://raw.githubusercontent.com/samestrin/llm-filesystem-axi/main/install.sh | bash
 #
 # Downloads the binary for this platform and SHA256SUMS.txt, verifies the
-# binary against it, and installs to $HOME/.local/bin. On a failed download or
-# a checksum mismatch it installs nothing and exits non-zero; an existing
-# binary is only ever replaced by one that verified.
+# binary against it, runs it with --version, and installs to $HOME/.local/bin.
+# On a failed download, a checksum mismatch, or a binary that does not run
+# here it installs nothing and exits non-zero; an existing binary is only ever
+# replaced by one that verified and ran. Re-running it is the upgrade.
 #
 # Environment:
 #   INSTALL_DIR              where to install (default: $HOME/.local/bin)
@@ -91,10 +92,60 @@ staged="$install_dir/.$BIN.tmp.$$"
 trap 'rm -rf "$tmp"; rm -f "$staged"' EXIT
 cp "$tmp/$asset" "$staged" || die "could not write to $install_dir"
 chmod 755 "$staged"
+
+# A binary can match its checksum and still not run here: the wrong
+# architecture, or a noexec install directory. Run the staged copy, bounded so
+# one that hangs cannot hang the install. macOS has no timeout(1), so a
+# watcher kills it instead. Output goes to a file: a command substitution
+# would wait on the watcher's sleep, which holds the pipe open.
+version_limit=10
+run_version() { # $1: binary. Prints its first --version line; fails if it does not run.
+    local pid watcher rc=0
+    rm -f "$tmp/timed_out"
+    "$1" --version >"$tmp/version.out" 2>&1 </dev/null &
+    pid=$!
+    (sleep "$version_limit" && touch "$tmp/timed_out" && kill -9 "$pid") >/dev/null 2>&1 &
+    watcher=$!
+    wait "$pid" 2>/dev/null || rc=$?
+    kill "$watcher" 2>/dev/null || true
+    wait "$watcher" 2>/dev/null || true
+    if [[ -e "$tmp/timed_out" ]]; then
+        echo "did not finish within $version_limit seconds"
+        return 1
+    fi
+    if [[ "$rc" -ne 0 ]]; then
+        echo "exited $rc: $(head -n 1 "$tmp/version.out")"
+        return 1
+    fi
+    if [[ -s "$tmp/version.out" ]]; then head -n 1 "$tmp/version.out"; else echo "(no version output)"; fi
+}
+new_version="$(run_version "$staged")" ||
+    die "the downloaded $asset does not run on this machine: '$BIN --version' $new_version"
+
+old_version=""
+if [[ -e "$install_dir/$BIN" ]]; then
+    old_version="$(run_version "$install_dir/$BIN")" || old_version="an unknown version (its --version $old_version)"
+fi
+
 mv -f "$staged" "$install_dir/$BIN" || die "could not install to $install_dir/$BIN"
 
-echo "Installed $install_dir/$BIN"
+echo "Installed $install_dir/$BIN: $new_version"
+[[ -z "$old_version" ]] || echo "Replaced: $old_version"
 case ":$PATH:" in
     *":$install_dir:"*) ;;
     *) echo "Note: $install_dir is not on your PATH. Add it, e.g.: export PATH=\"$install_dir:\$PATH\"" ;;
 esac
+
+# The install only helps if it is what runs. An older copy earlier on PATH
+# still wins, and a pre-AXI one rejects --confirm. -ef compares the files, so
+# a symlink to the install does not count as shadowing it.
+found="$(command -v "$BIN" 2>/dev/null || true)"
+if [[ -n "$found" && ! "$found" -ef "$install_dir/$BIN" ]]; then
+    echo "Warning: $found shadows $install_dir/$BIN, so '$BIN' runs that one instead. Remove it, or put $install_dir earlier on your PATH." >&2
+fi
+# The MCP server was removed from this project; an old install of it still
+# runs. This script did not install it, so it names it rather than delete it.
+found="$(command -v "$BIN-mcp" 2>/dev/null || true)"
+if [[ -n "$found" ]]; then
+    echo "Warning: $found is a leftover $BIN-mcp, which is no longer part of $BIN and is not updated. Remove it: rm $found" >&2
+fi
