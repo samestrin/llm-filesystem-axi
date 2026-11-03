@@ -20,15 +20,60 @@ func TestBinaryBuilds(t *testing.T) {
 	}
 }
 
-// requireBinary returns the path to the built CLI, skipping when it is absent.
+// requireBinary returns the path to the built CLI. Locally an absent binary
+// skips; when CI is set it fails, because a skipped end-to-end test in CI
+// reports a green run that exercised nothing (TD #24).
 func requireBinary(t *testing.T) string {
 	t.Helper()
 
 	const path = "../../build/llm-filesystem"
-	if _, err := os.Stat(path); os.IsNotExist(err) {
+	switch missingBinary(path) {
+	case binaryFatal:
+		t.Fatal("binary not built; CI must run make build before go test")
+	case binarySkip:
 		t.Skip("binary not built; run make build")
 	}
 	return path
+}
+
+type binaryState int
+
+const (
+	binaryPresent binaryState = iota
+	binarySkip
+	binaryFatal
+)
+
+// missingBinary decides what an absent binary means: fatal under CI, a skip
+// elsewhere. Split out so a test can prove the CI branch without needing the
+// real ./build/ to be absent.
+func missingBinary(path string) binaryState {
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		return binaryPresent
+	}
+	if os.Getenv("CI") != "" {
+		return binaryFatal
+	}
+	return binarySkip
+}
+
+// Defends TD #24: if the CI branch is deleted, end-to-end tests silently go
+// back to skipping under CI and a green run proves nothing.
+func TestMissingBinaryIsFatalUnderCI(t *testing.T) {
+	absent := filepath.Join(t.TempDir(), "no-such-binary")
+
+	t.Setenv("CI", "1")
+	if got := missingBinary(absent); got != binaryFatal {
+		t.Errorf("CI set, binary absent: got %v, want binaryFatal", got)
+	}
+	t.Setenv("CI", "")
+	if got := missingBinary(absent); got != binarySkip {
+		t.Errorf("CI unset, binary absent: got %v, want binarySkip", got)
+	}
+	t.Setenv("CI", "1")
+	if got := missingBinary(os.Args[0]); got != binaryPresent {
+		t.Errorf("binary present: got %v, want binaryPresent", got)
+	}
 }
 
 // runBinary returns the combined output and the real process exit status.

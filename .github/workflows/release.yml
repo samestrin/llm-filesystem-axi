@@ -35,6 +35,7 @@ jobs:
         run: |
           test -z "$(gofmt -s -l .)"
           go vet ./...
+          make build
           go test -race ./...
 
       - name: build all platforms
