@@ -28,6 +28,28 @@ Or build without installing:
 make build                 # outputs to ./build/
 ```
 
+### Upgrade
+
+Re-run the same command — the installer replaces the existing binary, printing the version installed and the one it replaced:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/samestrin/llm-filesystem-axi/main/install.sh | bash
+```
+
+Pin a specific release with `LLM_FILESYSTEM_VERSION`:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/samestrin/llm-filesystem-axi/main/install.sh | LLM_FILESYSTEM_VERSION=v1.0.0 bash
+```
+
+Check what is running:
+
+```bash
+llm-filesystem --version
+```
+
+If the installer warns that some path *shadows* the new install, it means an older `llm-filesystem` sits earlier on your `PATH` and still runs instead of the one just installed — a pre-1.0 copy rejects `--confirm` and fails every delete. Remove the older copy, or put `~/.local/bin` (or your `INSTALL_DIR`) earlier on your `PATH`. The installer also warns about a leftover binary from the removed MCP server, which is no longer part of this tool and is no longer updated; it names the path so you can remove it.
+
 ## Support
 
 Support is best-effort. Report bugs or request features by opening an issue at [github.com/samestrin/llm-filesystem-axi/issues](https://github.com/samestrin/llm-filesystem-axi/issues). There is no SLA and no guaranteed response time.
