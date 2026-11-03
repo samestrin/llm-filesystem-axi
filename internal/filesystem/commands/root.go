@@ -78,7 +78,13 @@ Output defaults to token-efficient TOON; use --format json for machine parsing.`
 		// invalid --format fails loud here (non-zero exit) rather than
 		// silently defaulting.
 		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
-			f, compact, err := resolveFormat(formatFlag, cmd.Flags().Changed("format"), jsonOutput, minOutput)
+			// compress-files still accepts --format zip|tar.gz|tgz as a deprecated
+			// spelling of --archive-format; that value is not an output format.
+			formatSet := cmd.Flags().Changed("format")
+			if formatSet && cmd.Name() == "compress-files" && isArchiveType(formatFlag) {
+				formatSet = false
+			}
+			f, compact, err := resolveFormat(formatFlag, formatSet, jsonOutput, minOutput)
 			if err != nil {
 				return err
 			}

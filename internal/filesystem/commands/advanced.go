@@ -89,17 +89,23 @@ func findLargeFilesCmd() *cobra.Command {
 
 func compressFilesCmd() *cobra.Command {
 	var paths []string
-	var output, format string
+	var output, archiveFormat string
 
 	cmd := &cobra.Command{
 		Use:   "compress-files",
 		Short: "Compress files into an archive",
 		Long:  "Creates a zip or tar.gz archive from files and directories",
 		Run: func(cmd *cobra.Command, args []string) {
+			kind, err := resolveArchiveType(output, archiveFormat, formatFlag)
+			if err != nil {
+				emitDiagnostic(activeFmt, activeCompact, err, goaxi.ExitUsage,
+					[]string{"Name the archive type: --output a.zip, a.tar.gz or a.tgz, or pass --archive-format zip|tar.gz|tgz"})
+				return
+			}
 			result, err := core.CompressFiles(core.CompressFilesOptions{
 				Paths:       paths,
 				Output:      output,
-				Format:      format,
+				Format:      kind,
 				AllowedDirs: GetAllowedDirs(),
 			})
 			if err != nil {
@@ -139,11 +145,70 @@ func compressFilesCmd() *cobra.Command {
 
 	cmd.Flags().StringSliceVar(&paths, "paths", nil, "Paths to compress (required)")
 	cmd.Flags().StringVar(&output, "output", "", "Output archive path (required)")
-	cmd.Flags().StringVar(&format, "format", "zip", "Archive format: zip, tar.gz")
+	cmd.Flags().StringVar(&archiveFormat, "archive-format", "", "Archive type: zip, tar.gz, tgz (default: from --output's extension)")
 	cmd.MarkFlagRequired("paths")
 	cmd.MarkFlagRequired("output")
 
 	return cmd
+}
+
+// archiveTypes are the values --archive-format accepts.
+var archiveTypes = []string{"zip", "tar.gz", "tgz"}
+
+func isArchiveType(s string) bool {
+	for _, t := range archiveTypes {
+		if s == t {
+			return true
+		}
+	}
+	return false
+}
+
+// archiveTypeFromExt maps an --output name to its archive type, or "".
+func archiveTypeFromExt(output string) string {
+	l := strings.ToLower(output)
+	switch {
+	case strings.HasSuffix(l, ".zip"):
+		return "zip"
+	case strings.HasSuffix(l, ".tar.gz"), strings.HasSuffix(l, ".tgz"):
+		// .tgz and .tar.gz are one format; normalise so they compare equal.
+		return "tar.gz"
+	}
+	return ""
+}
+
+func normalizeArchiveType(t string) string {
+	if t == "tgz" {
+		return "tar.gz"
+	}
+	return t
+}
+
+// resolveArchiveType picks the archive type for compress-files. The explicit
+// type is --archive-format, or the deprecated spelling --format zip|tar.gz|tgz
+// (any other --format value is the global output format and is not ours). An
+// explicit type that contradicts the --output extension, or no type at all, is
+// a usage error: nothing has been written when it is returned.
+func resolveArchiveType(output, archiveFormat, globalFormat string) (string, error) {
+	explicit := archiveFormat
+	if explicit == "" && isArchiveType(globalFormat) {
+		explicit = globalFormat
+	}
+	if explicit != "" && !isArchiveType(explicit) {
+		return "", fmt.Errorf("unsupported --archive-format %q (want zip, tar.gz or tgz)", explicit)
+	}
+	explicit = normalizeArchiveType(explicit)
+	fromExt := archiveTypeFromExt(output)
+
+	switch {
+	case explicit != "" && fromExt != "" && explicit != fromExt:
+		return "", fmt.Errorf("--archive-format %s contradicts the extension of --output %s", explicit, output)
+	case explicit != "":
+		return explicit, nil
+	case fromExt != "":
+		return fromExt, nil
+	}
+	return "", fmt.Errorf("cannot tell the archive type from --output %q: use a .zip, .tar.gz or .tgz extension, or pass --archive-format", output)
 }
 
 func extractArchiveCmd() *cobra.Command {

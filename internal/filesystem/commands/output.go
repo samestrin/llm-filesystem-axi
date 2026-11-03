@@ -75,9 +75,9 @@ func resolveFormat(formatFlag string, formatSet, jsonFlag, minFlag bool) (Format
 //
 // The scan reads argv without knowing which flag owns which value, so an
 // argument whose VALUE happens to be --format, --json or --min is misread as the
-// flag itself (--pattern --json, say). A subcommand defining its own --format is
-// misread the same way: compress-files does, and its archive type arrives here
-// as a format name, which resolveFormat then rejects. In every case the blast
+// flag itself (--pattern --json, say). compress-files accepts
+// --format zip|tar.gz|tgz as a deprecated alias for --archive-format, and that
+// value arrives here as a format name, which resolveFormat then rejects. In every case the blast
 // radius is which format a diagnostic renders in, never the format of a
 // successful result, so the cheap scan earns its keep.
 func formatFromArgs(args []string) (Format, bool) {

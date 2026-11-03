@@ -103,7 +103,8 @@ func TestFormatFromArgsScansRawArgv(t *testing.T) {
 		{"explicit --format beats legacy --json", []string{"--json", "--format", "text"}, FormatText, false},
 		{"nothing after -- is a flag", []string{"--", "--format", "json"}, FormatTOON, false},
 		{"trailing --format with no value", []string{"list-directory", "--format"}, FormatTOON, false},
-		// compress-files owns a --format flag naming the ARCHIVE type. A raw argv
+		// compress-files still accepts --format zip|tar.gz|tgz as a deprecated alias for
+		// --archive-format (epic 04 T3). A raw argv
 		// scan cannot tell that apart from the global flag, so it reads "zip",
 		// which resolveFormat rejects, which falls back to TOON. That is the
 		// right outcome for the only thing this function decides — how to render
