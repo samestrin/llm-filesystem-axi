@@ -350,3 +350,242 @@ func TestNoDocNamesSudoInstall(t *testing.T) {
 		t.Fatalf("checked only %d files; the walk root is wrong and this would pass vacuously", checked)
 	}
 }
+
+// installRelease serves bin as this platform's release asset with a matching
+// checksum, so a test can vary only the binary.
+func installRelease(t *testing.T, bin string) *httptest.Server {
+	t.Helper()
+	asset := releaseAsset()
+	return fakeRelease(t, map[string]string{
+		asset:            bin,
+		"SHA256SUMS.txt": sha256Hex(bin) + "  " + asset + "\n",
+	})
+}
+
+// writeExecutable writes an executable script at dir/name, creating dir.
+func writeExecutable(t *testing.T, dir, name, body string) string {
+	t.Helper()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	p := filepath.Join(dir, name)
+	if err := os.WriteFile(p, []byte(body), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+// A binary can pass its checksum and still not run here: the wrong
+// architecture, a truncated release, a noexec install directory (TD #29).
+// Installing it reports success for something that fails on first use, so
+// the installer runs the staged binary with --version first. One that exits
+// non-zero must install nothing and must leave an existing binary alone.
+func TestInstallScriptRefusesBinaryThatDoesNotRun(t *testing.T) {
+	srv := installRelease(t, "#!/bin/sh\necho 'cannot execute binary file' >&2\nexit 3\n")
+
+	t.Run("fresh install", func(t *testing.T) {
+		home := t.TempDir()
+		out, code := runInstaller(t, srv.URL, home)
+		if code == 0 {
+			t.Errorf("install.sh exited 0 over a binary whose --version failed\noutput:\n%s", out)
+		}
+		assertNothingInstalled(t, home, out)
+	})
+
+	t.Run("keeps existing binary", func(t *testing.T) {
+		home := t.TempDir()
+		dir := filepath.Join(home, ".local", "bin")
+		const old = "#!/bin/sh\necho 'llm-filesystem version v0.9.0'\n"
+		dest := writeExecutable(t, dir, "llm-filesystem", old)
+		out, code := runInstaller(t, srv.URL, home)
+		if code == 0 {
+			t.Errorf("install.sh exited 0 over a binary whose --version failed\noutput:\n%s", out)
+		}
+		got, err := os.ReadFile(dest)
+		if err != nil || string(got) != old {
+			t.Errorf("existing binary was changed by a refused install: %q, %v", got, err)
+		}
+		if entries, _ := os.ReadDir(dir); len(entries) != 1 {
+			t.Errorf("refused install left extra files: %v", entries)
+		}
+	})
+}
+
+// A binary that hangs on --version would hang "curl ... | bash" with it. The
+// check is bounded at 10 seconds, without timeout(1), which macOS lacks; a
+// binary that runs past it counts as one that does not run.
+func TestInstallScriptRefusesBinaryThatHangs(t *testing.T) {
+	srv := installRelease(t, "#!/bin/sh\nsleep 50\necho 'llm-filesystem version v1.0.0'\n")
+	home := t.TempDir()
+
+	start := time.Now()
+	out, code := runInstaller(t, srv.URL, home)
+	elapsed := time.Since(start)
+	if code == 0 {
+		t.Errorf("install.sh exited 0 over a binary whose --version hung\noutput:\n%s", out)
+	}
+	if elapsed > 30*time.Second {
+		t.Errorf("install.sh took %v; the --version check is not bounded at 10s\noutput:\n%s", elapsed, out)
+	}
+	if elapsed < 9*time.Second {
+		t.Errorf("install.sh gave up after %v, before the 10s limit\noutput:\n%s", elapsed, out)
+	}
+	assertNothingInstalled(t, home, out)
+}
+
+// Upgrading is re-running the installer, so its output is the only record of
+// what changed. Replacing a binary prints the version it replaced and the one
+// now installed; a re-run that names neither leaves the user to guess.
+func TestInstallScriptPrintsBothVersionsOnUpgrade(t *testing.T) {
+	srv := installRelease(t, "#!/bin/sh\necho 'llm-filesystem version v1.2.0'\n")
+	home := t.TempDir()
+	writeExecutable(t, filepath.Join(home, ".local", "bin"), "llm-filesystem",
+		"#!/bin/sh\necho 'llm-filesystem version v0.9.0'\n")
+
+	out, code := runInstaller(t, srv.URL, home)
+	if code != 0 {
+		t.Fatalf("install.sh exited %d\noutput:\n%s", code, out)
+	}
+	for _, v := range []string{"v0.9.0", "v1.2.0"} {
+		if !strings.Contains(out, v) {
+			t.Errorf("upgrade output does not name %s\noutput:\n%s", v, out)
+		}
+	}
+}
+
+// An older llm-filesystem earlier on PATH still wins after an install, and a
+// pre-AXI one rejects --confirm (TD #25). The install succeeds, but the user
+// must be told which binary their shell will run instead, by its path.
+func TestInstallScriptWarnsAboutShadowingBinary(t *testing.T) {
+	srv := installRelease(t, fakeBinary)
+	home := t.TempDir()
+	installDir := filepath.Join(home, ".local", "bin")
+	shadow := writeExecutable(t, filepath.Join(home, "shadow"), "llm-filesystem", "#!/bin/sh\necho old\n")
+
+	out, code := runInstaller(t, srv.URL, home,
+		"PATH="+filepath.Dir(shadow)+string(os.PathListSeparator)+installDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	if code != 0 {
+		t.Fatalf("install.sh exited %d\noutput:\n%s", code, out)
+	}
+	if !strings.Contains(out, "Warning:") || !strings.Contains(out, shadow) {
+		t.Errorf("no warning naming the shadowing binary %s\noutput:\n%s", shadow, out)
+	}
+
+	// The control: with the install directory first, nothing shadows it, and
+	// a warning would be noise users learn to ignore.
+	home2 := t.TempDir()
+	out, code = runInstaller(t, srv.URL, home2,
+		"PATH="+filepath.Join(home2, ".local", "bin")+string(os.PathListSeparator)+os.Getenv("PATH"))
+	if code != 0 {
+		t.Fatalf("install.sh exited %d\noutput:\n%s", code, out)
+	}
+	if strings.Contains(out, "shadows") {
+		t.Errorf("warned about shadowing with the install directory first on PATH\noutput:\n%s", out)
+	}
+}
+
+// The MCP server was removed, but an old install of it still runs (TD #23).
+// The installer does not delete files it did not install; it names the path
+// so the user can. The name is split so the no-MCP guard does not trip.
+func TestInstallScriptWarnsAboutLeftoverMCPServer(t *testing.T) {
+	srv := installRelease(t, fakeBinary)
+	home := t.TempDir()
+	stale := writeExecutable(t, filepath.Join(home, "stale"), "llm-filesystem"+"-mcp", "#!/bin/sh\n")
+
+	out, code := runInstaller(t, srv.URL, home,
+		"PATH="+filepath.Join(home, ".local", "bin")+string(os.PathListSeparator)+filepath.Dir(stale)+string(os.PathListSeparator)+os.Getenv("PATH"))
+	if code != 0 {
+		t.Fatalf("install.sh exited %d\noutput:\n%s", code, out)
+	}
+	if !strings.Contains(out, "Warning:") || !strings.Contains(out, stale) {
+		t.Errorf("no warning naming the leftover server %s\noutput:\n%s", stale, out)
+	}
+	if _, err := os.Stat(stale); err != nil {
+		t.Errorf("the installer removed a file it did not install: %v", err)
+	}
+}
+
+// pathWithout builds a directory of symlinks to every command on PATH except
+// the named ones, so a test can run the installer on a machine that lacks
+// them. Only the first command of each name is linked, as PATH would find.
+func pathWithout(t *testing.T, hide ...string) string {
+	t.Helper()
+	dir := t.TempDir()
+	hidden := map[string]bool{}
+	for _, h := range hide {
+		hidden[h] = true
+	}
+	for _, p := range filepath.SplitList(os.Getenv("PATH")) {
+		entries, err := os.ReadDir(p)
+		if err != nil {
+			continue
+		}
+		for _, e := range entries {
+			name := e.Name()
+			if hidden[name] {
+				continue
+			}
+			link := filepath.Join(dir, name)
+			if _, err := os.Lstat(link); err == nil {
+				continue
+			}
+			_ = os.Symlink(filepath.Join(p, name), link)
+		}
+	}
+	return dir
+}
+
+// macOS has no sha256sum, so every Mac install verifies with shasum, a
+// branch CI on Linux never ran (TD #31). This hides sha256sum and wraps
+// shasum with a recorder, so the test proves shasum did the check: a good
+// checksum installs and a bad one installs nothing.
+func TestInstallScriptVerifiesWithShasum(t *testing.T) {
+	real, err := exec.LookPath("shasum")
+	if err != nil {
+		t.Skip("shasum not available")
+	}
+	bin := pathWithout(t, "sha256sum", "shasum")
+	marker := filepath.Join(t.TempDir(), "shasum-ran")
+	writeExecutable(t, bin, "shasum", "#!/bin/sh\ntouch '"+marker+"'\nexec '"+real+"' \"$@\"\n")
+	if _, err := exec.LookPath(filepath.Join(bin, "sha256sum")); err == nil {
+		t.Fatal("sha256sum is still reachable; the test would run the wrong branch")
+	}
+
+	t.Run("good checksum installs", func(t *testing.T) {
+		_ = os.Remove(marker)
+		srv := installRelease(t, "#!/bin/sh\necho 'llm-filesystem version v1.2.0'\n")
+		home := t.TempDir()
+		out, code := runInstaller(t, srv.URL, home, "PATH="+bin)
+		if code != 0 {
+			t.Fatalf("install.sh exited %d with only shasum\noutput:\n%s", code, out)
+		}
+		if _, err := os.Stat(marker); err != nil {
+			t.Errorf("shasum never ran; the checksum was not verified by it\noutput:\n%s", out)
+		}
+		if _, err := os.Stat(filepath.Join(home, ".local", "bin", "llm-filesystem")); err != nil {
+			t.Errorf("not installed: %v\noutput:\n%s", err, out)
+		}
+		// The --version check ran too, and its result is reported.
+		if !strings.Contains(out, "v1.2.0") {
+			t.Errorf("install output does not report the installed version\noutput:\n%s", out)
+		}
+	})
+
+	t.Run("bad checksum installs nothing", func(t *testing.T) {
+		_ = os.Remove(marker)
+		asset := releaseAsset()
+		srv := fakeRelease(t, map[string]string{
+			asset:            fakeBinary,
+			"SHA256SUMS.txt": sha256Hex("a different binary") + "  " + asset + "\n",
+		})
+		home := t.TempDir()
+		out, code := runInstaller(t, srv.URL, home, "PATH="+bin)
+		if code == 0 {
+			t.Errorf("install.sh exited 0 on a checksum mismatch with only shasum\noutput:\n%s", out)
+		}
+		if _, err := os.Stat(marker); err != nil {
+			t.Errorf("shasum never ran\noutput:\n%s", out)
+		}
+		assertNothingInstalled(t, home, out)
+	})
+}

@@ -31,6 +31,17 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   them. Principle 7 was met only through the manual copy until `setup` landed
   in this release.
 
+- **`install.sh` runs the binary before installing it, and says what it
+  replaced.** The staged binary must answer `--version` within 10 seconds
+  (bounded without `timeout`, which macOS lacks); one that fails or hangs is
+  refused and nothing is installed, so a binary for the wrong architecture no
+  longer passes its checksum and fails on first use. Re-running the installer
+  over an existing binary prints the version installed and the one replaced.
+  After installing it warns, naming the path, when another `llm-filesystem`
+  earlier on `PATH` shadows the new one, and when a leftover
+  `llm-filesystem-mcp` is still on `PATH`; it does not delete files it did not
+  install. The `shasum` path macOS uses is now tested with `sha256sum` hidden.
+
 ### Fixed — archive commands no longer report success for work that did not happen
 
 - **`extract-archive` reports every entry it did not write.** An entry refused
