@@ -150,6 +150,7 @@ Output defaults to token-efficient TOON; use --format json for machine parsing.`
 	addSearchCommands(rootCmd)
 	addFileOpsCommands(rootCmd)
 	addAdvancedCommands(rootCmd)
+	rootCmd.AddCommand(setupCmd())
 
 	// Every command that returns a list, and the key its list lives under.
 	// Kept as one table rather than a line in each of seven constructors, so
