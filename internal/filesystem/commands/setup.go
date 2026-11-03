@@ -124,15 +124,26 @@ func setupRefused(err error) {
 	})
 }
 
-// setupProjectDir checks the working directory against --allowed-dirs and the
-// home directory, and returns it with symlinks resolved.
+// setupProjectDir resolves the working directory's symlinks and checks the
+// result, which is where setup writes, against --allowed-dirs and the home
+// directory. Checking the path as given was not enough: a link inside the
+// sandbox can lead out of it.
 func setupProjectDir(cwd string) (string, error) {
-	if err := core.ValidatePath(cwd, GetAllowedDirs()); err != nil {
-		return "", err
-	}
 	dir, err := filepath.EvalSymlinks(cwd)
 	if err != nil {
 		return "", fmt.Errorf("cannot resolve the working directory: %w", err)
+	}
+	// The sandbox roots are resolved too, so one that is itself reached
+	// through a link (macOS's /var is /private/var) still contains its own
+	// directories.
+	allowed := GetAllowedDirs()
+	for i, a := range allowed {
+		if r, err := filepath.EvalSymlinks(a); err == nil {
+			allowed[i] = r
+		}
+	}
+	if err := core.ValidatePath(dir, allowed); err != nil {
+		return "", fmt.Errorf("working directory %s: %w", cwd, err)
 	}
 	// In the home directory, .claude/settings.json is the user-wide settings
 	// file, which setup never edits.

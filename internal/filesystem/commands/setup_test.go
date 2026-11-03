@@ -383,6 +383,46 @@ func TestSetupRefusesAWorkingDirectoryOutsideAllowedDirs(t *testing.T) {
 	}
 }
 
+// The sandbox check has to look at where setup actually writes. A working
+// directory reached through a link inside the sandbox can resolve outside it;
+// checking only the path as given let setup write there (review of PR #29).
+func TestSetupRefusesAWorkingDirectoryLinkedOutOfAllowedDirs(t *testing.T) {
+	_, home := setupProject(t)
+	allowed, outside := t.TempDir(), t.TempDir()
+	link := filepath.Join(allowed, "link")
+	if err := os.Symlink(outside, link); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(link)
+
+	_, _, code := runCLI(t, "setup", "--allowed-dirs", allowed)
+	if code != 1 {
+		t.Errorf("exit %d, want 1", code)
+	}
+	assertNothingWritten(t, outside)
+	assertNothingWritten(t, allowed, "link")
+	assertNothingWritten(t, home)
+}
+
+// The other side of the check above: a sandbox named through a link, as macOS
+// names every temporary directory (/var is /private/var), still contains the
+// directory it points at. Comparing a resolved cwd with an unresolved root
+// would refuse it.
+func TestSetupAcceptsAnAllowedDirReachedThroughALink(t *testing.T) {
+	dir, _ := setupProject(t)
+	link := filepath.Join(t.TempDir(), "project")
+	if err := os.Symlink(dir, link); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, _, code := runCLI(t, "setup", "--allowed-dirs", link); code != -1 {
+		t.Fatalf("exit %d, want 0", code)
+	}
+	if readOrEmpty(t, filepath.Join(dir, setupSkillRel)) != skill.Content {
+		t.Error("the skill was not written")
+	}
+}
+
 // Run in the home directory, .claude/settings.json IS the user-wide settings
 // file. The epic puts that out of scope, so setup refuses rather than editing
 // every project's hooks at once.
