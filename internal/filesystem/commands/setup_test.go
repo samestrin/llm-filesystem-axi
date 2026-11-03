@@ -121,6 +121,11 @@ func sessionStartCommands(t *testing.T, settings string) []string {
 // with the embedded copy, because "one copy" is the point: if the embed ever
 // pointed somewhere else this would go red.
 func TestSetupWritesHookAndSkillInAnEmptyProject(t *testing.T) {
+	// Read before setupProject moves into another directory.
+	shipped, err := os.ReadFile("../../../integrations/claude-code/skill/SKILL.md")
+	if err != nil {
+		t.Fatal(err)
+	}
 	dir, home := setupProject(t)
 
 	doc, code := runSetupJSON(t)
@@ -133,10 +138,6 @@ func TestSetupWritesHookAndSkillInAnEmptyProject(t *testing.T) {
 		t.Errorf("SessionStart commands = %q, want exactly [llm-filesystem]", cmds)
 	}
 
-	shipped, err := os.ReadFile("../../../integrations/claude-code/skill/SKILL.md")
-	if err != nil {
-		t.Fatal(err)
-	}
 	if got := readOrEmpty(t, filepath.Join(dir, setupSkillRel)); got != string(shipped) {
 		t.Errorf("SKILL.md differs from integrations/claude-code/skill/SKILL.md\ngot:\n%s", got)
 	}
@@ -260,7 +261,7 @@ func TestSetupKeepsEveryExistingSettingsKey(t *testing.T) {
   "permissions": {"allow": ["Bash(ls:*)"], "deny": []},
   "hooks": {
     "PreToolUse": [{"matcher": "Bash", "hooks": [{"type": "command", "command": "guard.sh"}]}],
-    "SessionStart": [{"hooks": [{"type": "command", "command": "echo hello"}]}]
+    "SessionStart": [{"hooks": [{"type": "command", "command": "echo hello >&2"}]}]
   },
   "env": {"A": "1 < 2"}
 }
@@ -290,14 +291,14 @@ func TestSetupKeepsEveryExistingSettingsKey(t *testing.T) {
 	if compact(t, afterHooks["PreToolUse"]) != compact(t, beforeHooks["PreToolUse"]) {
 		t.Errorf("PreToolUse changed: %s", afterHooks["PreToolUse"])
 	}
-	if cmds := sessionStartCommands(t, got); strings.Join(cmds, ",") != "echo hello,llm-filesystem" {
+	if cmds := sessionStartCommands(t, got); strings.Join(cmds, ",") != "echo hello >&2,llm-filesystem" {
 		t.Errorf("SessionStart commands = %q, want the existing hook kept and ours appended", cmds)
 	}
 	if strings.Index(got, `"model"`) > strings.Index(got, `"permissions"`) ||
 		strings.Index(got, `"hooks"`) > strings.Index(got, `"env"`) {
 		t.Errorf("key order changed:\n%s", got)
 	}
-	if strings.Contains(got, `<`) {
+	if strings.Contains(got, `\`+"u00") {
 		t.Errorf("a value was re-escaped:\n%s", got)
 	}
 }

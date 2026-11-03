@@ -1,6 +1,6 @@
 # llm-filesystem Commands
 
-An agent-ergonomic filesystem CLI with 28 commands for reading, writing, editing, and managing files.
+An agent-ergonomic filesystem CLI with 29 commands for reading, writing, editing, and managing files.
 
 Every count, flag and example in this file is checked against the binary. The command count is enforced in-repo by `TestDocumentedCommandCountMatchesReality` — this number once drifted to 26 against a real 28.
 
@@ -112,6 +112,14 @@ A search path that does not exist, or that is a file rather than a directory, is
 `sync-directories --dry-run` reports what it would write and writes nothing. The preview carries `dry_run: true` and a `planned[]` sample in every format, not only in the human text, and it reports the same counts the real run produces.
 
 `compress-files` and `extract-archive` account for everything they were asked to handle. A skipped input or a refused entry is counted in `failed` with the reason in `failures[]`, `success` is `false`, and the run exits `1` — a partial run never reports success. Files that replaced existing ones are counted in `overwritten`. An `--output` whose extension is not `.zip`, `.tar.gz` or `.tgz`, or an `--archive-format` that contradicts the extension, is a usage error (exit `2`) and writes nothing.
+
+### Project Setup
+
+| Command | Description | Example |
+|---------|-------------|---------|
+| `setup` | Register llm-filesystem with Claude Code in the working directory | `llm-filesystem setup --dry-run` |
+
+`setup` merges a SessionStart hook that runs `llm-filesystem` into `.claude/settings.json`, keeping every other key and hook, and writes the Agent Skill to `.claude/skills/llm-filesystem/SKILL.md`. It writes only under the working directory and never touches `~/.claude`: it refuses to run in the home directory, outside `--allowed-dirs`, or through a `.claude` symlink that leads out of the project. A `settings.json` that is not a JSON object, or whose `hooks` or `hooks.SessionStart` has the wrong type, is refused and left as it is. Each path is reported as `written`, `unchanged` or `would-write` (with `--dry-run`, which writes nothing). A second run changes no bytes and reports both files `unchanged`. If the second file cannot be written, the first is still reported `written`, the second `failed`, and the run exits `1`.
 
 ## Exit codes
 

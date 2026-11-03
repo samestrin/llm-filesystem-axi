@@ -75,6 +75,12 @@ Every command takes `--help`. Run `llm-filesystem` with no arguments to see the 
 | `sync-directories` | Copy a tree to a destination, with `--dry-run` to preview |
 | `list-allowed-directories` | Show the sandbox, if one is set |
 
+**Project setup**
+
+| Command | Use it for |
+|---|---|
+| `setup` | Register this tool with Claude Code in the working directory: a SessionStart hook and the skill, with `--dry-run` to preview |
+
 ## Two behaviours that will surprise you
 
 **Large reads truncate. They do not fail.** A file over the size budget comes back as a leading *prefix*, with `truncated`, `total_size` and `next_offset`, at exit 0. Resume with `--start-offset <next_offset>`. Do not treat a truncated read as the whole file, and do not avoid the tool because a file is large — reading in windows is bounded whatever the size.
