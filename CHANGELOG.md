@@ -41,6 +41,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   earlier on `PATH` shadows the new one, and when a leftover
   `llm-filesystem-mcp` is still on `PATH`; it does not delete files it did not
   install. The `shasum` path macOS uses is now tested with `sha256sum` hidden.
+  The README gains an **Upgrade** subsection under Install: re-running the
+  installer is the upgrade path, `LLM_FILESYSTEM_VERSION` pins a release, and
+  the shadowing warning is explained with its fix.
 
 ### Fixed — archive commands no longer report success for work that did not happen
 
