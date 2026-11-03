@@ -8,6 +8,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **`--axi` is accepted as a hidden global flag.** It is a no-op alias for the
+  TOON default, so a habit from the sibling AXI tools no longer exits 2. It
+  changes no output and does not override `--format` or `--json`.
 - **`docs/axi-audit.md`: a hand audit of the v1.0.0 binary against the ten
   principles on axi.md**, in the same format as the sibling tools. Each
   principle has a verdict and one line of evidence; the archive

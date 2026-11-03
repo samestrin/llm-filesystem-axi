@@ -137,6 +137,12 @@ Output defaults to token-efficient TOON; use --format json for machine parsing.`
 	rootCmd.PersistentFlags().StringSliceVar(&allowedDirs, "allowed-dirs", nil,
 		"Directories the tool is allowed to access (comma-separated)")
 
+	// --axi is a no-op alias for the TOON default, accepted so a habit from the
+	// sibling AXI tools does not exit 2. It is never read: it must not override
+	// --format or --json. Hidden so --help does not advertise it.
+	rootCmd.PersistentFlags().Bool("axi", false, "No-op alias for the default TOON output")
+	_ = rootCmd.PersistentFlags().MarkHidden("axi")
+
 	// Contradictory instructions, so cobra rejects them before the command runs.
 	// Its error surfaces through execute, which means exit 2 and a structured
 	// body come for free.
