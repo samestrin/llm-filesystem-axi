@@ -10,9 +10,9 @@ name: test
 on:
   push:
     branches: [main, master]
-    paths: ['**.go', 'go.mod', 'go.sum', '**.md', '.github/workflows/**']
+    paths: ['**.go', 'go.mod', 'go.sum', '**.md', 'install.sh', '.github/workflows/**']
   pull_request:
-    paths: ['**.go', 'go.mod', 'go.sum', '**.md', '.github/workflows/**']
+    paths: ['**.go', 'go.mod', 'go.sum', '**.md', 'install.sh', '.github/workflows/**']
 
 jobs:
   lint:
@@ -50,6 +50,26 @@ jobs:
         run: |
           pct=$(go tool cover -func=coverage.txt | tail -1 | awk '{print $3}' | tr -d '%')
           echo "Total coverage: $pct%"
+          # Floor = total measured when this gate was added (71.2%), rounded
+          # down. Raise it when coverage rises; never lower it to pass.
+          floor=99
+          if awk -v p="$pct" -v f="$floor" 'BEGIN{exit !(p+0 < f+0)}'; then
+            echo "Coverage $pct% is below the $floor% floor"; exit 1
+          fi
+
+  # install.sh and the install tests behave differently on macOS (BSD
+  # userland, no sha256sum), so they run there too.
+  test-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+      - name: build the CLI for the end-to-end tests
+        run: make build
+      - name: test
+        run: go test ./...
 
   build:
     runs-on: ubuntu-latest
