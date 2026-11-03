@@ -91,7 +91,7 @@ TOON output is produced by [go-axi](https://github.com/samestrin/go-axi), which 
 | Code | Meaning |
 |------|---------|
 | `0` | Success |
-| `1` | The tool failed — the operation was attempted and did not work |
+| `1` | The tool failed — the operation was attempted and did not fully work. This includes a partial run: `compress-files` and `extract-archive` exit `1` when any input or archive entry was skipped, with the failures named in the output |
 | `2` | Usage error — unknown subcommand, unknown flag, missing required flag, invalid `--format` |
 
 `2` is distinct from `1` on purpose. A typo and a broken tool are different situations, and an agent cannot judge whether a retry is worthwhile if they share a code. Every non-zero exit prints a diagnostic.

@@ -78,7 +78,8 @@ llm-filesystem search-and-replace --path ./src --pattern "OldName" --replacement
 # Directory tree to a depth
 llm-filesystem get-directory-tree --path . --depth 3
 
-# Archives
+# Archives — the type comes from the --output extension (.zip, .tar.gz, .tgz),
+# or pass --archive-format zip|tar.gz|tgz explicitly
 llm-filesystem compress-files --paths dist --output release.tar.gz
 llm-filesystem extract-archive --archive release.tar.gz --dest ./out
 
