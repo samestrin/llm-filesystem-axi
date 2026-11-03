@@ -104,7 +104,7 @@ A search path that does not exist, or that is a file rather than a directory, is
 |---------|-------------|---------|
 | `get-disk-usage` | Get disk usage stats | `llm-filesystem get-disk-usage --path /tmp` |
 | `find-large-files` | Find files over size | `llm-filesystem find-large-files --path ./src --min-size "1MB"` |
-| `compress-files` | Create archive (type from `--output` extension, or `--archive-format zip|tar.gz|tgz`) | `llm-filesystem compress-files --paths file1.txt --paths file2.txt --output archive.zip` |
+| `compress-files` | Create archive (type from `--output` extension, or `--archive-format` with `zip`, `tar.gz` or `tgz`) | `llm-filesystem compress-files --paths file1.txt --paths file2.txt --output archive.zip` |
 | `extract-archive` | Extract archive | `llm-filesystem extract-archive --archive file.zip --dest /tmp/extracted` |
 | `sync-directories` | Sync directories | `llm-filesystem sync-directories --source /src --dest /backup --dry-run` |
 | `list-allowed-directories` | Show allowed dirs | `llm-filesystem list-allowed-directories` |
