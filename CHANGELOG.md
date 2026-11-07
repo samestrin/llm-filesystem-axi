@@ -61,6 +61,18 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   output file is removed when the archive could not be finished, so a
   truncated archive can no longer pass as a success.
 
+### Fixed — three more reports that did not match what happened
+
+- **`create-directory` on a directory that already exists** printed
+  `created: true` and exited 0 though nothing was created. It now reports
+  `created: false` / `exists: true`. A file at the path is still an error.
+- **`compress-files` with an `--output` that is also an input** truncated the
+  input before reading it, then reported success with the original gone. It now
+  refuses before touching anything, including when the output reaches the input
+  through a symlink.
+- **`sync` capped `failed` at 100.** 150 failed copies reported `failed: 100`.
+  `failed` is now the true count; only the `failures` sample is capped.
+
 ### Changed — `compress-files` picks the archive type from `--output`
 
 - The archive type now comes from the `--output` extension (`.zip`, `.tar.gz`,
