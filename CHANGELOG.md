@@ -96,8 +96,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   feature — as docs and tests, when the docs are `#27` and the test `#28`.
   Principle 7 stated in the present tense that there is no `setup` command and
   cited a README line range that has since moved; it now says the tag had no
-  `setup` command and names the release that added it. Principle 10's command
-  count notes the tag's 28 against the current 29.
+  `setup` command and names the PR that added it (`#29`, not yet released).
+  Principle 10's command count notes the tag's 28 against the current 29.
 - **The speed benchmark now reports the Python client's own start.** Its read
   and tree figures each include one Python process start that the Go figures do
   not, which flattered Go by that much; `benchmarks/benchmark.sh` measures it on
