@@ -195,8 +195,11 @@ func ReadFile(opts ReadFileOptions) (*ReadFileResult, error) {
 // That is the safe direction: overshooting the limit is what breaks a consumer.
 //
 // The cut prefers a line boundary, so NextOffset lands at the start of a line
-// and the advertised --start-offset resume reads cleanly. Falling back to a rune
-// boundary keeps a minified or single-line file from being cut mid-character.
+// and the advertised --start-offset resume reads cleanly — but only while the
+// boundary costs a small fraction of the budget. Falling back to a rune
+// boundary keeps a minified or single-line file from being cut mid-character,
+// and keeps a newline near the start of the prefix from shrinking the preview
+// to almost nothing.
 func fitToBudget(s string, maxSize int64) (string, bool) {
 	if maxSize <= 0 || int64(EstimateJSONStringSize(s)) <= maxSize {
 		return s, false
@@ -219,10 +222,20 @@ func fitToBudget(s string, maxSize int64) (string, bool) {
 	}
 
 	if i := strings.LastIndexByte(kept, '\n'); i >= 0 {
-		return kept[:i+1], true
+		lineCut := kept[:i+1]
+		// A boundary is only preferable while it is a small loss. The LAST
+		// newline in the prefix can sit near its start — a file of "a\n" plus
+		// 200,000 characters cut to a 70,000 budget returned 2 bytes: correct,
+		// resumable, and 35,000x short. When the line cut would discard more
+		// than about half the budget, the rune cut is the better preview; the
+		// boundary preference is not worth a near-empty answer.
+		if int64(EstimateJSONStringSize(lineCut))*2 >= maxSize {
+			return lineCut, true
+		}
+		// Fall through to the rune cut on the full shrunken prefix.
 	}
 
-	// No line boundary available: back off to a whole rune, but by at most
+	// No line boundary worth taking: back off to a whole rune, but by at most
 	// UTFMax-1 bytes. A rune is never longer than that, so needing more means
 	// the content simply is not UTF-8.
 	//
