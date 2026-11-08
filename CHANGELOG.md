@@ -85,6 +85,28 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   no recognised extension and no `--archive-format`, is a usage error (exit 2)
   that names the accepted extensions and writes nothing.
 
+### Fixed — documentation and benchmarks that claimed more than they measured
+
+- **`integrations/cli/AGENTS.md` said TOON saved 62-94% of the tokens on a
+  directory listing.** A fresh `benchmarks/tokens.sh` run measures
+  **59.8-93.3%**, so the guide the tool ships to agents now states that range and
+  names `benchmarks/results-tokens.md` as where it comes from.
+- **`docs/axi-audit.md` corrections.** Principle 6 said "one gap" while listing
+  two (6a and 6b), and credited `#26` — the `compress-files` archive-type
+  feature — as docs and tests, when the docs are `#27` and the test `#28`.
+  Principle 7 stated in the present tense that there is no `setup` command and
+  cited a README line range that has since moved; it now says the tag had no
+  `setup` command and names the release that added it. Principle 10's command
+  count notes the tag's 28 against the current 29.
+- **The speed benchmark now reports the Python client's own start.** Its read
+  and tree figures each include one Python process start that the Go figures do
+  not, which flattered Go by that much; `benchmarks/benchmark.sh` measures it on
+  every run and prints the TypeScript figure with it removed beside the raw one
+  (a read is 91x, not 103x), and `benchmarks/README.md` says so in the table.
+- **`benchmarks/results-tokens.md` explains the `get-directory-tree` case**
+  where `json-min` also exceeds `json-full` (186 against 184 on `internal/`, 96
+  against 70 on `/usr/bin`), not only the `search-code` one.
+
 ## [1.0.0] - 2026-11-01
 
 First standalone release. `llm-filesystem` was extracted from the
