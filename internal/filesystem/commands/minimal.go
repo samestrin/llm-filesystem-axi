@@ -201,15 +201,22 @@ func projectArray(arr []interface{}, keep []string, spec map[string][]string) []
 	return out
 }
 
-// injectNextSteps adds a next_steps field to a generic map (AXI principle #9).
-// It is a no-op when there are no steps or when v is not a map.
+// injectNextSteps adds a next_steps field carrying the guidance (AXI principle
+// #9). It is a no-op when there are no steps.
+//
+// A payload that is not a map — a bare array or a scalar — has no key to hold a
+// field, and it used to be returned untouched. TOON appended its help[] block
+// regardless, so the two formats disagreed about whether that result had a next
+// step at all, in the one function whose contract says they never do. No
+// command returns such a result today; wrapping under "result" means one that
+// does still reaches the caller with its guidance, in the same shape either way.
 func injectNextSteps(v interface{}, steps []string) interface{} {
 	if len(steps) == 0 {
 		return v
 	}
 	m, ok := v.(map[string]interface{})
 	if !ok {
-		return v
+		return map[string]interface{}{"result": v, "next_steps": steps}
 	}
 	out := make(map[string]interface{}, len(m)+1)
 	for k, val := range m {

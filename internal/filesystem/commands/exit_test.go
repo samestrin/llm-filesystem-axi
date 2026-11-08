@@ -24,6 +24,7 @@ func runCLI(t *testing.T, args ...string) (stdout, stderr string, code int) {
 	prevOut, prevErr, prevExit := outWriter, errWriter, exitFunc
 	prevFmt, prevCompact, prevFull, prevFields := activeFmt, activeCompact, activeFull, activeFields
 	prevListKey, prevCmdPath := activeListKey, activeCmdPath
+	prevWriteHelp := writeHelp
 
 	got := -1
 	outWriter, errWriter = &outBuf, &errBuf
@@ -32,6 +33,7 @@ func runCLI(t *testing.T, args ...string) (stdout, stderr string, code int) {
 		outWriter, errWriter, exitFunc = prevOut, prevErr, prevExit
 		activeFmt, activeCompact, activeFull, activeFields = prevFmt, prevCompact, prevFull, prevFields
 		activeListKey, activeCmdPath = prevListKey, prevCmdPath
+		writeHelp = prevWriteHelp
 	})
 
 	execute(args)

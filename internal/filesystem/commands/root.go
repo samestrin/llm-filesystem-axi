@@ -256,6 +256,14 @@ func checkFields(payload interface{}, spec map[string][]string) (map[string][]st
 	return overrideSpec(target, withAlwaysKept(activeFields)), true
 }
 
+// writeHelp is goaxi.WriteHelp behind a variable so the guidance-failure paths
+// below can be exercised. Their sink is a bytes.Buffer, whose writes never fail,
+// so both branches were unreachable from any test — and one of them, the one
+// that re-renders a diagnostic without its guidance, is the difference between
+// losing a hint and losing the error itself. A test swaps this; nothing else
+// does.
+var writeHelp = goaxi.WriteHelp
+
 // stepsFn is a closure rather than a slice so a command can decide its guidance
 // from what it actually found. A fixed slice is built before the result exists,
 // which is how a zero-match search came to offer "Open a match" — a step naming
@@ -354,7 +362,7 @@ func OutputResultAXI(result interface{}, spec map[string][]string, stepsFn func(
 		// WriteHelp writes nothing for an empty list, so a command with no
 		// meaningful next step emits no stray block. It sanitizes each line,
 		// which matters because step text interpolates caller-supplied paths.
-		if err := goaxi.WriteHelp(&doc, steps); err != nil {
+		if err := writeHelp(&doc, steps); err != nil {
 			OutputError(err)
 			return
 		}
@@ -373,8 +381,8 @@ func OutputResultAXI(result interface{}, spec map[string][]string, stepsFn func(
 // Plain text goes to stderr, where a human reads it. Structured formats go to
 // stdout, so an agent receives a parseable body on the stream it actually reads
 // — AXI reserves stderr for logs. The two are exclusive on purpose: a diagnostic
-// written to both streams is one event that a consumer merging them counts
-// twice, which is what the MCP server's CombinedOutput would do.
+// written to both streams is one event that a caller merging them counts twice,
+// and reports as two failures when only one happened.
 //
 // The exit code is a parameter rather than a constant because the same rendering
 // serves two different situations. A malformed invocation and a failed operation
@@ -395,7 +403,7 @@ func emitDiagnostic(f Format, compact bool, err error, code goaxi.ExitCode, step
 	case FormatTOON:
 		// WriteHelp writes nothing for an empty list, so an error with no
 		// actionable step emits no stray block.
-		if herr := goaxi.WriteHelp(&doc, steps); herr != nil {
+		if herr := writeHelp(&doc, steps); herr != nil {
 			// Guidance is an enhancement. Losing it must not also cost the
 			// caller the diagnostic, which is the only part it can act on.
 			doc.Reset()

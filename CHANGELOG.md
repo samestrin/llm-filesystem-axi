@@ -73,6 +73,15 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **`sync` capped `failed` at 100.** 150 failed copies reported `failed: 100`.
   `failed` is now the true count; only the `failures` sample is capped.
 
+### Fixed — a help line that did not apply
+
+- **`list-directory` no longer suggests removing `--pattern` when none was
+  given.** A listing that found nothing carried "Drop the filter: remove
+  `--pattern`" either way, so an unfiltered invocation was told to drop a
+  filter it never applied — a step the caller cannot act on. A listing emptied
+  by `--pattern` still offers it, and an unfiltered one still points at
+  `--show-hidden`.
+
 ### Changed — `compress-files` picks the archive type from `--output`
 
 - The archive type now comes from the `--output` extension (`.zip`, `.tar.gz`,

@@ -65,7 +65,11 @@ func TestDocumentedCommandCountMatchesReality(t *testing.T) {
 
 // Proves the guard can fail: a file stating the old count (28) must be
 // flagged, wherever it appears, and a file with no count must be flagged too.
-// Without this, the loop above could pass by checking nothing.
+//
+// This loop alone does not prove every file is checked — it iterates the same
+// list TestCountStatingFilesCoversEveryKnownFile pins, so an entry deleted from
+// countStatingFiles would simply stop being examined here, silently. The pair
+// is what makes the coverage real.
 func TestCountGuardFlagsStaleOrMissingCount(t *testing.T) {
 	actual := realCommandCount()
 	stale := strconv.Itoa(actual - 1)
@@ -93,6 +97,35 @@ func TestCountGuardFlagsStaleOrMissingCount(t *testing.T) {
 		mutated := commandCountRe.ReplaceAll(body, []byte(stale+" commands"))
 		if len(countMismatches(doc, mutated, actual)) == 0 {
 			t.Errorf("%s: stating %s commands was not flagged", doc, stale)
+		}
+	}
+}
+
+// Every assertion above is driven by countStatingFiles, so the list is the only
+// thing that decides which files are checked: delete an entry and both tests go
+// on passing, having quietly stopped looking at that file. This pins the list
+// itself, to the five files that state a count.
+//
+// CHANGELOG.md and docs/axi-audit.md both mention counts as history ("28
+// commands" in the 1.0.0 entry, the audit's note that --help listed 28 before
+// setup existed) and are deliberately not listed.
+func TestCountStatingFilesCoversEveryKnownFile(t *testing.T) {
+	want := []string{
+		"../../../README.md",
+		"../../../cmd/llm-filesystem/README.md",
+		"../../../integrations/claude-code/README.md",
+		"../../../docs/llm-filesystem-commands.md",
+		"../../../release/axi-catalog-entry.md",
+	}
+
+	if len(countStatingFiles) != len(want) {
+		t.Fatalf("countStatingFiles has %d entries, want %d: %v",
+			len(countStatingFiles), len(want), countStatingFiles)
+	}
+	for i := range want {
+		if countStatingFiles[i] != want[i] {
+			t.Errorf("countStatingFiles[%d] = %q, want %q — a file is checked by name or not at all",
+				i, countStatingFiles[i], want[i])
 		}
 	}
 }

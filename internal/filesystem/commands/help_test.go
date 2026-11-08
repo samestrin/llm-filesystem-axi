@@ -2,6 +2,7 @@ package commands
 
 import (
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -322,6 +323,60 @@ func TestErrorBodyAndGuidanceShareOneWrite(t *testing.T) {
 	}
 }
 
+// The guidance-failure fallback in emitDiagnostic was the one branch there no
+// test could enter: its target is a bytes.Buffer, whose writes never fail. It
+// still matters, because a failing help write must cost the caller the guidance
+// and nothing else — not the diagnostic, which is the only part it can act on,
+// and not a half-written block left in front of it.
+func TestDiagnosticSurvivesAGuidanceWriteFailure(t *testing.T) {
+	prev := writeHelp
+	writeHelp = func(w io.Writer, _ []string) error {
+		// Partial bytes then failure: the corruption case, not a clean error.
+		_, _ = w.Write([]byte("help[1]: PARTIAL-SHOULD-VANISH"))
+		return errPipeClosed{}
+	}
+	t.Cleanup(func() { writeHelp = prev })
+
+	stdout, _, code := captureOutput(t, func() {
+		emitDiagnostic(FormatTOON, false, errBoom{}, goaxi.ExitUsage, testSteps)
+	})
+
+	if !strings.Contains(stdout, "boom") {
+		t.Errorf("a failed help block cost the caller the diagnostic: %q", stdout)
+	}
+	if strings.Contains(stdout, "PARTIAL-SHOULD-VANISH") {
+		t.Errorf("half a help block survived into the document: %q", stdout)
+	}
+	if strings.Contains(stdout, "help[") {
+		t.Errorf("a failed help write still emitted a block: %q", stdout)
+	}
+	if code != int(goaxi.ExitUsage) {
+		t.Errorf("exit code = %d, want %d", code, goaxi.ExitUsage)
+	}
+}
+
+// The same seam on the success path: if the guidance cannot be written, the
+// command must not print a payload that looks like a complete document while
+// its help block is missing. It reports the failure and exits non-zero.
+func TestPayloadGuidanceFailureIsReportedNotSwallowed(t *testing.T) {
+	withFormat(t, FormatTOON, false, false)
+
+	prev := writeHelp
+	writeHelp = func(io.Writer, []string) error { return errPipeClosed{} }
+	t.Cleanup(func() { writeHelp = prev })
+
+	stdout, _, code := captureOutput(t, func() {
+		OutputResultAXI(sample(), nil, testStepsFn, func() string { return "TEXT" })
+	})
+
+	if code == 0 {
+		t.Errorf("a failed help write exited 0: %q", stdout)
+	}
+	if !strings.Contains(stdout, "pipe closed") {
+		t.Errorf("the failure was not reported: %q", stdout)
+	}
+}
+
 // AC10: a zero-match search still offered "Open a match", naming a target that
 // does not exist. A step an agent cannot take is worse than no step: it costs
 // tokens to read and one wasted turn to discover it was a lie.
@@ -359,6 +414,28 @@ func TestHelpLinesAdaptToAnEmptyResult(t *testing.T) {
 				t.Errorf("zero-result guidance should mention %q: %q", c.want, stdout)
 			}
 		})
+	}
+}
+
+// AC10's test above only asks that the zero-result guidance be actionable, so a
+// listing could still offer a line the caller cannot act on: "remove --pattern"
+// was printed whether or not --pattern was given. The line must follow the
+// invocation, and it must still appear when a filter is what emptied the result
+// — otherwise suppressing it would be satisfied by deleting it.
+func TestZeroResultListingOnlyOffersTheFilterHintWhenFiltered(t *testing.T) {
+	dir := t.TempDir()
+
+	unfiltered, _, _ := runCLI(t, "list-directory", "--path", dir)
+	if strings.Contains(unfiltered, "--pattern") {
+		t.Errorf("an unfiltered listing told the caller to remove --pattern: %q", unfiltered)
+	}
+	if !strings.Contains(unfiltered, "--show-hidden") {
+		t.Errorf("the unfiltered listing lost its actionable step: %q", unfiltered)
+	}
+
+	filtered, _, _ := runCLI(t, "list-directory", "--path", dir, "--pattern", "zzz-no-such-file")
+	if !strings.Contains(filtered, "remove --pattern") {
+		t.Errorf("a filtered empty listing should offer to drop the filter: %q", filtered)
 	}
 }
 
