@@ -284,12 +284,13 @@ func TestSyncDirectoriesRealRunCarriesNoPlan(t *testing.T) {
 // because the cases that matter here — a `../` name, a bad checksum, a stream
 // cut short — are exactly the ones a well-behaved archiver refuses to write.
 type archiveEntry struct {
-	name   string
-	body   string
-	dir    bool
-	tarTyp byte   // tar only; 0 means a regular file, or a directory when dir is set
-	method uint16 // zip only; an unregistered method makes Open fail
-	badCRC bool   // zip only; a wrong checksum makes the copy fail
+	name    string
+	body    string
+	dir     bool
+	tarTyp  byte   // tar only; 0 means a regular file, or a directory when dir is set
+	method  uint16 // zip only; an unregistered method makes Open fail
+	badCRC  bool   // zip only; a wrong checksum makes the copy fail
+	symlink string // zip only; a symlink-mode entry whose body is this link target
 }
 
 func buildZip(t *testing.T, entries []archiveEntry) string {
@@ -306,6 +307,18 @@ func buildZip(t *testing.T, entries []archiveEntry) string {
 		switch {
 		case e.dir:
 			if _, err := zw.Create(e.name); err != nil {
+				t.Fatal(err)
+			}
+		case e.symlink != "":
+			// `zip -y` writes the link target as the entry's body and sets the
+			// symlink mode bit. Header.SetMode is what sets it.
+			hdr := &zip.FileHeader{Name: e.name, Method: zip.Store}
+			hdr.SetMode(os.ModeSymlink | 0o777)
+			w, err := zw.CreateHeader(hdr)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := io.WriteString(w, e.symlink); err != nil {
 				t.Fatal(err)
 			}
 		case e.badCRC:
@@ -1099,4 +1112,242 @@ func TestCompressFilesRefusesAnOutputThatIsAnInput(t *testing.T) {
 			}
 		})
 	}
+}
+
+// An --output inside a directory input was walked into the archive, so the
+// archive held a truncated copy of itself and files_added counted it. The
+// output is skipped while walking: the archive holds the directory's real
+// contents and nothing else.
+func TestCompressFilesSkipsItsOwnOutputInsideAnInputDirectory(t *testing.T) {
+	for _, format := range compressFormats {
+		t.Run(format, func(t *testing.T) {
+			dir := filepath.Join(t.TempDir(), "dir")
+			if err := os.MkdirAll(dir, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("a"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			out := filepath.Join(dir, "self."+format)
+
+			res := compress(t, format, out, dir)
+
+			if res.FilesAdded != 1 || res.Failed != 0 || !res.Success {
+				t.Errorf("want files_added 1, failed 0, success true; got %+v", res)
+			}
+
+			// The archive's own content, not the counter, says whether it
+			// swallowed itself: a partial copy of a zip is still an entry.
+			dest := t.TempDir()
+			extract(t, out, dest)
+			var names []string
+			walkErr := filepath.Walk(dest, func(p string, info os.FileInfo, err error) error {
+				if err != nil {
+					return err
+				}
+				if info.IsDir() {
+					return nil
+				}
+				rel, relErr := filepath.Rel(dest, p)
+				if relErr != nil {
+					return relErr
+				}
+				names = append(names, filepath.ToSlash(rel))
+				return nil
+			})
+			if walkErr != nil {
+				t.Fatal(walkErr)
+			}
+			if len(names) != 1 || names[0] != "dir/a.txt" {
+				t.Errorf("the archive holds %q, want only dir/a.txt", names)
+			}
+			if got, _ := os.ReadFile(filepath.Join(dest, "dir", "a.txt")); string(got) != "a" {
+				t.Errorf("dir/a.txt = %q, want %q", got, "a")
+			}
+		})
+	}
+}
+
+// os.Create follows a symlink, and entryTarget only compared names lexically,
+// so an entry named like a link already sitting in --dest wrote OUTSIDE the
+// destination. The link must be reported and left alone.
+func TestExtractArchiveRefusesAnExistingSymlinkAtTheTarget(t *testing.T) {
+	for _, f := range archiveFormats {
+		t.Run(f.name, func(t *testing.T) {
+			outside := filepath.Join(t.TempDir(), "outside.txt")
+			if err := os.WriteFile(outside, []byte("ORIGINAL"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			dest := t.TempDir()
+			link := filepath.Join(dest, "a.txt")
+			if err := os.Symlink(outside, link); err != nil {
+				t.Skip("symlinks unavailable on this filesystem")
+			}
+			archive := f.build(t, []archiveEntry{{name: "a.txt", body: "pwned"}})
+
+			res := extract(t, archive, dest)
+
+			if got, err := os.ReadFile(outside); err != nil || string(got) != "ORIGINAL" {
+				t.Errorf("the entry was written through the symlink: outside.txt = %q, %v", got, err)
+			}
+			assertFailureNamed(t, res, "a.txt")
+			if res.FilesExtracted != 0 {
+				t.Errorf("files_extracted = %d for an entry it did not write", res.FilesExtracted)
+			}
+			if res.Overwritten != 0 {
+				t.Errorf("overwritten = %d for a file it did not replace", res.Overwritten)
+			}
+			info, statErr := os.Lstat(link)
+			if statErr != nil || info.Mode()&os.ModeSymlink == 0 {
+				t.Errorf("the destination link was replaced rather than refused: %v", statErr)
+			}
+		})
+	}
+}
+
+// A zip entry whose mode says symlink was written as a regular file holding the
+// link target as its text and counted in files_extracted, while the same entry
+// in a tar was reported as a failure. Zip refuses it now too.
+func TestExtractArchiveReportsAZipSymlinkEntry(t *testing.T) {
+	dest := t.TempDir()
+	archive := buildZip(t, []archiveEntry{
+		{name: "ok.txt", body: "ok"},
+		{name: "link", symlink: "/etc/passwd"},
+	})
+
+	res := extract(t, archive, dest)
+
+	assertFailureNamed(t, res, "link")
+	if res.FilesExtracted != 1 {
+		t.Errorf("files_extracted = %d, want 1 (the regular entry only)", res.FilesExtracted)
+	}
+	if got, err := os.ReadFile(filepath.Join(dest, "link")); err == nil {
+		t.Errorf("the symlink entry was written as a file holding %q", got)
+	}
+	if info, err := os.Lstat(filepath.Join(dest, "link")); err == nil && info.Mode()&os.ModeSymlink != 0 {
+		t.Error("the symlink entry was created as a symlink instead of refused")
+	}
+}
+
+// dirs_created counted directories VISITED, not created, because MkdirAll
+// returns nil for one that already existed: a sync into a populated
+// destination claimed work it did not do. The preview models the real
+// algorithm, so both numbers move together.
+func TestSyncDirectoriesCountsOnlyCreatedDirectories(t *testing.T) {
+	newSrc := func(t *testing.T) string {
+		t.Helper()
+		src := t.TempDir()
+		if err := os.MkdirAll(filepath.Join(src, "sub", "deep"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(src, "sub", "deep", "f.txt"), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return src
+	}
+	run := func(t *testing.T, src, dst string, dryRun bool) *SyncResult {
+		t.Helper()
+		res, err := SyncDirectories(SyncDirectoriesOptions{
+			Source:      src,
+			Destination: dst,
+			DryRun:      dryRun,
+			AllowedDirs: []string{src, filepath.Dir(dst)},
+		})
+		if err != nil {
+			t.Fatalf("sync (dry run %v): %v", dryRun, err)
+		}
+		return res
+	}
+
+	t.Run("every directory created", func(t *testing.T) {
+		src := newSrc(t)
+		dst := filepath.Join(t.TempDir(), "dst")
+
+		preview := run(t, src, dst, true)
+		if _, err := os.Stat(dst); !os.IsNotExist(err) {
+			t.Fatalf("the preview created the destination: %v", err)
+		}
+		applied := run(t, src, dst, false)
+
+		// The destination itself, sub and sub/deep.
+		for name, got := range map[string]int{"preview": preview.DirsCreated, "apply": applied.DirsCreated} {
+			if got != 3 {
+				t.Errorf("%s dirs_created = %d, want 3", name, got)
+			}
+		}
+	})
+
+	t.Run("only the missing directories count", func(t *testing.T) {
+		src := newSrc(t)
+		dst := t.TempDir()
+		if err := os.MkdirAll(filepath.Join(dst, "sub"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+
+		preview := run(t, src, dst, true)
+		applied := run(t, src, dst, false)
+
+		// dst and dst/sub already exist; only dst/sub/deep is created.
+		if preview.DirsCreated != 1 || applied.DirsCreated != 1 {
+			t.Errorf("dirs_created = %d (preview) and %d (apply), want 1 each",
+				preview.DirsCreated, applied.DirsCreated)
+		}
+		if got, err := os.ReadFile(filepath.Join(dst, "sub", "deep", "f.txt")); err != nil || string(got) != "x" {
+			t.Errorf("the file under the created directory did not arrive: %q, %v", got, err)
+		}
+	})
+}
+
+// The removable guard decides whether an unfinished archive is deleted: only a
+// file this run created or replaced is ours to remove, so an --output that is a
+// symlink must survive. The /dev/full test proved this only for a non-root
+// reader, where deleting the device fails anyway, so deleting the guard left it
+// green. This needs neither root nor /dev/full.
+func TestCompressFilesLeavesANonRegularOutputInPlace(t *testing.T) {
+	prev := createArchiveFile
+	createArchiveFile = func(string) (io.WriteCloser, error) { return failingWriter{}, nil }
+	t.Cleanup(func() { createArchiveFile = prev })
+
+	in := filepath.Join(t.TempDir(), "a.txt")
+	if err := os.WriteFile(in, []byte("a"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("a symlink output survives", func(t *testing.T) {
+		target := filepath.Join(t.TempDir(), "target.zip")
+		if err := os.WriteFile(target, []byte("not ours"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		link := filepath.Join(t.TempDir(), "link.zip")
+		if err := os.Symlink(target, link); err != nil {
+			t.Skip("symlinks unavailable on this filesystem")
+		}
+
+		if res, err := CompressFiles(CompressFilesOptions{Paths: []string{in}, Output: link, Format: "zip"}); err == nil {
+			t.Fatalf("an archive that could not be finished returned no error: %+v", res)
+		}
+
+		info, err := os.Lstat(link)
+		if err != nil || info.Mode()&os.ModeSymlink == 0 {
+			t.Errorf("cleanup removed an --output it did not create: %v", err)
+		}
+		if got, _ := os.ReadFile(target); string(got) != "not ours" {
+			t.Errorf("the symlink's target changed to %q", got)
+		}
+	})
+
+	t.Run("a regular output is removed", func(t *testing.T) {
+		out := filepath.Join(t.TempDir(), "out.zip")
+		if err := os.WriteFile(out, []byte("old"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+
+		if res, err := CompressFiles(CompressFilesOptions{Paths: []string{in}, Output: out, Format: "zip"}); err == nil {
+			t.Fatalf("an archive that could not be finished returned no error: %+v", res)
+		}
+
+		if _, err := os.Lstat(out); !os.IsNotExist(err) {
+			t.Errorf("an unfinished archive was left behind: %v", err)
+		}
+	})
 }

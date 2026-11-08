@@ -227,7 +227,7 @@ func CompressFiles(opts CompressFilesOptions) (*CompressResult, error) {
 		}
 	}
 
-	var writeArchive func([]string, io.Writer, *extractTally) error
+	var writeArchive func([]string, io.Writer, *extractTally, string) error
 	switch format {
 	case "zip":
 		writeArchive = createZipArchive
@@ -250,7 +250,7 @@ func CompressFiles(opts CompressFilesOptions) (*CompressResult, error) {
 	}
 
 	var tally extractTally
-	err = writeArchive(paths, file, &tally)
+	err = writeArchive(paths, file, &tally, normalizedOutput)
 	if closeErr := file.Close(); err == nil && closeErr != nil {
 		err = fmt.Errorf("close: %w", closeErr)
 	}
@@ -299,7 +299,11 @@ func failInput(tally *extractTally, path string, err error) {
 // name it takes in the archive. The tally's extracted count is files added.
 // A missing input, a Walk error and an add error are each a reported failure:
 // all three were once skipped while the run said success.
-func addInputs(paths []string, tally *extractTally, add func(filePath, name string) error) {
+//
+// skip is the archive being written. An --output inside a directory input was
+// walked into the archive, so the archive held a truncated copy of itself and
+// counted it as an added file.
+func addInputs(paths []string, tally *extractTally, skip string, add func(filePath, name string) error) {
 	for _, path := range paths {
 		info, err := os.Stat(path)
 		if err != nil {
@@ -324,6 +328,9 @@ func addInputs(paths []string, tally *extractTally, add func(filePath, name stri
 			if info.IsDir() {
 				return nil
 			}
+			if skip != "" && filePath == skip {
+				return nil
+			}
 			relPath, err := filepath.Rel(filepath.Dir(path), filePath)
 			if err != nil {
 				failInput(tally, filePath, err)
@@ -341,9 +348,9 @@ func addInputs(paths []string, tally *extractTally, add func(filePath, name stri
 
 // createZipArchive writes the archive to w. The zip writer's Close writes the
 // central directory and flushes, so its error is the archive's.
-func createZipArchive(paths []string, w io.Writer, tally *extractTally) error {
+func createZipArchive(paths []string, w io.Writer, tally *extractTally, skip string) error {
 	zipWriter := zip.NewWriter(w)
-	addInputs(paths, tally, func(filePath, name string) error {
+	addInputs(paths, tally, skip, func(filePath, name string) error {
 		return addToZip(zipWriter, filePath, name)
 	})
 	return zipWriter.Close()
@@ -368,10 +375,10 @@ func addToZip(zipWriter *zip.Writer, filePath, name string) error {
 // createTarGzArchive writes the archive to w. The tar writer's Close writes
 // the end-of-archive blocks and the gzip writer's writes the trailer; either
 // failing leaves an archive extract-archive cannot read.
-func createTarGzArchive(paths []string, w io.Writer, tally *extractTally) error {
+func createTarGzArchive(paths []string, w io.Writer, tally *extractTally, skip string) error {
 	gzipWriter := gzip.NewWriter(w)
 	tarWriter := tar.NewWriter(gzipWriter)
-	addInputs(paths, tally, func(filePath, name string) error {
+	addInputs(paths, tally, skip, func(filePath, name string) error {
 		return addToTar(tarWriter, filePath, name)
 	})
 	if err := tarWriter.Close(); err != nil {
@@ -528,14 +535,22 @@ var createExtractedFile = func(path string) (io.WriteCloser, error) {
 // writeEntry writes one regular file and counts it. Every error is the
 // entry's failure: mkdir, create, copy and close were each discarded once, and
 // a dropped Close error is how a write that never reached the disk got counted.
+//
+// A symlink already at the target path is refused rather than followed.
+// os.Create follows it, and entryTarget only compares names lexically, so a
+// link planted in the destination made the entry write outside it.
 func writeEntry(path, entry string, r io.Reader, tally *extractTally) {
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		tally.fail(entry, err)
 		return
 	}
 
-	_, statErr := os.Lstat(path)
+	prior, statErr := os.Lstat(path)
 	existed := statErr == nil
+	if existed && prior.Mode()&os.ModeSymlink != 0 {
+		tally.fail(entry, fmt.Errorf("refused: destination path is a symlink"))
+		return
+	}
 
 	out, err := createExtractedFile(path)
 	if err != nil {
@@ -587,6 +602,14 @@ func extractZip(archive, destination string, tally *extractTally) error {
 
 		// As in the tar case, a file entry naming the destination itself
 		// fails at create and is reported there.
+		//
+		// A symlink entry carries its link target as the entry body and a
+		// symlink mode. Writing it out made a plain file holding that text and
+		// counted it in files_extracted, while the same tar entry was refused.
+		if file.Mode()&os.ModeSymlink != 0 {
+			tally.fail(file.Name, fmt.Errorf("refused: unsupported entry type (symlink)"))
+			continue
+		}
 		rc, err := file.Open()
 		if err != nil {
 			tally.fail(file.Name, fmt.Errorf("open: %w", err))
@@ -748,12 +771,22 @@ func SyncDirectories(opts SyncDirectoriesOptions) (*SyncResult, error) {
 	var failures []string
 	var failed int
 
+	// dirs_created counts directories CREATED, not directories visited:
+	// MkdirAll returns nil for one that already exists, so a sync into a
+	// populated destination used to claim work it had not done. The preview
+	// models the same rule against the destination and remembers what it has
+	// already predicted, because nothing it reports as created is on disk yet.
+	// A preview that does not match the apply is worse than no preview.
+	predictedCreated := make(map[string]bool)
+	willCreate := func(dstPath string) bool {
+		if _, statErr := os.Lstat(dstPath); statErr == nil || !os.IsNotExist(statErr) {
+			return false
+		}
+		return !predictedCreated[dstPath]
+	}
+
 	// A dry run walks the same tree and counts the same way, skipping only the
-	// two calls that write. It must model the REAL algorithm rather than a
-	// better one: dirsCreated counts every source directory visited, whether or
-	// not MkdirAll had anything to create, and the preview reproduces that
-	// rather than quietly reporting a more accurate number. A preview that does
-	// not match the apply is worse than no preview.
+	// two calls that write.
 	//
 	// It predicts rather than guarantees: the real walk skips a file whose copy
 	// fails, which nothing can know in advance.
@@ -778,6 +811,7 @@ func SyncDirectories(opts SyncDirectoriesOptions) (*SyncResult, error) {
 		dstPath := filepath.Join(normalizedDst, relPath)
 
 		if info.IsDir() {
+			missing := willCreate(dstPath)
 			if !opts.DryRun {
 				if mkErr := os.MkdirAll(dstPath, info.Mode()); mkErr != nil {
 					note(relPath, mkErr)
@@ -785,8 +819,13 @@ func SyncDirectories(opts SyncDirectoriesOptions) (*SyncResult, error) {
 					// copy below would fail into a directory that is not there.
 					return filepath.SkipDir
 				}
+				if missing {
+					dirsCreated++
+				}
+			} else if missing {
+				predictedCreated[dstPath] = true
+				dirsCreated++
 			}
-			dirsCreated++
 		} else {
 			if !opts.DryRun {
 				// copyFile takes (src, dst). This passed (dst, src), so it
