@@ -20,6 +20,11 @@ const homePageSize = 50
 // so substituting it is the only way to exercise the clause on every platform.
 var getwd = os.Getwd
 
+// getExecutable is indirected like getwd: the test binary never lives under
+// the fake home a test sets, so the tilde-abbreviation of Bin is otherwise
+// unreachable from the suite.
+var getExecutable = os.Executable
+
 // homeView is the content-first landing payload (AXI principle 6): identity,
 // one line of orientation, and live data from the working directory.
 //
@@ -64,10 +69,10 @@ func buildHomeView(cwd string, cwdErr error) (homeView, []string) {
 		Items: []core.DirectoryEntry{},
 	}
 
-	if exe, err := os.Executable(); err == nil {
-		view.Bin = exe
+	if exe, err := getExecutable(); err == nil {
+		view.Bin = tildePath(exe)
 	} else {
-		view.Bin = os.Args[0]
+		view.Bin = tildePath(os.Args[0])
 	}
 	if home, err := os.UserHomeDir(); err == nil && home != "" {
 		view.Home = tildePath(home)

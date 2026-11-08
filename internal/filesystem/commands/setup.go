@@ -165,6 +165,16 @@ func planSetup(dir string) ([]setupPlan, error) {
 		if err := checkInsideProject(dir, filepath.Join(dir, rel)); err != nil {
 			return nil, err
 		}
+		// The target file itself must not be a symlink. The write is a rename,
+		// which would replace the link with a regular file and leave whatever it
+		// pointed to untouched — a "written" that did not happen where the user's
+		// layout says it did (debt a502b329). Writing through the link instead
+		// would edit a file setup never planned for, so the decision is to refuse
+		// and let the user resolve their own layout. An in-project link such as
+		// .claude -> dotclaude is a directory and still followed.
+		if info, err := os.Lstat(filepath.Join(dir, rel)); err == nil && info.Mode()&os.ModeSymlink != 0 {
+			return nil, fmt.Errorf("%s is a symlink; refusing to overwrite the link or write through it — remove or repoint it, then run setup again", rel)
+		}
 	}
 
 	settings, err := planSettings(filepath.Join(dir, settingsRel))
@@ -202,7 +212,7 @@ func applySetup(dir string, plans []setupPlan, dryRun bool) setupResult {
 		case !res.Success:
 			f.Status = setupSkipped
 		default:
-			if err := writeFileByRename(filepath.Join(dir, p.rel), p.content, p.mode); err != nil {
+			if err := writeFileByRename(dir, filepath.Join(dir, p.rel), p.content, p.mode); err != nil {
 				f.Status, f.Error = setupFailed, err.Error()
 				res.Success = false
 			} else {
@@ -216,7 +226,13 @@ func applySetup(dir string, plans []setupPlan, dryRun bool) setupResult {
 
 // writeFileByRename writes content to a temporary file beside path and renames
 // it into place, so a reader sees the old file or the new one, never a mix.
-func writeFileByRename(path string, content []byte, mode fs.FileMode) error {
+//
+// dir is the resolved project directory, re-checked after the temporary file
+// exists: checkInsideProject ran before anything was written, and nothing
+// stopped a directory in the path being swapped for a symlink in between — the
+// check-to-use race (debt 88b33e5b). The temporary file's directory is where
+// the rename would land, so checking it there closes the window the plan left.
+func writeFileByRename(dir, path string, content []byte, mode fs.FileMode) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return fmt.Errorf("write %s: %w", path, err)
 	}
@@ -225,6 +241,15 @@ func writeFileByRename(path string, content []byte, mode fs.FileMode) error {
 		return fmt.Errorf("write %s: %w", path, err)
 	}
 	name := tmp.Name()
+	// The re-check: the directory the rename will land in is the directory the
+	// temporary file just went into. If a component of it was swapped for a
+	// symlink leading out of the project since the plan, refuse now, and the
+	// os.Remove below takes the temporary file with it.
+	if err := checkInsideProject(dir, filepath.Dir(path)); err != nil {
+		_ = tmp.Close()
+		_ = os.Remove(name)
+		return fmt.Errorf("write %s: %w", path, err)
+	}
 	_, err = tmp.Write(content)
 	if err == nil {
 		err = tmp.Chmod(mode)

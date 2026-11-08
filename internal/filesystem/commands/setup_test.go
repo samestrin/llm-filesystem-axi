@@ -662,3 +662,93 @@ func TestSetupKeepsTheSettingsFileMode(t *testing.T) {
 		t.Errorf("mode = %o, want 600", info.Mode().Perm())
 	}
 }
+
+// Debt a502b329: a SKILL.md that is a symlink to a file inside the project, with
+// different content, was silently replaced by a regular file — the rename
+// clobbers the link while the file it pointed to is left stale. That reports
+// "written" for a write that did not happen where the user's layout said it
+// would. The decision recorded here: REFUSE. Writing through the link would mean
+// setup editing a file it did not plan for; replacing it means the user's link
+// layout is destroyed. Both are surprises, so neither happens: exit 1, the link
+// and its target untouched. The same rule covers a symlinked settings.json, the
+// other file written by rename.
+func TestSetupRefusesToReplaceASymlinkedTargetFile(t *testing.T) {
+	cases := map[string]struct {
+		link      string // relative to the project
+		targetRel string // relative to the project, inside it
+		content   string
+	}{
+		"SKILL.md":      {setupSkillRel, filepath.Join("own-skill.md"), "the user's own skill"},
+		"settings.json": {setupSettingsRel, filepath.Join("own-settings.json"), "{}"},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			dir, _ := setupProject(t)
+			target := filepath.Join(dir, c.targetRel)
+			writeFile(t, target, c.content)
+			link := filepath.Join(dir, c.link)
+			if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(target, link); err != nil {
+				t.Fatal(err)
+			}
+
+			stdout, _, code := runCLI(t, "setup", "--format", "json")
+			if code != 1 {
+				t.Errorf("exit %d, want 1", code)
+			}
+			if !strings.Contains(stdout, "symlink") {
+				t.Errorf("the refusal must name the symlink, got %q", stdout)
+			}
+			// Side effects, not exit codes: the link must still be a link, and
+			// the file it points to must be byte-identical.
+			if info, err := os.Lstat(link); err != nil || info.Mode()&os.ModeSymlink == 0 {
+				t.Errorf("%s is no longer a symlink", c.link)
+			}
+			if got := readOrEmpty(t, target); got != c.content {
+				t.Errorf("the link target changed:\n%s", got)
+			}
+			if got := readOrEmpty(t, link); got != c.content {
+				t.Errorf("reading through the link changed:\n%s", got)
+			}
+		})
+	}
+}
+
+// Debt 88b33e5b: checkInsideProject ran before anything was written, but
+// nothing stopped a directory in the path being swapped for a symlink between
+// that check and the rename — the check-to-use race. A write could then land
+// outside the project while every check had passed. writeFileByRename now
+// re-checks after CreateTemp, because the temporary file's directory is where
+// the rename will land. This exercises the re-check directly, since the race
+// itself cannot be scheduled from a test: .claude is already a symlink out of
+// the project by the time the write runs, so CreateTemp put the temporary file
+// outside — the re-check must refuse, remove that temporary file, and write
+// nothing on either side.
+func TestSetupRechecksTheWriteDirectoryAfterCreatingTheTempFile(t *testing.T) {
+	dir, _ := setupProject(t)
+	outside := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, ".claude"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(dir, ".claude")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(dir, ".claude")); err != nil {
+		t.Fatal(err)
+	}
+	real, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = writeFileByRename(real, filepath.Join(real, ".claude", "settings.json"), []byte("{}"), 0o644)
+	if err == nil {
+		t.Fatal("the write succeeded although the target directory had been swapped for a symlink out of the project")
+	}
+	if !strings.Contains(err.Error(), "outside") {
+		t.Errorf("error = %q, want it to name the escape", err.Error())
+	}
+	assertNothingWritten(t, outside) // includes the temporary file
+}
