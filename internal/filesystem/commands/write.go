@@ -190,6 +190,9 @@ func createDirectoryCmd() *cobra.Command {
 				return
 			}
 			OutputResult(result, func() string {
+				if result.Exists {
+					return fmt.Sprintf("Directory already exists: %s", result.Path)
+				}
 				return fmt.Sprintf("Created directory: %s", result.Path)
 			})
 		},

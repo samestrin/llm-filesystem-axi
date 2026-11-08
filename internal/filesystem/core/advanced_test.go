@@ -1028,3 +1028,75 @@ func TestCompressFilesRefusesBadInput(t *testing.T) {
 		})
 	}
 }
+
+// SyncResult.Failed was len(failures), and failures is a sample capped at
+// maxPlannedPaths, so 150 failed copies reported "failed: 100". The count is
+// the contract; only the sample is bounded. Each destination name is a
+// directory, so every copy fails without needing permissions to be withheld.
+func TestSyncDirectoriesCountsEveryFailurePastTheSampleCap(t *testing.T) {
+	src := t.TempDir()
+	dst := t.TempDir()
+	const n = maxPlannedPaths + 50
+	for i := 0; i < n; i++ {
+		name := fmt.Sprintf("f%03d.txt", i)
+		if err := os.WriteFile(filepath.Join(src, name), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Mkdir(filepath.Join(dst, name), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	res, err := SyncDirectories(SyncDirectoriesOptions{
+		Source:      src,
+		Destination: dst,
+		AllowedDirs: []string{src, dst},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Success {
+		t.Error("a sync where every copy failed reported success")
+	}
+	if res.Failed != n {
+		t.Errorf("failed = %d, want %d", res.Failed, n)
+	}
+	if len(res.Failures) != maxPlannedPaths {
+		t.Errorf("sample = %d entries, want it capped at %d", len(res.Failures), maxPlannedPaths)
+	}
+}
+
+// compress-files truncated its input when --output named the same file, then
+// reported files_added 1 and success with the original gone. It must refuse,
+// and the input must be untouched afterwards.
+func TestCompressFilesRefusesAnOutputThatIsAnInput(t *testing.T) {
+	for _, format := range compressFormats {
+		t.Run(format, func(t *testing.T) {
+			dir := t.TempDir()
+			in := filepath.Join(dir, "a."+format)
+			if err := os.WriteFile(in, []byte("PRECIOUS"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			link := filepath.Join(dir, "link."+format)
+			if err := os.Symlink(in, link); err != nil {
+				t.Skip("symlinks unavailable on this filesystem")
+			}
+
+			for _, out := range []string{in, filepath.Join(dir, ".", "a."+format), link} {
+				res, err := CompressFiles(CompressFilesOptions{
+					Paths:       []string{in},
+					Output:      out,
+					Format:      format,
+					AllowedDirs: []string{dir},
+				})
+				if err == nil {
+					t.Errorf("output %s: expected a refusal, got %+v", out, res)
+				}
+				got, rerr := os.ReadFile(in)
+				if rerr != nil || string(got) != "PRECIOUS" {
+					t.Errorf("output %s: input was modified: %q, %v", out, got, rerr)
+				}
+			}
+		})
+	}
+}

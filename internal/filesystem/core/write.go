@@ -311,6 +311,7 @@ type CreateDirectoryOptions struct {
 type CreateDirectoryResult struct {
 	Path    string `json:"path"`
 	Created bool   `json:"created"`
+	Exists  bool   `json:"exists"`
 	Message string `json:"message"`
 }
 
@@ -332,6 +333,17 @@ func CreateDirectory(opts CreateDirectoryOptions) (*CreateDirectoryResult, error
 
 	if err := ValidatePath(normalizedPath, opts.AllowedDirs); err != nil {
 		return nil, err
+	}
+
+	// MkdirAll is idempotent, so it cannot say whether it created anything.
+	// Look first: "created" must mean this call made the directory.
+	if info, statErr := os.Stat(normalizedPath); statErr == nil && info.IsDir() {
+		return &CreateDirectoryResult{
+			Path:    normalizedPath,
+			Created: false,
+			Exists:  true,
+			Message: "Directory already exists",
+		}, nil
 	}
 
 	if opts.Recursive {

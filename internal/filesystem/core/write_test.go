@@ -148,3 +148,37 @@ func TestCreateDirectory(t *testing.T) {
 		})
 	}
 }
+
+// create-directory on an existing directory reported created: true because
+// MkdirAll is idempotent. Nothing was created, so it must say so.
+func TestCreateDirectoryReportsAnExistingDirectory(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "d")
+	opts := CreateDirectoryOptions{Path: path, Recursive: true}
+
+	first, err := CreateDirectory(opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !first.Created || first.Exists {
+		t.Errorf("first run: want created true, exists false; got %+v", first)
+	}
+
+	second, err := CreateDirectory(opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.Created || !second.Exists {
+		t.Errorf("second run: want created false, exists true; got %+v", second)
+	}
+}
+
+// An existing FILE at the path is not a directory that "already exists".
+func TestCreateDirectoryFailsWhenAFileIsInTheWay(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "f")
+	if err := os.WriteFile(path, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if res, err := CreateDirectory(CreateDirectoryOptions{Path: path, Recursive: true}); err == nil {
+		t.Errorf("expected an error for a path that is a file, got %+v", res)
+	}
+}

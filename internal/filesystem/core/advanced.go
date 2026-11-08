@@ -213,6 +213,20 @@ func CompressFiles(opts CompressFilesOptions) (*CompressResult, error) {
 		paths[i] = normalized
 	}
 
+	// The create below truncates --output before any input is read, so an
+	// output that is also an input destroys it and reports success.
+	outInfo, outStatErr := os.Stat(normalizedOutput)
+	for _, p := range paths {
+		if p == normalizedOutput {
+			return nil, fmt.Errorf("output %s is also an input; refusing to overwrite it", normalizedOutput)
+		}
+		if outStatErr == nil {
+			if pi, err := os.Stat(p); err == nil && os.SameFile(outInfo, pi) {
+				return nil, fmt.Errorf("output %s is also an input (%s); refusing to overwrite it", normalizedOutput, p)
+			}
+		}
+	}
+
 	var writeArchive func([]string, io.Writer, *extractTally) error
 	switch format {
 	case "zip":
@@ -732,6 +746,7 @@ func SyncDirectories(opts SyncDirectoriesOptions) (*SyncResult, error) {
 	var filesCopied, dirsCreated int
 	var planned []string
 	var failures []string
+	var failed int
 
 	// A dry run walks the same tree and counts the same way, skipping only the
 	// two calls that write. It must model the REAL algorithm rather than a
@@ -746,6 +761,7 @@ func SyncDirectories(opts SyncDirectoriesOptions) (*SyncResult, error) {
 	// is what let a sync destroy data and still report success: the copy failed,
 	// nobody counted it, and Success stayed true regardless.
 	note := func(relPath string, err error) {
+		failed++
 		if len(failures) < maxPlannedPaths {
 			failures = append(failures, relPath+": "+err.Error())
 		}
@@ -796,8 +812,8 @@ func SyncDirectories(opts SyncDirectoriesOptions) (*SyncResult, error) {
 		Destination: normalizedDst,
 		FilesCopied: filesCopied,
 		DirsCreated: dirsCreated,
-		Success:     len(failures) == 0,
-		Failed:      len(failures),
+		Success:     failed == 0,
+		Failed:      failed,
 		Failures:    failures,
 		DryRun:      opts.DryRun,
 		Planned:     planned,
