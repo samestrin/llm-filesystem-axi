@@ -308,6 +308,34 @@ func TestSearchAndReplace(t *testing.T) {
 	}
 }
 
+func TestSearchAndReplaceDryRunMessageIsPreview(t *testing.T) {
+	// Debt edc8a88c29f87caa: --dry-run reported each file as `message: Modified`
+	// even though nothing was written. A preview that says "Modified" tells the
+	// agent a write happened — the exact failure mode this repo exists to
+	// prevent. The per-file prose must say what would happen, not what did not.
+	dir := t.TempDir()
+	f := filepath.Join(dir, "a.txt")
+	original := "keep me foo"
+	if err := os.WriteFile(f, []byte(original), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := SearchAndReplace(SearchReplaceOptions{Path: f, Pattern: "foo", Replacement: "bar", DryRun: true})
+	if err != nil {
+		t.Fatalf("dry run: %v", err)
+	}
+	if len(res.Results) != 1 {
+		t.Fatalf("results = %d, want 1", len(res.Results))
+	}
+	if res.Results[0].Message != "Would modify" {
+		t.Errorf("dry-run message = %q, want %q (a preview must not claim a write happened)",
+			res.Results[0].Message, "Would modify")
+	}
+	got, _ := os.ReadFile(f)
+	if string(got) != original {
+		t.Errorf("dry run modified file: %q, want %q", got, original)
+	}
+}
+
 func TestSearchAndReplaceDryRunLeavesFile(t *testing.T) {
 	dir := t.TempDir()
 	f := filepath.Join(dir, "a.txt")

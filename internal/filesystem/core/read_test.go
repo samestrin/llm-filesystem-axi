@@ -390,6 +390,55 @@ func TestResumeAtTheTailIsNotTruncated(t *testing.T) {
 // truncated, which reads as "this was cut" rather than "this was never opened",
 // and it carried no next_offset. A caller checking failed == 0 concluded
 // everything had been read.
+func TestReadMultipleFilesTotalSizeCountsFilesOnDisk(t *testing.T) {
+	// Debt c30b86bc17eb01a9 claimed total_size undercounts when a path is
+	// missing. Verified against the code, the claim is wrong: a path that
+	// fails to stat also fails the read (they check the same existence and
+	// permissions), and a file that is not on disk holds 0 bytes, so excluding
+	// it from "combined size on disk" is arithmetic, not an undercount. This
+	// test pins that verified behaviour so it cannot drift silently: total_size
+	// must count every file that IS on disk — including skipped ones — and a
+	// missing path must surface as an error, not as phantom size.
+	tmpDir := t.TempDir()
+
+	big := filepath.Join(tmpDir, "big.txt")
+	if err := os.WriteFile(big, []byte(strings.Repeat("x", 90000)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	extra := filepath.Join(tmpDir, "extra.txt")
+	if err := os.WriteFile(extra, []byte(strings.Repeat("y", 10000)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	missing := filepath.Join(tmpDir, "not-here.txt")
+
+	res, err := ReadMultipleFiles(ReadMultipleFilesOptions{
+		Paths:       []string{big, missing, extra},
+		AllowedDirs: []string{tmpDir},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !res.Truncated {
+		t.Fatal("an over-budget set must be reported as truncated")
+	}
+	// 90000 + 10000 on disk; the missing path contributes nothing because it
+	// holds nothing. A number larger than this would be counting a file that
+	// does not exist; smaller would be dropping one that does.
+	if res.TotalSize != 100000 {
+		t.Errorf("total_size = %d, want the combined size on disk 100000 (90000 + 10000; a missing path holds 0 bytes)", res.TotalSize)
+	}
+	var missingErr bool
+	for _, f := range res.Files {
+		if f.Path == missing {
+			missingErr = f.Error != ""
+		}
+	}
+	if !missingErr {
+		t.Error("the missing path must be reported as an error, not silently absorbed into the total")
+	}
+}
+
 func TestReadMultipleFilesCountersAccountForEveryFile(t *testing.T) {
 	tmpDir := t.TempDir()
 
@@ -572,6 +621,29 @@ func TestFitToBudget(t *testing.T) {
 		}
 		if len(got) < 60000 {
 			t.Errorf("kept only %d bytes of a 70000 budget; the invalid tail ate the whole prefix", len(got))
+		}
+	})
+
+	// A file of "a\n" followed by a single 200,000-character line took the
+	// LAST newline in the kept prefix, returning 2 bytes against a 70,000
+	// budget — correct and resumable, but 35,000x short. A preview that
+	// discards more than about half the budget must fall back to the rune cut.
+	t.Run("a line boundary that discards most of the budget falls back to the rune cut", func(t *testing.T) {
+		s := "a\n" + strings.Repeat("x", 200000)
+
+		got, cut := fitToBudget(s, 70000)
+
+		if !cut {
+			t.Fatal("200002 chars of cost must be cut to a 70000 budget")
+		}
+		if len(got) < 35000 {
+			t.Errorf("kept only %d bytes against a 70000 budget; the line-boundary preference returned a 35000x-short preview", len(got))
+		}
+		if est := int64(EstimateJSONStringSize(got)); est > 70000 {
+			t.Errorf("kept content costs %d, over the budget of 70000", est)
+		}
+		if !strings.HasPrefix(s, got) {
+			t.Error("result is not a prefix of the input, so next_offset would resume wrong")
 		}
 	})
 
