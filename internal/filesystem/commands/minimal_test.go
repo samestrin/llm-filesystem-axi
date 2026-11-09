@@ -1,7 +1,9 @@
 package commands
 
 import (
+	"encoding/json"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -123,5 +125,61 @@ func TestInjectNextSteps(t *testing.T) {
 	got2 := injectNextSteps(map[string]interface{}{"a": 1}, nil).(map[string]interface{})
 	if _, present := got2["next_steps"]; present {
 		t.Errorf("empty next_steps should not inject a key")
+	}
+}
+
+// A payload that is not a map used to be returned untouched, so JSON dropped
+// the guidance TOON still printed in its help[] block — the two formats
+// disagreeing about whether a result had a next step, in the one place whose
+// comment promises they never do. Every command returns a struct today, which
+// is why this calls the injector directly.
+func TestInjectNextStepsCarriesGuidanceForANonMapPayload(t *testing.T) {
+	steps := []string{"do X"}
+
+	for _, v := range []interface{}{
+		[]interface{}{map[string]interface{}{"name": "a"}},
+		"a bare string",
+	} {
+		got, ok := injectNextSteps(v, steps).(map[string]interface{})
+		if !ok {
+			t.Fatalf("%T: guidance was dropped instead of wrapped: %v", v, got)
+		}
+		if g, _ := got["next_steps"].([]string); len(g) != 1 {
+			t.Errorf("%T: next_steps = %v, want the one step", v, got["next_steps"])
+		}
+		if got["result"] == nil {
+			t.Errorf("%T: the payload itself was lost: %v", v, got)
+		}
+	}
+}
+
+// The same disagreement, seen the way a caller would: the same non-map result
+// rendered in both formats must carry the same guidance. OutputResultAXI takes
+// any result type, so a future command returning a bare slice is all it takes.
+func TestGuidanceSurvivesANonMapPayloadInEveryFormat(t *testing.T) {
+	slice := []map[string]interface{}{{"name": "a"}}
+	steps := func() []string { return []string{"look again: llm-filesystem --help"} }
+
+	withFormat(t, FormatJSON, false, false)
+	jsonOut, _, _ := captureOutput(t, func() {
+		OutputResultAXI(slice, nil, steps, func() string { return "TEXT" })
+	})
+	var doc map[string]interface{}
+	if err := json.Unmarshal([]byte(jsonOut), &doc); err != nil {
+		t.Fatalf("JSON output must parse as one document: %v for %q", err, jsonOut)
+	}
+	if _, ok := doc["next_steps"].([]interface{}); !ok {
+		t.Errorf("JSON lost the guidance TOON emits: %q", jsonOut)
+	}
+
+	withFormat(t, FormatTOON, false, false)
+	toonOut, _, _ := captureOutput(t, func() {
+		OutputResultAXI(slice, nil, steps, func() string { return "TEXT" })
+	})
+	if !strings.Contains(toonOut, "help[1]: ") {
+		t.Errorf("TOON dropped its help block: %q", toonOut)
+	}
+	if !strings.Contains(toonOut, "name") {
+		t.Errorf("TOON lost the payload: %q", toonOut)
 	}
 }

@@ -41,12 +41,18 @@ func listDirectoryCmd() *cobra.Command {
 				map[string][]string{"items": {"name", "type", "size_readable"}},
 				func() []string {
 					// Nothing was listed, so there is nothing to read. Point at
-					// the two reasons a directory looks empty when it is not.
+					// the reasons a directory looks empty when it is not, each
+					// only when it applies: an unfiltered listing used to offer
+					// "remove --pattern" to a caller who never passed one,
+					// which is a help line they cannot act on (AC10).
 					if result.Total == 0 {
-						return []string{
+						steps := []string{
 							"Include hidden entries: llm-filesystem list-directory --path " + result.Path + " --show-hidden",
-							"Drop the filter: remove --pattern to list everything.",
 						}
+						if pattern != "" {
+							steps = append(steps, "Drop the filter: remove --pattern to list everything.")
+						}
+						return steps
 					}
 					return []string{
 						"Read a listed file: llm-filesystem read-file --path <path>",
