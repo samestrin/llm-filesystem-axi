@@ -220,6 +220,27 @@ import glob
 benchmark_dir = "$BENCHMARK_DIR"
 results = {}
 
+# The TypeScript read and tree figures are one Python client process per
+# operation, and that process's own start (interpreter plus the client's
+# imports) is inside every one of them, while each Go figure is a bare binary
+# invocation. Comparing the two unadjusted flatters Go by the cost of a Python
+# start, so measure that cost here rather than publishing a hardcoded number
+# from some other machine, and report the TypeScript figure with it removed.
+def python_client_start_ms(runs=5):
+    import subprocess, sys, time
+    times = []
+    for _ in range(runs):
+        start = time.perf_counter()
+        subprocess.run(
+            [sys.executable, "-c",
+             "import subprocess, json, sys, threading, time, argparse"],
+            capture_output=True, check=False)
+        times.append((time.perf_counter() - start) * 1000)
+    times.sort()
+    return times[len(times) // 2]
+
+overhead_ms = python_client_start_ms()
+
 for f in sorted(glob.glob(os.path.join(benchmark_dir, "results-*.json"))):
     name = os.path.basename(f).replace("results-", "").replace(".json", "")
     with open(f) as fp:
@@ -240,6 +261,23 @@ for f in sorted(glob.glob(os.path.join(benchmark_dir, "results-*.json"))):
         print(f"  llm-filesystem (Go):    {go_time:7.1f}ms ± {go_std:.1f}ms")
         print(f"  fast-filesystem (TS):   {ts_time:7.1f}ms ± {ts_std:.1f}ms")
         print(f"  Go is {speedup:.1f}x faster")
+        # Cold start times the server binary itself, not the Python client.
+        if name in ("read", "tree"):
+            adjusted = ts_time - overhead_ms
+            if adjusted > 0:
+                print(f"  Go is {adjusted / go_time:.1f}x faster with the Python "
+                      f"client's own {overhead_ms:.1f}ms start removed "
+                      f"({adjusted:.1f}ms against {go_time:.1f}ms)")
+            else:
+                print(f"  the Python client's own start ({overhead_ms:.1f}ms) is "
+                      f"at or above the whole TypeScript figure ({ts_time:.1f}ms); "
+                      f"the comparison is not measurable on this machine")
+
+print()
+print("Note: the TypeScript read and tree figures each include one Python")
+print(f"client start, measured at {overhead_ms:.1f}ms on this machine by this run.")
+print("Each Go figure is a bare binary invocation with no equivalent cost, so")
+print("the adjusted line is the per-operation comparison and the raw one is not.")
 PYSUMMARY
 
 echo ""

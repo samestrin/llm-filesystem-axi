@@ -20,7 +20,7 @@ read-file                   182        182        171        171         6.0%
 
 The tree row is 0.0% because the benchmark does not pass `--include-files` and
 `/usr/bin` is flat: a directories-only tree of one directory is a single node, so
-every mode prints the same small document.
+TOON prints the same small document in both modes.
 
 ## A system directory (`/usr/share`, 56 entries)
 
@@ -53,8 +53,12 @@ clone lives.
 
 ## Why `json-min` can exceed `json-full`
 
-For `search-code`, look at the `json-min` column against `json-full`: minimal is the
-larger of the two. That is expected, not a defect.
+Two commands print a larger `json-min` than `json-full` in the tables above:
+`search-code` on every target, and `get-directory-tree` on the targets where its
+minimal projection saves less than the payload it adds. Both are expected, not a
+defect.
+
+### `search-code`
 
 `search-code` already emits its minimal field set at full size. In the benchmarked
 invocation every match carries exactly `content`, `file` and `line` in both modes,
@@ -77,3 +81,21 @@ from field selection.
 
 Changing this would mean either dropping contextual disclosure from minimal JSON or
 breaking the legacy guarantee on `--full`. Neither is worth 149 bytes.
+
+### `get-directory-tree`
+
+For the tree rows, compare the two JSON columns: `internal/` is json-min 186 against
+json-full 184, and `/usr/bin` 96 against 70. Two things move in opposite directions.
+The minimal projection drops each child node's `path` — the root keeps `path: "."` —
+so on `internal/` it removes `filesystem`, `filesystem/commands` and
+`filesystem/core`, 112 bytes of path lines. Minimal also adds the `next_steps`
+payload that `--full --format json` deliberately omits: 86 bytes of *Add --full for
+all fields (path, mode, timestamps, ...).*. Where there are few paths to drop the
+hint is worth more than they were. `/usr/bin` is flat, so its tree is a single node
+and no child path is dropped at all: minimal there is exactly the 86-byte hint and
+26 tokens larger. `internal/` has three paths to drop, which almost pays for the
+hint — the document is 26 bytes shorter — and the residual 2 tokens come from
+serializing the same fields in a different key order, which moves token boundaries
+against the byte saving. On a tree with more than a handful of directories the
+projection wins outright (`/usr/share`: 17434 against json-full 24453), and that is
+where the reduction in the table comes from.
