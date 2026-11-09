@@ -61,6 +61,21 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   output file is removed when the archive could not be finished, so a
   truncated archive can no longer pass as a success.
 
+### Fixed — read and edit previews that did not match what happened
+
+- **`search-and-replace --dry-run`** reported each file with
+  `message: "Modified"` although nothing was written. The per-file message is
+  now `"Would modify"` in a dry run, so a preview no longer claims a write
+  happened. The top-level `dry_run: true` marker is unchanged.
+- **A truncated read whose last newline sat near the start of the file** could
+  return 2 bytes against a 70,000-character budget (a file of `"a\n"` followed
+  by a single 200,000-character line). The line-boundary preference in the
+  budget cut is now abandoned when it would discard more than about half the
+  budget, falling back to the rune cut, so a truncated preview keeps roughly
+  the full budget of content. `next_offset` still resumes cleanly; the resume
+  may now start mid-line where it previously restarted the same near-empty
+  prefix.
+
 ### Fixed — three more reports that did not match what happened
 
 - **`create-directory` on a directory that already exists** printed

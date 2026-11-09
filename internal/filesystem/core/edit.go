@@ -447,11 +447,19 @@ func SearchAndReplace(opts SearchReplaceOptions) (*SearchReplaceResult, error) {
 			}
 		}
 
+		// A dry run writes nothing, so its per-file prose must not claim a write
+		// happened. "Modified" under --dry-run is exactly the failure this repo
+		// exists to prevent: reporting success for something that did not occur.
+		message := "Modified"
+		if opts.DryRun {
+			message = "Would modify"
+		}
+
 		results = append(results, EditResult{
 			Path:    filePath,
 			Success: true,
 			Changes: changes,
-			Message: "Modified",
+			Message: message,
 		})
 
 		return nil
