@@ -606,3 +606,81 @@ func TestCompressFilesArchiveTypeSelection(t *testing.T) {
 		}
 	})
 }
+
+// sync-directories printed the result and exited 0 while success was false and
+// failures[] was set, though extract-archive and compress-files exit 1 in the
+// same case (owner decision, epic 04 Q2). The three commands agree now, and the
+// result is still printed first so the caller learns what was left out.
+func TestSyncDirectoriesExitsOneOnAPartialRun(t *testing.T) {
+	build := func(t *testing.T) (src, dst string) {
+		t.Helper()
+		src = t.TempDir()
+		dst = t.TempDir()
+		for name, body := range map[string]string{"a.txt": "a", "b.txt": "b"} {
+			if err := os.WriteFile(filepath.Join(src, name), []byte(body), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		// A directory where the destination file belongs makes that one copy
+		// fail, so the run is partial without needing permissions withheld.
+		if err := os.Mkdir(filepath.Join(dst, "b.txt"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		return src, dst
+	}
+
+	t.Run("toon", func(t *testing.T) {
+		src, dst := build(t)
+
+		out, _, code := runCLI(t, "sync-directories", "--source", src, "--dest", dst)
+
+		if code != 1 {
+			t.Errorf("a partial run exited %d, want 1:\n%s", code, out)
+		}
+		for _, want := range []string{"files_copied: 1", "failed: 1", "success: false"} {
+			if !hasTOONLine(out, want) {
+				t.Errorf("TOON output lacks %q:\n%s", want, out)
+			}
+		}
+		// The good file still landed: the exit code reports the partial run,
+		// it does not undo it.
+		if _, err := os.Stat(filepath.Join(dst, "a.txt")); err != nil {
+			t.Errorf("the file that could be copied was not: %v", err)
+		}
+	})
+
+	t.Run("text names the failure", func(t *testing.T) {
+		src, dst := build(t)
+
+		out, _, code := runCLI(t, "--format", "text", "sync-directories", "--source", src, "--dest", dst)
+
+		if code != 1 {
+			t.Errorf("a partial run exited %d, want 1:\n%s", code, out)
+		}
+		if !strings.Contains(out, "1 failed") || !strings.Contains(out, "b.txt") {
+			t.Errorf("text output hides the failure:\n%s", out)
+		}
+	})
+}
+
+// The other side of that exit: a clean sync, and its preview, still exit 0 — or
+// exit 1 stops meaning anything.
+func TestSyncDirectoriesCleanRunExitsZero(t *testing.T) {
+	for _, args := range [][]string{
+		{"sync-directories"},
+		{"sync-directories", "--dry-run"},
+	} {
+		t.Run(strings.Join(args[1:], " "), func(t *testing.T) {
+			src, dst := syncPair(t)
+
+			out, _, code := runCLI(t, append(args, "--source", src, "--dest", dst)...)
+
+			if code != -1 && code != 0 {
+				t.Errorf("a clean run exited %d:\n%s", code, out)
+			}
+			if hasTOONLine(out, "success: false") {
+				t.Errorf("a clean run reported success: false\n%s", out)
+			}
+		})
+	}
+}

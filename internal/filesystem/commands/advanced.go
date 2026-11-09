@@ -286,22 +286,40 @@ func syncDirectoriesCmd() *cobra.Command {
 
 			OutputResultAXI(result, nil,
 				func() []string {
-					if !result.DryRun {
-						return nil
+					var steps []string
+					if result.Failed > 0 {
+						step := fmt.Sprintf("Not copied (%d): %s",
+							result.Failed, strings.Join(result.Failures, "; "))
+						if more := result.Failed - len(result.Failures); more > 0 {
+							step += fmt.Sprintf("; and %d more", more)
+						}
+						steps = append(steps, step)
 					}
-					return []string{fmt.Sprintf(
-						"Apply it: llm-filesystem sync-directories --source %s --dest %s",
-						result.Source, result.Destination)}
+					if result.DryRun {
+						steps = append(steps, fmt.Sprintf(
+							"Apply it: llm-filesystem sync-directories --source %s --dest %s",
+							result.Source, result.Destination))
+					}
+					return steps
 				},
 				func() string {
 					prefix := ""
 					if result.DryRun {
 						prefix = "[DRY RUN] "
 					}
-					return fmt.Sprintf("%sSynced %s to %s\n%d files copied, %d directories created",
+					return fmt.Sprintf("%sSynced %s to %s\n%d files copied, %d directories created, %d failed",
 						prefix, result.Source, result.Destination,
-						result.FilesCopied, result.DirsCreated)
+						result.FilesCopied, result.DirsCreated, result.Failed)
 				})
+
+			// As in extract-archive and compress-files: the result first, so the
+			// caller learns which paths were left out, then exit 1 for the
+			// partial run (epic 04 Q2). This command used to exit 0 here, which
+			// made the three disagree.
+			if result.Failed > 0 {
+				exitFunc(int(goaxi.ExitError))
+				return
+			}
 		},
 	}
 
