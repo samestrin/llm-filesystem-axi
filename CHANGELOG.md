@@ -97,6 +97,32 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   by `--pattern` still offers it, and an unfiltered one still points at
   `--show-hidden`.
 
+### Fixed — archive and sync stop claiming work they did not do
+
+- **`sync-directories` exits `1` on a partial run.** It printed `success: false`
+  with the failed paths in `failures[]` and still exited `0`, while
+  `compress-files` and `extract-archive` exit `1` in the same case. The three
+  commands now agree: the result is printed first, so the failures stay visible,
+  then the run exits `1`. The text output also names the failed count and the
+  help block names the paths that were not copied.
+- **`sync-directories` reports the directories it created, not the ones it
+  walked past.** `dirs_created` counted every source directory visited, because
+  `MkdirAll` returns nil for one that already exists, so a sync into a populated
+  destination claimed work it had not done. The `--dry-run` preview reproduces
+  the same rule against the destination, so the two numbers still match.
+- **`compress-files` no longer archives its own output.** An `--output` inside
+  one of the `--paths` directories was walked into the archive, so the archive
+  held a truncated copy of itself and counted it in `files_added`. The output is
+  skipped while walking.
+- **`extract-archive` refuses a symlink planted at an entry's target.** It wrote
+  with `os.Create`, which follows a symlink, so an entry named like a link
+  already sitting in `--dest` wrote outside the destination. The entry is now a
+  reported failure and the link is left alone.
+- **`extract-archive` refuses a zip symlink entry.** An entry whose mode said
+  symlink was written as a regular file holding the link target as its text and
+  counted in `files_extracted`, while the same tar entry was a reported failure.
+  Both are now reported as an unsupported entry type.
+
 ### Changed — `compress-files` picks the archive type from `--output`
 
 - The archive type now comes from the `--output` extension (`.zip`, `.tar.gz`,

@@ -121,7 +121,7 @@ TOON output is produced by [go-axi](https://github.com/samestrin/go-axi), which 
 | Code | Meaning |
 |------|---------|
 | `0` | Success |
-| `1` | The tool failed — the operation was attempted and did not fully work. This includes a partial run: `compress-files` and `extract-archive` exit `1` when any input or archive entry was skipped, with the failures named in the output |
+| `1` | The tool failed — the operation was attempted and did not fully work. This includes a partial run: `compress-files`, `extract-archive` and `sync-directories` exit `1` when any input, archive entry or file was skipped, with the failures named in the output |
 | `2` | Usage error — unknown subcommand, unknown flag, missing required flag, invalid `--format` |
 
 `2` is distinct from `1` on purpose. A typo and a broken tool are different situations, and an agent cannot judge whether a retry is worthwhile if they share a code. Every non-zero exit prints a diagnostic.
@@ -142,7 +142,7 @@ Set `LLM_FILESYSTEM_FULL=1` to make full output the default for every command �
 
 **A missing path is a failure, not an empty result.** A search against a path that does not exist reports an error rather than zero matches, so a typo cannot read as "the code you are looking for is not here".
 
-**Destructive syncs can be previewed.** `sync-directories --dry-run` reports what it would write, in every output format rather than only in the human text, and writes nothing.
+**Destructive syncs can be previewed.** `sync-directories --dry-run` reports what it would write, in every output format rather than only in the human text, and writes nothing. The preview reports the same counts the real run does: `dirs_created` is directories it creates, not directories it walks, so a directory already present in the destination is not counted.
 
 ## Why Go
 
