@@ -6,6 +6,20 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- **`setup` refuses a symlinked target file and re-checks its write directory
+  during the write.** A `.claude/settings.json` or
+  `.claude/skills/llm-filesystem/SKILL.md` that is itself a symlink is no
+  longer silently replaced by a regular file — the run is refused with exit 1
+  and nothing is touched, because the rename would report "written" while the
+  file the link pointed to stayed stale. Directory symlinks that stay inside
+  the project are still followed. The directory the rename lands in is also
+  re-checked after the temporary file is created, so a link swapped in between
+  the plan and the write can no longer send a write outside the project.
+- **The home view renders `bin` with `~` when the executable sits under the
+  home directory**, matching `cwd` and axi.md principle 8.
+
 ### Added
 
 - **`llm-filesystem setup` registers the tool with Claude Code in the working

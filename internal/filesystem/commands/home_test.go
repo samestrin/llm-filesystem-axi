@@ -207,3 +207,24 @@ func TestBareInvocationSurvivesAnUnreadableCwd(t *testing.T) {
 		t.Errorf("a degraded home view must still say what to do next: %q", stdout)
 	}
 }
+
+// Debt 0f1a9937: the home view set Bin without tildePath, so an executable under
+// the home directory printed as a full path while cwd printed as ~ — axi.md
+// principle 8 asks for ~. Reproduced here the way the row describes it: the
+// executable sits under $HOME. os.Executable is indirected for the same reason
+// getwd is: the test binary never lives under the fake home, so the real
+// function cannot reach the clause.
+func TestHomeBinUnderHomeIsAbbreviated(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Chdir(home)
+	prev := getExecutable
+	getExecutable = func() (string, error) { return filepath.Join(home, "bin", "llm-filesystem"), nil }
+	t.Cleanup(func() { getExecutable = prev })
+
+	stdout, _, _ := runCLI(t, "--format", "text")
+
+	if !strings.Contains(stdout, "bin: "+filepath.Join("~", "bin", "llm-filesystem")) {
+		t.Errorf("bin under home must print as ~/..., got %q", stdout)
+	}
+}
