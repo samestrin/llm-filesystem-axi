@@ -3,13 +3,16 @@ package commands
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
+	"sort"
 	"strings"
 
 	goaxi "github.com/samestrin/go-axi"
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 )
 
 // Version is set at build time via ldflags
@@ -127,6 +130,12 @@ Output defaults to token-efficient TOON; use --format json for machine parsing.`
 			return nil
 		},
 	}
+
+	// Marks flag-parse failures so execute can list the command's own flags.
+	// Subcommands inherit this, and the message is unchanged.
+	rootCmd.SetFlagErrorFunc(func(_ *cobra.Command, err error) error {
+		return flagError{err}
+	})
 
 	// Global flags
 	rootCmd.PersistentFlags().StringVar(&formatFlag, "format", "toon",
@@ -518,23 +527,54 @@ func execute(args []string) {
 	failed, err := cmd.ExecuteC()
 	if err != nil {
 		f, compact := formatFromArgs(args)
-
-		path := "llm-filesystem"
-		if failed != nil {
-			path = failed.CommandPath()
-		}
-
-		_ = path
 		emitDiagnostic(f, compact, err, goaxi.ExitUsage, usageSteps(failed, err))
 	}
 }
 
+// flagError marks an error as cobra's flag-parse failure. The root's
+// FlagErrorFunc wraps every one, and subcommands inherit that func, so this is
+// how execute tells a bad flag from an unknown subcommand without matching on
+// cobra's message text.
 type flagError struct{ error }
 
+func (e flagError) Unwrap() error { return e.error }
+
+// usageSteps is the guidance for a usage error on the command cobra resolved.
+//
+// A flag error also names the command's own flags inline, so an agent that
+// guessed a flag name learns the real ones without a second call. The list is
+// exactly the "Flags:" block of that command's --help — LocalFlags, hidden ones
+// left out, sorted by long name — and the --help pointer stays, because the
+// list carries no types or meanings. Global flags are not the command's own and
+// are left to --help.
 func usageSteps(failed *cobra.Command, err error) []string {
 	path := "llm-filesystem"
 	if failed != nil {
 		path = failed.CommandPath()
 	}
-	return []string{"Valid flags and subcommands: " + path + " --help"}
+	pointer := path + " --help"
+
+	var fe flagError
+	if failed == nil || !errors.As(err, &fe) {
+		return []string{"Valid flags and subcommands: " + pointer}
+	}
+
+	var flags []string
+	failed.LocalFlags().VisitAll(func(fl *pflag.Flag) {
+		if fl.Hidden {
+			return
+		}
+		s := "--" + fl.Name
+		if fl.Shorthand != "" {
+			s += " (-" + fl.Shorthand + ")"
+		}
+		flags = append(flags, s)
+	})
+	if len(flags) == 0 {
+		return []string{"Valid flags and subcommands: " + pointer}
+	}
+	sort.Strings(flags)
+
+	return []string{"Flags of " + path + ": " + strings.Join(flags, ", ") +
+		"; types and subcommands: " + pointer}
 }
