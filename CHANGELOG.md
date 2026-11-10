@@ -6,6 +6,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.0.2] - 2026-11-10
+
 ### Added
 
 - **`-v`, `-V` and `--version` print the bare version and exit `0`.** The
