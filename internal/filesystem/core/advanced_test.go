@@ -1205,6 +1205,87 @@ func TestExtractArchiveRefusesAnExistingSymlinkAtTheTarget(t *testing.T) {
 	}
 }
 
+// The leaf check above did not cover a link one level up: with dest/sub linked
+// outside, the entry sub/a.txt passed the lexical check, its own path was not a
+// link, and os.Create followed sub to overwrite the outside file while the run
+// reported failed=0. The parent is now resolved and must stay under --dest. An
+// entry one level deeper must not even create its directory out there, and an
+// ordinary nested entry still extracts.
+func TestExtractArchiveRefusesASymlinkedParentDirectory(t *testing.T) {
+	for _, f := range archiveFormats {
+		t.Run(f.name, func(t *testing.T) {
+			outsideDir := t.TempDir()
+			outside := filepath.Join(outsideDir, "a.txt")
+			if err := os.WriteFile(outside, []byte("ORIGINAL"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			dest := t.TempDir()
+			if err := os.Symlink(outsideDir, filepath.Join(dest, "sub")); err != nil {
+				t.Skip("symlinks unavailable on this filesystem")
+			}
+			archive := f.build(t, []archiveEntry{
+				{name: "sub/a.txt", body: "pwned"},
+				{name: "sub/new/b.txt", body: "pwned"},
+				{name: "d/e/f.txt", body: "nested"},
+			})
+
+			res := extract(t, archive, dest)
+
+			if got, err := os.ReadFile(outside); err != nil || string(got) != "ORIGINAL" {
+				t.Errorf("the entry was written through the linked parent: a.txt = %q, %v", got, err)
+			}
+			if _, err := os.Lstat(filepath.Join(outsideDir, "new")); err == nil {
+				t.Error("a directory was created outside --dest through the linked parent")
+			}
+			assertFailureNamed(t, res, "sub/a.txt")
+			assertFailureNamed(t, res, "sub/new/b.txt")
+			if res.Failed != 2 || res.FilesExtracted != 1 || res.Overwritten != 0 {
+				t.Errorf("failed = %d, files_extracted = %d, overwritten = %d, want 2, 1, 0",
+					res.Failed, res.FilesExtracted, res.Overwritten)
+			}
+			if got, err := os.ReadFile(filepath.Join(dest, "d", "e", "f.txt")); err != nil || string(got) != "nested" {
+				t.Errorf("d/e/f.txt = %q, %v, want %q", got, err, "nested")
+			}
+		})
+	}
+}
+
+// Resolving the parent must not refuse links that stay inside: a --dest that is
+// itself a symlink (macOS /tmp is one) and a link from one directory of --dest
+// to another are both still the destination.
+func TestExtractArchiveFollowsSymlinksThatStayInsideTheDestination(t *testing.T) {
+	for _, f := range archiveFormats {
+		t.Run(f.name, func(t *testing.T) {
+			root := t.TempDir()
+			real := filepath.Join(root, "real")
+			if err := os.MkdirAll(filepath.Join(real, "target"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			dest := filepath.Join(root, "dest")
+			if err := os.Symlink(real, dest); err != nil {
+				t.Skip("symlinks unavailable on this filesystem")
+			}
+			if err := os.Symlink(filepath.Join(real, "target"), filepath.Join(real, "inner")); err != nil {
+				t.Fatal(err)
+			}
+			archive := f.build(t, []archiveEntry{
+				{name: "a.txt", body: "a"},
+				{name: "inner/b.txt", body: "b"},
+			})
+
+			res := extract(t, archive, dest)
+
+			if !res.Success || res.Failed != 0 || res.FilesExtracted != 2 {
+				t.Errorf("success = %v, failed = %d, files_extracted = %d, want true, 0, 2: %v",
+					res.Success, res.Failed, res.FilesExtracted, res.Failures)
+			}
+			if got, err := os.ReadFile(filepath.Join(real, "target", "b.txt")); err != nil || string(got) != "b" {
+				t.Errorf("target/b.txt = %q, %v, want %q", got, err, "b")
+			}
+		})
+	}
+}
+
 // A zip entry whose mode says symlink was written as a regular file holding the
 // link target as its text and counted in files_extracted, while the same entry
 // in a tar was reported as a failure. Zip refuses it now too.
