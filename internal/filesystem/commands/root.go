@@ -53,9 +53,12 @@ var (
 // RootCmd returns the root command for llm-filesystem
 func RootCmd() *cobra.Command {
 	rootCmd := &cobra.Command{
-		Use:     "llm-filesystem",
-		Short:   "High-performance filesystem operations CLI",
-		Version: Version,
+		Use:   "llm-filesystem",
+		Short: "High-performance filesystem operations CLI",
+		// The bare version, matching the release tag without its "v": the
+		// ldflags stamp the tag itself (v1.0.2), and an agent comparing
+		// versions wants one form, not "llm-filesystem version v1.0.2".
+		Version: strings.TrimPrefix(Version, "v"),
 		// No command count here on purpose. It was wrong (27 against a real 28),
 		// and the list of commands printed directly below this text is the
 		// authoritative answer — a maintained number can only ever drift from it.
@@ -136,6 +139,19 @@ Output defaults to token-efficient TOON; use --format json for machine parsing.`
 		"Comma-separated item fields to emit instead of the minimal set (mutually exclusive with --full)")
 	rootCmd.PersistentFlags().StringSliceVar(&allowedDirs, "allowed-dirs", nil,
 		"Directories the tool is allowed to access (comma-separated)")
+
+	// -v, -V and --version all print the version and exit 0. Declared here
+	// rather than left to cobra, which registers its own version flag only
+	// after resolving the command: until then it cannot tell --version takes
+	// no value, so `--version --format json` failed as unknown command "json".
+	// Cobra still does the printing, because the flag is named "version"; -V
+	// shares its variable so either spelling sets it. Root-local, not
+	// persistent, so `read-file -V` stays an unknown-flag error.
+	var showVersion bool
+	rootCmd.Flags().BoolVarP(&showVersion, "version", "v", false, "Print the version and exit")
+	rootCmd.Flags().BoolVarP(&showVersion, "version-alias", "V", false, "Print the version and exit")
+	_ = rootCmd.Flags().MarkHidden("version-alias")
+	rootCmd.SetVersionTemplate("{{.Version}}\n")
 
 	// --axi is a no-op alias for the TOON default, accepted so a habit from the
 	// sibling AXI tools does not exit 2. It is never read: it must not override

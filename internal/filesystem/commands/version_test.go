@@ -1,6 +1,8 @@
 package commands
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -70,13 +72,22 @@ func TestVersionWithoutPrefixPrintsUnchanged(t *testing.T) {
 
 // -V belongs to the root only. A subcommand given it keeps failing loud as an
 // unknown flag, rather than silently printing a version in place of the work
-// it was asked to do.
+// it was asked to do. The read is otherwise valid, so a -V that leaked to the
+// subcommand shows up as a successful read rather than hiding behind a
+// missing --path.
 func TestSubcommandVersionShorthandStaysAUsageError(t *testing.T) {
 	withVersion(t, "v1.0.2")
+	path := filepath.Join(t.TempDir(), "a.txt")
+	if err := os.WriteFile(path, []byte("hello\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
-	stdout, _, code := runCLI(t, "read-file", "-V")
+	stdout, _, code := runCLI(t, "read-file", "--path", path, "-V")
 	if code != int(goaxi.ExitUsage) {
 		t.Errorf("exit = %d, want ExitUsage (%d)", code, goaxi.ExitUsage)
+	}
+	if !strings.Contains(stdout, "unknown shorthand flag: 'V'") {
+		t.Errorf("want an unknown-flag diagnostic for -V: %q", stdout)
 	}
 	if strings.Contains(stdout, "1.0.2") {
 		t.Errorf("a subcommand must not print the version: %q", stdout)
