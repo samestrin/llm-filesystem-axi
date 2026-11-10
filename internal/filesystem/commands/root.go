@@ -524,7 +524,17 @@ func execute(args []string) {
 			path = failed.CommandPath()
 		}
 
-		emitDiagnostic(f, compact, err, goaxi.ExitUsage,
-			[]string{"Valid flags and subcommands: " + path + " --help"})
+		_ = path
+		emitDiagnostic(f, compact, err, goaxi.ExitUsage, usageSteps(failed, err))
 	}
+}
+
+type flagError struct{ error }
+
+func usageSteps(failed *cobra.Command, err error) []string {
+	path := "llm-filesystem"
+	if failed != nil {
+		path = failed.CommandPath()
+	}
+	return []string{"Valid flags and subcommands: " + path + " --help"}
 }
