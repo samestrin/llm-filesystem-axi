@@ -6,6 +6,15 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **`-v`, `-V` and `--version` print the bare version and exit `0`.** The
+  version prints without its `v` prefix on one line, in every output mode.
+  `read-file -V` stays a usage error.
+- **An unknown-flag error lists the failing command's own flags.** The usage
+  error now names that command's visible flags (sorted, with short forms) in
+  `help[]`, and keeps the `--help` pointer.
+
 ### Fixed
 
 - **`extract-archive` refuses an entry whose parent directory is a symlink
