@@ -6,6 +6,17 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- **`extract-archive` refuses an entry whose parent directory is a symlink
+  leading outside `--dest`.** With `dest/sub` linked elsewhere, an entry
+  `sub/a.txt` was written through the link, overwriting the outside file, while
+  the run reported `failed: 0` and `success: true`. The entry's parent is now
+  resolved and must stay inside the resolved `--dest`; otherwise the entry is
+  counted in `failed`, named in `failures[]`, and the run exits `1`. No
+  directory is created outside `--dest` either. Links that stay inside `--dest`,
+  and a `--dest` that is itself a symlink, still work.
+
 ## [1.0.1] - 2026-11-09
 
 ### Fixed

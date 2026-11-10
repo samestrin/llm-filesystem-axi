@@ -483,14 +483,20 @@ func ExtractArchive(opts ExtractArchiveOptions) (*ExtractResult, error) {
 	if err := os.MkdirAll(normalizedDest, 0755); err != nil {
 		return nil, fmt.Errorf("failed to create destination directory: %w", err)
 	}
+	// Entries are checked against where --dest really is, so a --dest that is
+	// itself a link is not mistaken for an escape.
+	realDest, err := filepath.EvalSymlinks(normalizedDest)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve destination directory: %w", err)
+	}
 
 	var tally extractTally
 
 	// Detect format
 	if strings.HasSuffix(normalizedArchive, ".zip") {
-		err = extractZip(normalizedArchive, normalizedDest, &tally)
+		err = extractZip(normalizedArchive, normalizedDest, realDest, &tally)
 	} else if strings.HasSuffix(normalizedArchive, ".tar.gz") || strings.HasSuffix(normalizedArchive, ".tgz") {
-		err = extractTarGz(normalizedArchive, normalizedDest, &tally)
+		err = extractTarGz(normalizedArchive, normalizedDest, realDest, &tally)
 	} else {
 		return nil, fmt.Errorf("unsupported archive format")
 	}
@@ -512,18 +518,59 @@ func ExtractArchive(opts ExtractArchiveOptions) (*ExtractResult, error) {
 
 var errEntryEscapes = errors.New("refused: resolves outside the destination")
 
+// errEntryIsDest refuses a file entry that names the destination directory
+// itself. It once failed at create; the parent check would now refuse it as an
+// escape, which is the wrong reason.
+var errEntryIsDest = errors.New("refused: names the destination directory")
+
 // entryTarget resolves an archive entry name under destination. isDest is true
 // for an entry that names the destination itself, such as the `./` that
 // `tar czf x.tgz -C dir .` writes: that is not an escape. The old guard
 // compared against destination+"/", which the destination itself fails, so
 // once every refusal is reported an ordinary archive would have read as broken.
-func entryTarget(destination, name string) (path string, isDest bool, err error) {
+//
+// The name check is lexical, so the entry's parent is also resolved against
+// realDest: a directory link planted in the destination (dest/sub -> outside)
+// passed it, and MkdirAll and os.Create both follow such a link.
+func entryTarget(destination, realDest, name string) (path string, isDest bool, err error) {
 	path = filepath.Join(destination, name)
 	rel, err := filepath.Rel(destination, path)
-	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+	if err != nil || escapes(rel) {
 		return "", false, errEntryEscapes
 	}
-	return path, rel == ".", nil
+	if rel == "." {
+		return path, true, nil
+	}
+	if err := resolvesInside(realDest, filepath.Dir(path)); err != nil {
+		return "", false, err
+	}
+	return path, false, nil
+}
+
+func escapes(rel string) bool {
+	return rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator))
+}
+
+// resolvesInside resolves dir through every symlink and refuses it when it lands
+// outside realDest. A dir that does not exist yet is judged by its nearest
+// existing ancestor, because that is where MkdirAll would follow a link to
+// create it.
+func resolvesInside(realDest, dir string) error {
+	for {
+		resolved, err := filepath.EvalSymlinks(dir)
+		if err == nil {
+			rel, relErr := filepath.Rel(realDest, resolved)
+			if relErr != nil || escapes(rel) {
+				return errEntryEscapes
+			}
+			return nil
+		}
+		parent := filepath.Dir(dir)
+		if !os.IsNotExist(err) || parent == dir {
+			return err
+		}
+		dir = parent
+	}
 }
 
 // createExtractedFile is a variable so a test can make Close fail, which no
@@ -538,9 +585,15 @@ var createExtractedFile = func(path string) (io.WriteCloser, error) {
 //
 // A symlink already at the target path is refused rather than followed.
 // os.Create follows it, and entryTarget only compares names lexically, so a
-// link planted in the destination made the entry write outside it.
-func writeEntry(path, entry string, r io.Reader, tally *extractTally) {
+// link planted in the destination made the entry write outside it. The parent
+// is resolved again once MkdirAll has made it, so it is the directory that now
+// exists, not the one entryTarget saw, that must be inside realDest.
+func writeEntry(path, entry, realDest string, r io.Reader, tally *extractTally) {
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		tally.fail(entry, err)
+		return
+	}
+	if err := resolvesInside(realDest, filepath.Dir(path)); err != nil {
 		tally.fail(entry, err)
 		return
 	}
@@ -575,7 +628,7 @@ func writeEntry(path, entry string, r io.Reader, tally *extractTally) {
 	tally.extracted++
 }
 
-func extractZip(archive, destination string, tally *extractTally) error {
+func extractZip(archive, destination, realDest string, tally *extractTally) error {
 	reader, err := zip.OpenReader(archive)
 	if err != nil {
 		return err
@@ -584,7 +637,7 @@ func extractZip(archive, destination string, tally *extractTally) error {
 
 	for _, file := range reader.File {
 		// Prevent zip slip vulnerability
-		path, isDest, err := entryTarget(destination, file.Name)
+		path, isDest, err := entryTarget(destination, realDest, file.Name)
 		if err != nil {
 			tally.fail(file.Name, err)
 			continue
@@ -600,9 +653,10 @@ func extractZip(archive, destination string, tally *extractTally) error {
 			continue
 		}
 
-		// As in the tar case, a file entry naming the destination itself
-		// fails at create and is reported there.
-		//
+		if isDest {
+			tally.fail(file.Name, errEntryIsDest)
+			continue
+		}
 		// A symlink entry carries its link target as the entry body and a
 		// symlink mode. Writing it out made a plain file holding that text and
 		// counted it in files_extracted, while the same tar entry was refused.
@@ -615,7 +669,7 @@ func extractZip(archive, destination string, tally *extractTally) error {
 			tally.fail(file.Name, fmt.Errorf("open: %w", err))
 			continue
 		}
-		writeEntry(path, file.Name, rc, tally)
+		writeEntry(path, file.Name, realDest, rc, tally)
 		// The read side: a bad checksum or a damaged stream surfaces in the
 		// copy, which writeEntry has already reported.
 		_ = rc.Close()
@@ -633,7 +687,7 @@ var tarTypeNames = map[byte]string{
 	tar.TypeFifo:    "fifo",
 }
 
-func extractTarGz(archive, destination string, tally *extractTally) error {
+func extractTarGz(archive, destination, realDest string, tally *extractTally) error {
 	file, err := os.Open(archive)
 	if err != nil {
 		return err
@@ -667,7 +721,7 @@ func extractTarGz(archive, destination string, tally *extractTally) error {
 		}
 
 		// Prevent tar slip vulnerability
-		path, isDest, err := entryTarget(destination, header.Name)
+		path, isDest, err := entryTarget(destination, realDest, header.Name)
 		if err != nil {
 			tally.fail(header.Name, err)
 			continue
@@ -682,9 +736,11 @@ func extractTarGz(archive, destination string, tally *extractTally) error {
 				tally.fail(header.Name, err)
 			}
 		case tar.TypeReg:
-			// A file entry naming the destination itself fails at create,
-			// because the destination is a directory, and is reported there.
-			writeEntry(path, header.Name, tarReader, tally)
+			if isDest {
+				tally.fail(header.Name, errEntryIsDest)
+				continue
+			}
+			writeEntry(path, header.Name, realDest, tarReader, tally)
 		default:
 			kind, ok := tarTypeNames[header.Typeflag]
 			if !ok {
