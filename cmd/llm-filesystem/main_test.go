@@ -106,6 +106,37 @@ func TestHelpFlag(t *testing.T) {
 	}
 }
 
+// The version flags on the real binary, stamped by make build's ldflags. All
+// three must print the same single line and exit 0, with no "llm-filesystem
+// version" prefix and no "v" from the tag. Before this, -V exited 2 and the
+// other two printed "llm-filesystem version v1.0.1".
+func TestVersionFlagsPrintOneBareLine(t *testing.T) {
+	want, code := runBinary(t, "--version")
+	if code != 0 {
+		t.Fatalf("--version exit = %d, want 0\nOutput: %s", code, want)
+	}
+	line := strings.TrimSuffix(want, "\n")
+	if line == "" || strings.Contains(line, "\n") {
+		t.Fatalf("--version must print exactly one line: %q", want)
+	}
+	if strings.Contains(line, "llm-filesystem") || strings.HasPrefix(line, "v") {
+		t.Errorf("--version must print the bare version: %q", line)
+	}
+
+	for _, args := range [][]string{
+		{"-v"}, {"-V"},
+		{"-V", "--format", "json"}, {"--format", "text", "-v"}, {"--axi", "--version"},
+	} {
+		got, code := runBinary(t, args...)
+		if code != 0 {
+			t.Errorf("%v exit = %d, want 0\nOutput: %s", args, code, got)
+		}
+		if got != want {
+			t.Errorf("%v printed %q, want the same line as --version: %q", args, got, want)
+		}
+	}
+}
+
 // End-to-end proof of the fail-loud contract, against the real process rather
 // than the injected exit hook. Each of these used to exit 1 printing nothing.
 func TestUsageErrorsExitTwoWithADiagnostic(t *testing.T) {
