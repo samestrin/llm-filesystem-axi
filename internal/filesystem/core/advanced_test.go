@@ -740,6 +740,9 @@ func TestExtractArchiveReportsAFileEntryNamingTheDestination(t *testing.T) {
 				t.Errorf("files_extracted = %d", res.FilesExtracted)
 			}
 			assertFailureNamed(t, res, ".")
+			if len(res.Failures) != 1 || !strings.Contains(res.Failures[0], "names the destination directory") {
+				t.Errorf("failures = %q, want the reason to say the entry names --dest", res.Failures)
+			}
 		})
 	}
 }
@@ -1247,6 +1250,36 @@ func TestExtractArchiveRefusesASymlinkedParentDirectory(t *testing.T) {
 				t.Errorf("d/e/f.txt = %q, %v, want %q", got, err, "nested")
 			}
 		})
+	}
+}
+
+// entryTarget checks the parent before it exists, so writeEntry checks it again
+// after MkdirAll: a link that appears in between (another archive entry, another
+// process) must still be refused, not written through.
+func TestWriteEntryRechecksTheParentAfterMkdirAll(t *testing.T) {
+	outsideDir := t.TempDir()
+	outside := filepath.Join(outsideDir, "a.txt")
+	if err := os.WriteFile(outside, []byte("ORIGINAL"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dest := t.TempDir()
+	if err := os.Symlink(outsideDir, filepath.Join(dest, "sub")); err != nil {
+		t.Skip("symlinks unavailable on this filesystem")
+	}
+	realDest, err := filepath.EvalSymlinks(dest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var tally extractTally
+
+	writeEntry(filepath.Join(dest, "sub", "a.txt"), "sub/a.txt", realDest, strings.NewReader("pwned"), &tally)
+
+	if got, err := os.ReadFile(outside); err != nil || string(got) != "ORIGINAL" {
+		t.Errorf("the entry was written through the linked parent: a.txt = %q, %v", got, err)
+	}
+	if tally.failed != 1 || tally.extracted != 0 || len(tally.failures) != 1 ||
+		!strings.HasPrefix(tally.failures[0], "sub/a.txt: ") {
+		t.Errorf("tally = %+v, want one failure naming sub/a.txt", tally)
 	}
 }
 
