@@ -4,10 +4,16 @@
 # appended to its `community` list; `pnpm run docs:gen` there regenerates the
 # README and docs/index.html tables from it. That PR is the owner's.
 #
-# Every source_observations line cites file:line at reviewed_revision, the
-# commit tag v1.0.2 points at. "Observed" means run on a `make build` of that
-# commit. When a new tag is reviewed, re-check each line at the new revision
-# before changing reviewed_revision.
+# Every source_observations line cites file:line at reviewed_revision.
+# "Observed" means run on a `make build` of that commit stamped v1.0.3.
+# Tag v1.0.3 goes on the merge commit of the release PR, whose SHA cannot be
+# known before it merges, so reviewed_revision is the main commit that PR
+# branched from. The release PR changes only CHANGELOG.md, README.md and this
+# file, so every file:line below holds at the tag too. Since v1.0.2 (628d8ce)
+# the only non-test Go change is the --version fallback in root.go, a net 25
+# lines near the top that move every root.go citation down by 25; the rest is
+# tests, benchmarks, docs and CI. When a new tag is reviewed, re-check each
+# line at the new revision before changing reviewed_revision.
 
 community:
   - name: llm-filesystem-axi
@@ -17,7 +23,7 @@ community:
     description: "Read, write, edit, search, and archive local files from one static Go binary, with TOON output, byte-capped reads that name the offset to continue from, and --confirm on deletes."
     admission:
       status: exception
-      reviewed_revision: 628d8cea368da1addafccad25df20bb493bec4da
+      reviewed_revision: 3c577f4534421c3d42701b5132fa56e48c40d64f
       reviewed_components:
         - cmd/llm-filesystem/main.go
         - internal/filesystem/commands/root.go
@@ -34,11 +40,11 @@ community:
         - internal/filesystem/core/write.go
         - integrations/claude-code/skill/SKILL.md
       source_observations:
-        - "At tag v1.0.2, revision 628d8cea368da1addafccad25df20bb493bec4da, cmd/llm-filesystem/main.go:6 calls commands.Execute; internal/filesystem/commands/root.go:141 defaults --format to toon, and root.go:152-161 declares -v, -V and --version on the root command, which print the bare version and exit 0 (observed: `1.0.2`)."
-        - "root.go:530 renders cobra's parse failures (unknown command, unknown flag, missing required flag) through emitDiagnostic with exit 2, and OutputError (root.go:454) renders tool failures the same way with exit 1. root.go:442-445 writes the body to stdout for toon and json and to stderr for --format text. Observed: `read-file --bogus` exits 2 and `read-file --path /nope` exits 1, each with 0 bytes on stderr; with --format text listed first both write 0 bytes to stdout, but `read-file --bogus --format text` hits the unknown flag before --format is parsed and writes its 223-byte diagnostic to stdout."
+        - "At revision 3c577f4534421c3d42701b5132fa56e48c40d64f (tag v1.0.3 is its release-PR merge), cmd/llm-filesystem/main.go:6 calls commands.Execute; internal/filesystem/commands/root.go:166 defaults --format to toon, and root.go:177-186 declares -v, -V and --version on the root command, which print the bare version and exit 0 (observed: `1.0.3`)."
+        - "root.go:555 renders cobra's parse failures (unknown command, unknown flag, missing required flag) through emitDiagnostic with exit 2, and OutputError (root.go:479) renders tool failures the same way with exit 1. root.go:467-470 writes the body to stdout for toon and json and to stderr for --format text. Observed: `read-file --bogus` exits 2 and `read-file --path /nope` exits 1, each with 0 bytes on stderr; with --format text listed first both write 0 bytes to stdout, but `read-file --bogus --format text` hits the unknown flag before --format is parsed and writes its 223-byte diagnostic to stdout."
         - "internal/filesystem/commands/home.go:121 runHome is the no-argument view: about, bin, cwd and home (abbreviated to ~ by tildePath, home.go:45 and home.go:73-92), a listing of the working directory with total, and help[] next steps; it exits 0."
         - "internal/filesystem/commands/read.go:105 caps a read at 70000 chars by default, and read.go:71-80 adds a `--start-offset` continue step when the read is truncated."
         - "internal/filesystem/commands/fileops.go:98-102 refuses delete-file without --confirm with a structured error and a step naming the confirmed command. write-file (write.go:19, core/write.go:218), move-file (fileops.go:51, core/fileops.go:213) and copy-file (fileops.go:20, core/fileops.go:127) replace an existing destination without --confirm (observed: each exits 0 and the destination holds the new content)."
         - "internal/filesystem/core/search.go:262-264 stops search-code once --max-results (default 1000, commands/search.go:163) matches are collected, and core/search.go:283 sets total_matches to the number collected; core/search.go:101 and core/search.go:124 do the same for search-files and total (default 1000, commands/search.go:74). Neither result has a truncation field. Observed: a file with 140951 matching lines gives total_matches: 1000 and exit 0."
-        - "internal/filesystem/commands/setup.go:64-65 `setup` registers with Claude Code only: it merges one SessionStart hook running the bare `llm-filesystem` (setup.go:22, setup.go:335-362) into the project's .claude/settings.json and writes the skill to .claude/skills/llm-filesystem/SKILL.md (setup.go:162-163), and refuses to run in the home directory (setup.go:152). The skill content is integrations/claude-code/skill/SKILL.md, embedded (setup.go:186). No session-end hook and no other agent is set up."
+        - "internal/filesystem/commands/setup.go:64-65 `setup` registers with Claude Code only: it merges one SessionStart hook running the bare `llm-filesystem` (setup.go:23, setup.go:335-362) into the project's .claude/settings.json and writes the skill to .claude/skills/llm-filesystem/SKILL.md (setup.go:162-163), and refuses to run in the home directory (setup.go:152). The skill content is integrations/claude-code/skill/SKILL.md, embedded (setup.go:186). No session-end hook and no other agent is set up."
       exception: "Principle 7: `setup` registers with Claude Code only, as one SessionStart hook in the project's .claude/settings.json plus the skill; there is no hook for other agents and no session-end capture. Principle 6: once --format text is parsed, usage and tool errors go to stderr and stdout is empty; a flag error listed before --format (as in `read-file --bogus --format text`) is hit before the format flag is parsed and renders in the default toon on stdout, which is also where the json format puts errors. Principles 3 and 4: search-code and search-files stop at --max-results (default 1000) and report that cap as total_matches or total, with no truncation marker or hint. write-file, move-file and copy-file replace an existing destination without --confirm; delete-file requires it, and so does any batch-file-operations entry that destroys something: a delete, or a move or copy onto a path that already exists."
