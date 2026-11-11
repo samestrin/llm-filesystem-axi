@@ -4,7 +4,7 @@ The current results are in [results-performance.md](results-performance.md): col
 
 llm-filesystem is a CLI, so each of its figures is one process invocation, and it has no MCP server to hand-shake with. fast-filesystem-mcp is reachable only over MCP, so its handshake, read and tree figures are each one run of `mcp_client.py`, which starts the server, sends `initialize` and one request, and waits for both answers. Each of those figures therefore includes a server start and the Python client's own start; the script measures that start on every run and the table states it.
 
-The tree row gives both tools the same settings (depth 3, files included, hidden entries left out), but they do not leave out the same names: fast-filesystem-mcp 3.5.2 skips `node_modules`, `.git`, `.venv` and the rest of the `DEFAULT_EXCLUDE_PATTERNS` list in its `dist/index.js`, and its tree call has no option to turn that off. So the run also counts the entries each tool's tree returned, and the table prints both counts under it. In a directory that is mostly `node_modules`, such as the npm scratch directory below, the two figures are not the same work.
+The tree row gives both tools the same settings (depth 3, files included, hidden entries left out), but they do not leave out the same names: fast-filesystem-mcp 3.5.2 skips `node_modules`, `.git`, `.venv` and the rest of the `DEFAULT_EXCLUDE_PATTERNS` list in its `dist/index.js`, and its tree call has no option to turn that off. So the run also counts the entries each tool's tree returned, and the table prints both counts under it. In a directory that is mostly `node_modules`, such as the npm scratch directory below, the two figures are not the same work, so point `BENCH_DIR` at a directory without `node_modules`: the published table uses a copy of this repository's source (`git archive HEAD`) plus the `package.json` npm wrote.
 
 ## Requirements
 
@@ -14,7 +14,8 @@ The tree row gives both tools the same settings (depth 3, files included, hidden
 cargo install hyperfine --root "$SCRATCH"
 npm install --prefix "$SCRATCH" fast-filesystem-mcp
 export PATH="$SCRATCH/bin:$SCRATCH/node_modules/.bin:$PATH"
-export BENCH_DIR="$SCRATCH"   # the package.json npm wrote, plus node_modules
+mkdir -p "$SCRATCH/src" && git archive HEAD | tar -x -C "$SCRATCH/src" && cp "$SCRATCH/package.json" "$SCRATCH/src/"
+export BENCH_DIR="$SCRATCH/src"   # same files for both tools: no node_modules
 ```
 
 ## Usage
