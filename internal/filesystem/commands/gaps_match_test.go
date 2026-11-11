@@ -40,6 +40,40 @@ func TestReadmeLimitsGapsMatchCatalogException(t *testing.T) {
 	}
 }
 
+// The two known-gap statements must not just agree with each other — they
+// must be TRUE. Two claims once shipped that the source contradicts:
+//
+//  1. "only delete-file and batch-file-operations deletions require
+//     [--confirm]" — false: fileops.go:151-172 also refuses a batch move or
+//     copy onto an EXISTING destination without --confirm
+//     (TestBatchOverwriteRequiresConfirm).
+//  2. "with --format text, usage and tool errors go to stderr and stdout is
+//     empty" — false for `read-file --bogus --format text`: the unknown flag
+//     is hit before --format is parsed, so the diagnostic renders as toon on
+//     stdout (TestFormatTextStderrOnlyOnceFormatIsParsed).
+//
+// This test pins the qualifiers, so the drift guard above cannot be satisfied
+// by reintroducing either falsehood in both files at once.
+func TestKnownGapStatementsAreTrue(t *testing.T) {
+	readme, err := os.ReadFile("../../../README.md")
+	if err != nil {
+		t.Fatalf("reading README.md: %v", err)
+	}
+	entry, err := os.ReadFile("../../../docs/axi-catalog-entry.yaml")
+	if err != nil {
+		t.Fatalf("reading docs/axi-catalog-entry.yaml: %v", err)
+	}
+	for _, text := range []string{string(readme), string(entry)} {
+		if !strings.Contains(text, "move or copy onto a path that already exists") &&
+			!strings.Contains(text, "move or copy onto an existing") {
+			t.Error("the confirm rule omits the batch move/copy overwrite gate (fileops.go:151-172)")
+		}
+		if !strings.Contains(text, "once --format text is parsed") {
+			t.Error("the stderr rule claims errors go to stderr with --format text without the parsed-first qualifier")
+		}
+	}
+}
+
 // readmeGapBullets returns the bullet lines following the "Known gaps" lead-in
 // in the README's Limits section, with the "- " marker stripped.
 func readmeGapBullets(readme string) []string {
