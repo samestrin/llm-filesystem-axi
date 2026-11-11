@@ -6,6 +6,31 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- **The README is rewritten to the standard's section order, checked against
+  the released binary.** The long-form material — why Go, the token cost of
+  the default output, and compatibility with the pre-AXI output — moves to
+  `docs/background.md`. The README gains a Limits section that names the known
+  AXI gaps, and the catalog entry's `exception` text states the same gaps,
+  item for item.
+- **The docs and the Claude Code integration are aligned with the new
+  README.** The audit page re-checks its status lines against the released
+  binary, and the Claude Code README gains the `npx skills add` install path.
+
+### Added
+
+- **A demo tape and a release checklist.** `docs/demo/` holds the VHS tape
+  and the command that renders the demo GIF; `release/CHECKLIST.md` lists the
+  release steps.
+- **An AXI catalog entry in `catalog.yaml` form**
+  (`docs/axi-catalog-entry.yaml`), pinned to the latest tag with an honest
+  `exception` statement; it replaces `release/axi-catalog-entry.md`.
+- **A benchmark handshake test and a generated results table.**
+  `benchmarks/benchmark.sh` measures the MCP handshake against
+  fast-filesystem-mcp and regenerates `results-performance.md`; fixture tests
+  guard its failure checks.
+
 ## [1.0.2] - 2026-11-10
 
 ### Added
