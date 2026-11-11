@@ -6,6 +6,14 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- **`--version` on a `go install` binary reports the version installed.**
+  `go install ...@vX.Y.Z` adds no version stamp, so the binary printed the
+  default `1.0.0` whatever tag it was built from. An unstamped binary now
+  prints the module version Go recorded for it; a stamped release build is
+  unchanged.
+
 ### Changed
 
 - **The README is rewritten to the standard's section order, checked against
