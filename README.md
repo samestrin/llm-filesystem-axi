@@ -47,7 +47,7 @@ Requires Go 1.24 or later.
 go install github.com/samestrin/llm-filesystem-axi/cmd/llm-filesystem@v1.0.2
 ```
 
-This installs to `$(go env GOPATH)/bin`. A binary built this way prints `1.0.0` for `--version`, because only the release builds and `make build` stamp the version; the code is the `v1.0.2` code.
+This installs to `$(go env GOPATH)/bin`. A `v1.0.2` binary built this way prints `1.0.0` for `--version`, because that release reads its version only from the stamp that the release builds and `make build` add; the code is the `v1.0.2` code. Releases after `v1.0.2` fall back to the module version, so `go install ...@vX.Y.Z` prints `X.Y.Z`.
 
 ### From source
 

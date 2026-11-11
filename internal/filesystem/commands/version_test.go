@@ -3,6 +3,7 @@ package commands
 import (
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 	"testing"
 
@@ -91,5 +92,67 @@ func TestSubcommandVersionShorthandStaysAUsageError(t *testing.T) {
 	}
 	if strings.Contains(stdout, "1.0.2") {
 		t.Errorf("a subcommand must not print the version: %q", stdout)
+	}
+}
+
+// withBuildInfo replaces the module build info the version falls back to.
+func withBuildInfo(t *testing.T, mainVersion string, ok bool) {
+	t.Helper()
+	prev := readBuildInfo
+	readBuildInfo = func() (*debug.BuildInfo, bool) {
+		if !ok {
+			return nil, false
+		}
+		return &debug.BuildInfo{Main: debug.Module{Version: mainVersion}}, true
+	}
+	t.Cleanup(func() { readBuildInfo = prev })
+}
+
+// Defends epic 08 AC6: `go install ...@v1.0.2` runs no ldflags, so Version
+// kept its default and --version printed 1.0.0 for a v1.0.2 binary. A binary
+// left unstamped must report the module version Go recorded for it.
+func TestUnstampedVersionFallsBackToModuleVersion(t *testing.T) {
+	withVersion(t, defaultVersion)
+	withBuildInfo(t, "v1.0.3", true)
+
+	stdout, _, _ := runCLI(t, "--version")
+	if stdout != "1.0.3\n" {
+		t.Errorf("stdout = %q, want %q", stdout, "1.0.3\n")
+	}
+}
+
+// A release stamp wins over the module version: the ldflags name the tag the
+// release was cut from, and the fallback exists only for builds without them.
+func TestStampedVersionIgnoresModuleVersion(t *testing.T) {
+	withVersion(t, "v1.0.2")
+	withBuildInfo(t, "v9.9.9", true)
+
+	stdout, _, _ := runCLI(t, "--version")
+	if stdout != "1.0.2\n" {
+		t.Errorf("stdout = %q, want %q", stdout, "1.0.2\n")
+	}
+}
+
+// "(devel)" is what Go records for a build with no module version; it is not a
+// version, so the default stays. So does a binary with no build info at all.
+func TestUnstampedVersionKeepsDefaultWithoutModuleVersion(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		version string
+		ok      bool
+	}{
+		{"devel", "(devel)", true},
+		{"empty", "", true},
+		{"no build info", "", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			withVersion(t, defaultVersion)
+			withBuildInfo(t, tc.version, tc.ok)
+
+			stdout, _, _ := runCLI(t, "--version")
+			if stdout != defaultVersion+"\n" {
+				t.Errorf("stdout = %q, want %q", stdout, defaultVersion+"\n")
+			}
+		})
 	}
 }
