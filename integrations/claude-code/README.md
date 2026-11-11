@@ -20,6 +20,12 @@ This merges a SessionStart hook that runs `llm-filesystem` into `.claude/setting
 llm-filesystem setup --dry-run
 ```
 
+Or install just the skill with the skills CLI, without the SessionStart hook:
+
+```bash
+npx skills add samestrin/llm-filesystem-axi --skill llm-filesystem
+```
+
 ## 2. Routing guidance
 
 The hook above prints the working directory at session start. For routing guidance — so Claude reaches for the right tool without being asked — append [`../cli/AGENTS.md`](../cli/AGENTS.md) to your project or user `CLAUDE.md`. Without a clone of this repo, fetch it straight from GitHub:
