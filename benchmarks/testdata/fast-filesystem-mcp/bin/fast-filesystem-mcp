@@ -1,0 +1,39 @@
+#!/usr/bin/env python3
+# Stand-in MCP server for benchmark_test.go. It answers initialize, tools/list
+# and tools/call over stdio, one JSON-RPC message per line. FAKE_MCP selects a
+# failure: "error" answers every request after initialize with a JSON-RPC
+# error, "iserror" answers tools/call with a result flagged isError, and
+# "empty-tools" lists no tools.
+import json
+import os
+import sys
+
+mode = os.environ.get("FAKE_MCP", "")
+
+for line in sys.stdin:
+    if not line.strip():
+        continue
+    req = json.loads(line)
+    method = req.get("method")
+    if "id" not in req:
+        continue
+    if method == "initialize":
+        resp = {"protocolVersion": "2024-11-05", "capabilities": {"tools": {}},
+                "serverInfo": {"name": "fixture", "version": "0.0.0"}}
+        out = {"jsonrpc": "2.0", "id": req["id"], "result": resp}
+    elif mode == "error":
+        out = {"jsonrpc": "2.0", "id": req["id"],
+               "error": {"code": -32603, "message": "fixture error"}}
+    elif method == "tools/list":
+        tools = [] if mode == "empty-tools" else [{"name": "fast_read_file"}]
+        out = {"jsonrpc": "2.0", "id": req["id"], "result": {"tools": tools}}
+    elif method == "tools/call":
+        result = {"content": [{"type": "text", "text": "ok"}]}
+        if mode == "iserror":
+            result["isError"] = True
+        out = {"jsonrpc": "2.0", "id": req["id"], "result": result}
+    else:
+        out = {"jsonrpc": "2.0", "id": req["id"],
+               "error": {"code": -32601, "message": "method not found"}}
+    sys.stdout.write(json.dumps(out) + "\n")
+    sys.stdout.flush()

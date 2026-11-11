@@ -1,0 +1,48 @@
+#!/usr/bin/env python3
+# Stand-in for hyperfine in benchmark_test.go. It parses the flags
+# benchmark.sh passes, runs each command once through sh and, like hyperfine,
+# exits non-zero when a command fails. It then writes hyperfine's JSON shape
+# with --runs timings per command, or none when FAKE_HYPERFINE_EMPTY names the
+# export file's base name (for example "results-tree.json"), which is the
+# zero-timings case the report must refuse.
+import json
+import os
+import subprocess
+import sys
+
+args = sys.argv[1:]
+runs, export, names, commands = 10, None, [], []
+i = 0
+while i < len(args):
+    a = args[i]
+    if a in ("--warmup", "--runs", "--export-json", "--command-name"):
+        val = args[i + 1]
+        if a == "--runs":
+            runs = int(val)
+        elif a == "--export-json":
+            export = val
+        elif a == "--command-name":
+            names.append(val)
+        i += 2
+        continue
+    if a.startswith("-"):
+        sys.exit(f"fake hyperfine: unknown flag {a}")
+    commands.append(a)
+    i += 1
+
+results = []
+for n, cmd in enumerate(commands):
+    if subprocess.run(["sh", "-c", cmd]).returncode != 0:
+        print(f"Command terminated with non-zero exit code: {cmd}", file=sys.stderr)
+        sys.exit(1)
+    empty = export and os.path.basename(export) == os.environ.get("FAKE_HYPERFINE_EMPTY")
+    times = [] if empty else [0.002 + 0.0001 * k for k in range(runs)]
+    mean = sum(times) / len(times) if times else 0
+    results.append({"command": names[n] if n < len(names) else cmd,
+                    "mean": mean, "stddev": 0.0001, "median": mean,
+                    "min": min(times, default=0), "max": max(times, default=0),
+                    "times": times, "exit_codes": [0] * len(times)})
+
+if export:
+    with open(export, "w") as fp:
+        json.dump({"results": results}, fp, indent=2)
