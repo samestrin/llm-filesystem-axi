@@ -28,7 +28,11 @@ for line in sys.stdin:
         tools = [] if mode == "empty-tools" else [{"name": "fast_read_file"}]
         out = {"jsonrpc": "2.0", "id": req["id"], "result": {"tools": tools}}
     elif method == "tools/call":
-        result = {"content": [{"type": "text", "text": "ok"}]}
+        text = "ok"
+        if req["params"]["name"] == "fast_get_directory_tree":
+            # One entry below the root.
+            text = json.dumps({"tree": {"name": "root", "children": [{"name": "a"}]}})
+        result = {"content": [{"type": "text", "text": text}]}
         if mode == "iserror":
             result["isError"] = True
         out = {"jsonrpc": "2.0", "id": req["id"], "result": result}

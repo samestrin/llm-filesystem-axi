@@ -87,11 +87,21 @@ func readFile(t *testing.T, path string) string {
 // what a reader needs to judge the numbers: both versions with links, the
 // date, the machine, the file count and the method. A table without its stamp
 // is a number nobody can check.
+//
+// hyperfine 1 and 2 write different JSON (2 moved the timings into
+// "measurements" and the --command-name into "name"), and the operator may
+// re-run this with either, so both are run.
 func TestBenchmarkRunsAllFourTestsAndWritesTheTable(t *testing.T) {
 	needTools(t)
+	for _, schema := range []string{"1", "2"} {
+		t.Run("hyperfine-"+schema, func(t *testing.T) { checkFullRun(t, schema) })
+	}
+}
+
+func checkFullRun(t *testing.T, schema string) {
 	out := t.TempDir()
 	before := time.Now().UTC().Format("2006-01-02")
-	log, ok := runBench(t, out)
+	log, ok := runBench(t, out, "FAKE_HYPERFINE_SCHEMA="+schema)
 	after := time.Now().UTC().Format("2006-01-02")
 	if !ok {
 		t.Fatalf("benchmark.sh failed:\n%s", log)
@@ -100,8 +110,7 @@ func TestBenchmarkRunsAllFourTestsAndWritesTheTable(t *testing.T) {
 	for _, f := range resultFiles {
 		var data struct {
 			Results []struct {
-				Command string    `json:"command"`
-				Times   []float64 `json:"times"`
+				Command string `json:"command"`
 			} `json:"results"`
 		}
 		if err := json.Unmarshal([]byte(readFile(t, filepath.Join(out, f))), &data); err != nil {
@@ -127,7 +136,11 @@ func TestBenchmarkRunsAllFourTestsAndWritesTheTable(t *testing.T) {
 		"| Cold start |",
 		"| MCP handshake (`initialize` + `tools/list`) |",
 		"| File read (`package.json`) |",
-		"| Directory tree (depth 3) |",
+		"| Directory tree (depth 3, files included) |",
+		// The two trees can cover different entries (fast-filesystem-mcp
+		// leaves out node_modules and the like), so the table states how
+		// many each returned: the fixture server returns 1, the fake CLI 3.
+		"- **Tree entries returned below the root:** llm-filesystem 3, fast-filesystem-mcp 1",
 	} {
 		if !strings.Contains(table, want) {
 			t.Errorf("table lacks %q:\n%s", want, table)
@@ -183,15 +196,20 @@ func TestTableIsRewrittenFromTheJSON(t *testing.T) {
 // mixing new JSON with an old table.
 func TestBenchmarkFailsOnZeroTimings(t *testing.T) {
 	needTools(t)
-	for _, f := range resultFiles {
-		t.Run(f, func(t *testing.T) {
+	for _, c := range []struct{ schema, file string }{
+		{"1", "results-coldstart.json"}, {"1", "results-handshake.json"},
+		{"1", "results-read.json"}, {"1", "results-tree.json"},
+		{"2", "results-read.json"}, {"2", "results-handshake.json"},
+	} {
+		f := c.file
+		t.Run("hyperfine-"+c.schema+"/"+f, func(t *testing.T) {
 			out := t.TempDir()
 			for _, name := range append([]string{"results-performance.md"}, resultFiles...) {
 				if err := os.WriteFile(filepath.Join(out, name), []byte("previous\n"), 0o644); err != nil {
 					t.Fatal(err)
 				}
 			}
-			log, ok := runBench(t, out, "FAKE_HYPERFINE_EMPTY="+f)
+			log, ok := runBench(t, out, "FAKE_HYPERFINE_EMPTY="+f, "FAKE_HYPERFINE_SCHEMA="+c.schema)
 			if ok {
 				t.Fatalf("benchmark.sh exited 0 with no timings in %s:\n%s", f, log)
 			}

@@ -4,13 +4,17 @@
 # exits non-zero when a command fails. It then writes hyperfine's JSON shape
 # with --runs timings per command, or none when FAKE_HYPERFINE_EMPTY names the
 # export file's base name (for example "results-tree.json"), which is the
-# zero-timings case the report must refuse.
+# zero-timings case the report must refuse. FAKE_HYPERFINE_SCHEMA=2 writes
+# hyperfine 2's JSON instead of hyperfine 1's.
 import json
 import os
 import subprocess
 import sys
 
 args = sys.argv[1:]
+if args == ["--version"]:
+    print("hyperfine 0.0.0-fixture")
+    sys.exit(0)
 runs, export, names, commands = 10, None, [], []
 i = 0
 while i < len(args):
@@ -25,6 +29,9 @@ while i < len(args):
             names.append(val)
         i += 2
         continue
+    if a.startswith("--shell="):
+        i += 1
+        continue
     if a.startswith("-"):
         sys.exit(f"fake hyperfine: unknown flag {a}")
     commands.append(a)
@@ -38,11 +45,25 @@ for n, cmd in enumerate(commands):
     empty = export and os.path.basename(export) == os.environ.get("FAKE_HYPERFINE_EMPTY")
     times = [] if empty else [0.002 + 0.0001 * k for k in range(runs)]
     mean = sum(times) / len(times) if times else 0
-    results.append({"command": names[n] if n < len(names) else cmd,
-                    "mean": mean, "stddev": 0.0001, "median": mean,
-                    "min": min(times, default=0), "max": max(times, default=0),
-                    "times": times, "exit_codes": [0] * len(times)})
+    name = names[n] if n < len(names) else cmd
+    if os.environ.get("FAKE_HYPERFINE_SCHEMA") == "2":
+        # hyperfine 2: the command line and its --command-name are separate,
+        # and each run is a measurement with its own exit code.
+        results.append({
+            "command": cmd, "name": name,
+            "measurements": [{"time_wall_clock": {"value": v, "unit": "second"},
+                              "exit_code": 0} for v in times],
+            "summary": {"time_wall_clock": {"unit": "second", "count": len(times),
+                                            "mean": mean, "stddev": 0.0001}}})
+    else:
+        results.append({"command": name,
+                        "mean": mean, "stddev": 0.0001, "median": mean,
+                        "min": min(times, default=0), "max": max(times, default=0),
+                        "times": times, "exit_codes": [0] * len(times)})
 
 if export:
+    doc = {"results": results}
+    if os.environ.get("FAKE_HYPERFINE_SCHEMA") == "2":
+        doc = {"schema_version": 2, "primary_metric": "time_wall_clock", "results": results}
     with open(export, "w") as fp:
-        json.dump({"results": results}, fp, indent=2)
+        json.dump(doc, fp, indent=2)
