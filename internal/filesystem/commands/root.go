@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"runtime/debug"
 	"sort"
 	"strings"
 
@@ -15,8 +16,15 @@ import (
 	"github.com/spf13/pflag"
 )
 
+// defaultVersion is what Version holds when no ldflags stamped it.
+const defaultVersion = "1.0.0"
+
 // Version is set at build time via ldflags
-var Version = "1.0.0"
+var Version = defaultVersion
+
+// readBuildInfo is indirected so tests can stand in for the module version Go
+// records in the binary.
+var readBuildInfo = debug.ReadBuildInfo
 
 var (
 	// Global flags
