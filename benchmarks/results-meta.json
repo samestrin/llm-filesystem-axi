@@ -1,0 +1,27 @@
+{
+  "llm_filesystem_version": "1.0.2",
+  "fast_filesystem_mcp_version": "3.5.2",
+  "node_version": "v24.22.2",
+  "python_version": "3.13.5",
+  "hyperfine_version": "hyperfine 2.0.0",
+  "date": "2026-11-11",
+  "machine": {
+    "cpu": "Intel(R) Xeon(R) W-2295 CPU @ 3.00GHz",
+    "threads": 36,
+    "ram_bytes": 151584903168,
+    "os": "Debian GNU/Linux 13 (trixie) (container)",
+    "kernel": "Linux 7.0.0-38-generic",
+    "arch": "x86_64"
+  },
+  "files": 3700,
+  "tree_entries": {
+    "llm-filesystem": 696,
+    "fast-filesystem-mcp": 2
+  },
+  "warmup": 3,
+  "runs": 10,
+  "client_start": {
+    "mean": 0.029997717780000006,
+    "stddev": 0.010999109386440947
+  }
+}

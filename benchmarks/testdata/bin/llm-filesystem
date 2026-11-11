@@ -1,0 +1,10 @@
+#!/bin/sh
+# Stand-in for the llm-filesystem binary in benchmark_test.go: prints a
+# version and accepts the two commands benchmark.sh times.
+case "$1" in
+    --version) echo "0.0.0-fixture" ;;
+    read-file) echo "ok" ;;
+    # Three entries below the root, in the shape --format json prints.
+    get-directory-tree) echo '{"tree":{"name":"root","children":[{"name":"a","children":[{"name":"b"}]},{"name":"c"}]}}' ;;
+    *) echo "fixture: unexpected arguments: $*" >&2; exit 2 ;;
+esac
