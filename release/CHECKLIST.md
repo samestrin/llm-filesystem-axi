@@ -3,7 +3,7 @@
 Verified against `.github/workflows/release.yml` and the `Makefile`.
 
 1. `make lint && make test-race` pass on `main`.
-2. Re-run `benchmarks/perf.sh` and commit any changed results. (This script does not exist yet; until it does, run `benchmarks/benchmark.sh`.)
+2. Re-run `benchmarks/benchmark.sh` and commit any changed results.
 3. Re-render the demo (`vhs docs/demo/llm-filesystem.tape`) if a command it shows has changed.
 4. Cut the changelog and update any affected `docs/` page.
 5. Optional dry run: `make build-all` builds the five binaries into `dist/` locally.

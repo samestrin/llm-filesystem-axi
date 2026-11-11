@@ -6,6 +6,15 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- **The README's stderr sentence and the release checklist's benchmark
+  script name now match the code.** The README says errors go to stderr,
+  with stdout empty, only once `--format text` has been parsed; a flag error
+  hit before it, such as `read-file --bogus --format text`, still renders in
+  the default TOON on stdout. `release/CHECKLIST.md` step 2 names
+  `benchmarks/benchmark.sh` instead of a script that does not exist.
+
 ## [1.0.3] - 2026-11-11
 
 ### Fixed
