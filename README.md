@@ -257,7 +257,7 @@ With the default TOON and with `--format json`, errors are written to stdout as 
 
 - **Tree entries returned below the root:** llm-filesystem 58, fast-filesystem-mcp 57
 
-The test directory is a copy of this repository's source plus a `package.json`, with no `node_modules`, so both trees cover the same files, as the entry counts above show (fast-filesystem-mcp's default excludes leave out one more name).
+The test directory is a copy of this repository's source plus a `package.json`, with no node_modules, so both trees cover the same files, as the entry counts above show (fast-filesystem-mcp's default excludes leave out one more name).
 
 Raw results: [`results-coldstart.json`](benchmarks/results-coldstart.json), [`results-handshake.json`](benchmarks/results-handshake.json), [`results-read.json`](benchmarks/results-read.json), [`results-tree.json`](benchmarks/results-tree.json), and the stamp in [`results-meta.json`](benchmarks/results-meta.json).
 
