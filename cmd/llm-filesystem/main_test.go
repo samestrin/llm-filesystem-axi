@@ -177,6 +177,55 @@ func TestToolFailureExitsOne(t *testing.T) {
 	}
 }
 
+// The README's Limits section and the catalog entry's exception text say
+// that with --format text, errors go to stderr — with a qualifier this test
+// pins. A flag parse failure is rendered through the format parsed SO FAR:
+// "--format text" placed AFTER the offending flag is never parsed, so the
+// diagnostic falls back to the default toon on stdout. Without the qualifier
+// the docs claim stdout is empty in a case where it carries 200+ bytes.
+func TestFormatTextStderrOnlyOnceFormatIsParsed(t *testing.T) {
+	bin := requireBinary(t)
+
+	run := func(args ...string) (stdout, stderr string, code int) {
+		t.Helper()
+		var outBuf, errBuf strings.Builder
+		cmd := exec.Command(bin, args...)
+		cmd.Stdout = &outBuf
+		cmd.Stderr = &errBuf
+		err := cmd.Run()
+		if err == nil {
+			return outBuf.String(), errBuf.String(), 0
+		}
+		var exitErr *exec.ExitError
+		if !errors.As(err, &exitErr) {
+			t.Fatalf("running %v: %v", args, err)
+		}
+		return outBuf.String(), errBuf.String(), exitErr.ExitCode()
+	}
+
+	stdout, stderr, code := run("read-file", "--format", "text", "--bogus")
+	if code != int(goaxi.ExitUsage) {
+		t.Errorf("--format text --bogus: exit = %d, want ExitUsage (%d)", code, goaxi.ExitUsage)
+	}
+	if stdout != "" {
+		t.Errorf("--format text --bogus: stdout = %q, want empty once --format text is parsed", stdout)
+	}
+	if stderr == "" {
+		t.Error("--format text --bogus: stderr is empty; the usage error must go there")
+	}
+
+	stdout, stderr, code = run("read-file", "--bogus", "--format", "text")
+	if code != int(goaxi.ExitUsage) {
+		t.Errorf("--bogus --format text: exit = %d, want ExitUsage (%d)", code, goaxi.ExitUsage)
+	}
+	if stdout == "" {
+		t.Error("--bogus --format text: stdout is empty; the unparsed --format must leave the toon default writing to stdout")
+	}
+	if stderr != "" {
+		t.Errorf("--bogus --format text: stderr = %q, want empty (toon diagnostics go to stdout)", stderr)
+	}
+}
+
 // Runs the skill's archive example (SKILL.md: compress a directory to
 // release.tar.gz, extract it to ./out) against the real binary, in a working
 // directory, with the same relative paths. The archive commands once reported

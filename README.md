@@ -274,9 +274,9 @@ Destructive syncs can be previewed. `sync-directories --dry-run` reports what it
 Known gaps against the [AXI](https://axi.md) principles, the same ones the catalog entry in [`docs/axi-catalog-entry.yaml`](docs/axi-catalog-entry.yaml) states:
 
 - Principle 7: `setup` registers with Claude Code only, as one SessionStart hook in the project's .claude/settings.json plus the skill; there is no hook for other agents and no session-end capture.
-- Principle 6: with --format text, usage and tool errors go to stderr and stdout is empty (the default toon and the json format put them on stdout).
+- Principle 6: once --format text is parsed, usage and tool errors go to stderr and stdout is empty; a flag error listed before --format (as in `read-file --bogus --format text`) is hit before the format flag is parsed and renders in the default toon on stdout, which is also where the json format puts errors.
 - Principles 3 and 4: search-code and search-files stop at --max-results (default 1000) and report that cap as total_matches or total, with no truncation marker or hint.
-- write-file, move-file and copy-file replace an existing destination without --confirm; only delete-file and batch-file-operations deletions require it.
+- write-file, move-file and copy-file replace an existing destination without --confirm; delete-file requires it, and so does any batch-file-operations entry that destroys something: a delete, or a move or copy onto a path that already exists.
 
 ## Documentation
 

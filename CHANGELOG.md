@@ -39,6 +39,16 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   fast-filesystem-mcp and regenerates `results-performance.md`; fixture tests
   guard its failure checks.
 
+### Fixed
+
+- **Two false claims in the known-gaps statements.** The catalog entry's
+  `exception` text and the README's Limits section now say that a batch
+  `move` or `copy` onto an existing destination also requires `--confirm`
+  (not only deletions), and that errors go to stderr only *once* `--format
+  text` is parsed — `read-file --bogus --format text` hits the unknown flag
+  first and renders in toon on stdout. A test pins both qualifiers, and an
+  end-to-end test pins the flag-order behaviour against the real binary.
+
 ## [1.0.2] - 2026-11-10
 
 ### Added
