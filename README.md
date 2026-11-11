@@ -33,8 +33,8 @@ The installer downloads the release binary for your platform (Linux or macOS, am
 Each release publishes `llm-filesystem-linux-amd64`, `llm-filesystem-linux-arm64`, `llm-filesystem-darwin-amd64`, `llm-filesystem-darwin-arm64`, `llm-filesystem-windows-amd64.exe` and `SHA256SUMS.txt`. Download your platform's binary and the checksum file, check the one line for your asset, then install it:
 
 ```bash
-curl -fsSLO https://github.com/samestrin/llm-filesystem-axi/releases/download/v1.0.2/llm-filesystem-linux-amd64
-curl -fsSLO https://github.com/samestrin/llm-filesystem-axi/releases/download/v1.0.2/SHA256SUMS.txt
+curl -fsSLO https://github.com/samestrin/llm-filesystem-axi/releases/download/v1.0.3/llm-filesystem-linux-amd64
+curl -fsSLO https://github.com/samestrin/llm-filesystem-axi/releases/download/v1.0.3/SHA256SUMS.txt
 grep ' llm-filesystem-linux-amd64$' SHA256SUMS.txt | sha256sum -c -    # macOS: shasum -a 256 -c -
 mkdir -p ~/.local/bin && install -m 755 llm-filesystem-linux-amd64 ~/.local/bin/llm-filesystem
 ```
@@ -44,10 +44,10 @@ mkdir -p ~/.local/bin && install -m 755 llm-filesystem-linux-amd64 ~/.local/bin/
 Requires Go 1.24 or later.
 
 ```bash
-go install github.com/samestrin/llm-filesystem-axi/cmd/llm-filesystem@v1.0.2
+go install github.com/samestrin/llm-filesystem-axi/cmd/llm-filesystem@v1.0.3
 ```
 
-This installs to `$(go env GOPATH)/bin`. A `v1.0.2` binary built this way prints `1.0.0` for `--version`, because that release reads its version only from the stamp that the release builds and `make build` add; the code is the `v1.0.2` code. Releases after `v1.0.2` fall back to the module version, so `go install ...@vX.Y.Z` prints `X.Y.Z`.
+This installs to `$(go env GOPATH)/bin`, and `--version` prints the tag you installed, without the `v` (`1.0.3` here). A `go install` adds no version stamp, so from `v1.0.3` on the binary falls back to the module version Go records. `v1.0.2` and earlier read only the stamp that the release builds and `make build` add, so a `go install` of one of them prints `1.0.0`; the code is still that release's code.
 
 ### From source
 
@@ -88,7 +88,7 @@ Re-run the installer. It replaces the existing binary and prints the version ins
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/samestrin/llm-filesystem-axi/main/install.sh | bash
-curl -fsSL https://raw.githubusercontent.com/samestrin/llm-filesystem-axi/main/install.sh | LLM_FILESYSTEM_VERSION=v1.0.2 bash   # pin a release
+curl -fsSL https://raw.githubusercontent.com/samestrin/llm-filesystem-axi/main/install.sh | LLM_FILESYSTEM_VERSION=v1.0.3 bash   # pin a release
 llm-filesystem --version
 ```
 
@@ -124,7 +124,7 @@ Output, trimmed to the lines that matter:
 Downloading llm-filesystem-linux-amd64 (latest) from https://github.com/samestrin/llm-filesystem-axi/releases/latest/download
 Checksum verified.
 
-1.0.2
+1.0.3
 
 about: "Fast filesystem operations for an AI agent: read, write, edit, search and manage files."
 bin: ~/.local/bin/llm-filesystem
@@ -206,7 +206,7 @@ See [`docs/llm-filesystem-commands.md`](docs/llm-filesystem-commands.md) for the
 |------|---------|---------|
 | `LLM_FILESYSTEM_FULL` | unset | `1`, `true`, `yes` or `on` makes full output the default for every command, as if `--full` were passed. An explicit `--full=false` still wins. |
 | `INSTALL_DIR` | `$HOME/.local/bin` | Installer only: the directory the binary is installed to. |
-| `LLM_FILESYSTEM_VERSION` | `latest` | Installer only: the release tag to install, for example `v1.0.2`. |
+| `LLM_FILESYSTEM_VERSION` | `latest` | Installer only: the release tag to install, for example `v1.0.3`. |
 | `LLM_FILESYSTEM_DOWNLOAD_TIMEOUT` | `300` | Installer only: seconds before a download is abandoned. |
 | `LLM_FILESYSTEM_BASE_URL` | unset | Installer only: the URL the assets are fetched from, overriding the version. Used by the installer's tests. |
 
