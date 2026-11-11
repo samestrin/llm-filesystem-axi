@@ -3,8 +3,8 @@
 Output docs/demo/llm-filesystem.gif
 
 Set Shell "bash"
-Set FontSize 18
-Set Width 1100
+Set FontSize 16
+Set Width 1400
 Set Height 620
 Set Padding 20
 Set TypingSpeed 45ms

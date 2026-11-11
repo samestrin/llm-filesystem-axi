@@ -242,22 +242,22 @@ With the default TOON and with `--format json`, errors are written to stdout as 
 
 `llm-filesystem` compared with [`fast-filesystem-mcp`](https://www.npmjs.com/package/fast-filesystem-mcp). The stamp lines and the table are copied from [`benchmarks/results-performance.md`](benchmarks/results-performance.md), which [`benchmarks/benchmark.sh`](benchmarks/benchmark.sh) generates; [`benchmarks/README.md`](benchmarks/README.md) explains how to run it.
 
-- **Tools:** [llm-filesystem](https://github.com/samestrin/llm-filesystem-axi) `1.0.2`, a Go CLI; [fast-filesystem-mcp](https://www.npmjs.com/package/fast-filesystem-mcp) `3.5.2` from npm, an MCP server, on Node.js v24.22.2
+- **Tools:** [llm-filesystem](https://github.com/samestrin/llm-filesystem-axi) `1.0.2`, a Go CLI; [fast-filesystem-mcp](https://www.npmjs.com/package/fast-filesystem-mcp) `3.5.2` from npm, an MCP server, on Node.js v24.15.0
 - **Date:** 2026-11-11 (UTC)
-- **Machine:** Intel(R) Xeon(R) W-2295 CPU @ 3.00GHz, 36 threads, 141.2 GiB RAM, Debian GNU/Linux 13 (trixie) (container), Linux 7.0.0-38-generic (x86_64)
-- **Directory:** 3,700 files (`BENCH_DIR`, with a `package.json` at its root)
-- **Method:** hyperfine, warmup 3, runs 10, wall-clock per process invocation (hyperfine 2.0.0); each command runs through `sh`, whose own start hyperfine measures and subtracts; each cell is the mean ± the standard deviation. llm-filesystem is a CLI, so each of its figures is one invocation of the binary. fast-filesystem-mcp is reached over MCP, so its handshake, read and tree figures are each one run of `mcp_client.py` (Python 3.13.5), which starts the server, sends `initialize` and one request, and waits for both answers: each includes a server start and the Python client's own start, measured by this run at 30.0 ms ± 11.0 ms. Cold start is `llm-filesystem --version`, and `fast-filesystem-mcp` with stdin closed, which prints its start line and exits at the end of input; each is piped to `head -1` and timed until the pipeline exits.
+- **Machine:** Apple M4 Pro, 14 threads, 64.0 GiB RAM, macOS 26.2, Darwin 25.2.0 (arm64)
+- **Directory:** 103 files (`BENCH_DIR`, with a `package.json` at its root)
+- **Method:** hyperfine, warmup 3, runs 10, wall-clock per process invocation (hyperfine 1.20.0); each command runs through `sh`, whose own start hyperfine measures and subtracts; each cell is the mean ± the standard deviation. llm-filesystem is a CLI, so each of its figures is one invocation of the binary. fast-filesystem-mcp is reached over MCP, so its handshake, read and tree figures are each one run of `mcp_client.py` (Python 3.14.5), which starts the server, sends `initialize` and one request, and waits for both answers: each includes a server start and the Python client's own start, measured by this run at 23.5 ms ± 0.5 ms. Cold start is `llm-filesystem --version`, and `fast-filesystem-mcp` with stdin closed, which prints its start line and exits at the end of input; each is piped to `head -1` and timed until the pipeline exits.
 
 | Test | llm-filesystem `1.0.2` | fast-filesystem-mcp `3.5.2` |
 |---|---:|---:|
-| Cold start | 1.79 ms ± 0.04 ms | 151.0 ms ± 6.0 ms |
-| MCP handshake (`initialize` + `tools/list`) | not applicable: a CLI has no MCP server | 185.6 ms ± 5.1 ms |
-| File read (`package.json`) | 1.75 ms ± 0.04 ms | 191.0 ms ± 6.8 ms |
-| Directory tree (depth 3, files included) | 11.0 ms ± 0.3 ms | 190.9 ms ± 5.4 ms |
+| Cold start | 2.63 ms ± 0.09 ms | 72.4 ms ± 3.7 ms |
+| MCP handshake (`initialize` + `tools/list`) | not applicable: a CLI has no MCP server | 108.0 ms ± 1.9 ms |
+| File read (`package.json`) | 2.61 ms ± 0.09 ms | 111.2 ms ± 3.9 ms |
+| Directory tree (depth 3, files included) | 3.32 ms ± 0.19 ms | 121.7 ms ± 1.8 ms |
 
-- **Tree entries returned below the root:** llm-filesystem 696, fast-filesystem-mcp 2
+- **Tree entries returned below the root:** llm-filesystem 58, fast-filesystem-mcp 57
 
-The two tree figures are not the same work: fast-filesystem-mcp leaves out node_modules and other names, and the test directory is mostly node_modules, as the entry counts above show.
+The test directory is a copy of this repository's source plus a `package.json`, with no `node_modules`, so both trees cover the same files, as the entry counts above show (fast-filesystem-mcp's default excludes leave out one more name).
 
 Raw results: [`results-coldstart.json`](benchmarks/results-coldstart.json), [`results-handshake.json`](benchmarks/results-handshake.json), [`results-read.json`](benchmarks/results-read.json), [`results-tree.json`](benchmarks/results-tree.json), and the stamp in [`results-meta.json`](benchmarks/results-meta.json).
 
