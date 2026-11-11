@@ -236,7 +236,7 @@ llm-filesystem list-directory --path . --format json   # JSON for scripts
 | `1` | The tool failed: the operation was attempted and did not fully work. This includes a partial run: `compress-files`, `extract-archive` and `sync-directories` exit `1` when any input, archive entry or file was skipped, with the failures named in the output |
 | `2` | Usage error: unknown subcommand, unknown flag, missing required flag, invalid `--format`, or a destructive operation without `--confirm` |
 
-With the default TOON and with `--format json`, errors are written to stdout as a structured document; with `--format text` they go to stderr.
+Errors are written to stdout as a structured document in the default TOON and in `--format json`. With `--format text` they go to stderr and stdout stays empty, but only once `--format` has been parsed: a flag error hit before it, such as `read-file --bogus --format text`, still renders in the default TOON on stdout.
 
 ## Performance
 
