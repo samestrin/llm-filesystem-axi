@@ -24,7 +24,6 @@ var countStatingFiles = []string{
 	"../../../cmd/llm-filesystem/README.md",
 	"../../../integrations/claude-code/README.md",
 	"../../../docs/llm-filesystem-commands.md",
-	"../../../release/axi-catalog-entry.md",
 }
 
 var commandCountRe = regexp.MustCompile(`(\d+) commands`)
@@ -104,18 +103,20 @@ func TestCountGuardFlagsStaleOrMissingCount(t *testing.T) {
 // Every assertion above is driven by countStatingFiles, so the list is the only
 // thing that decides which files are checked: delete an entry and both tests go
 // on passing, having quietly stopped looking at that file. This pins the list
-// itself, to the five files that state a count.
+// itself, to the four files that state a count.
 //
 // CHANGELOG.md and docs/axi-audit.md both mention counts as history ("28
 // commands" in the 1.0.0 entry, the audit's note that --help listed 28 before
-// setup existed) and are deliberately not listed.
+// setup existed) and are deliberately not listed. docs/axi-catalog-entry.yaml,
+// which replaced release/axi-catalog-entry.md, states no count on purpose: the
+// catalog review reads the source at the pinned tag, and a count there would
+// be a second number to keep in step with the binary.
 func TestCountStatingFilesCoversEveryKnownFile(t *testing.T) {
 	want := []string{
 		"../../../README.md",
 		"../../../cmd/llm-filesystem/README.md",
 		"../../../integrations/claude-code/README.md",
 		"../../../docs/llm-filesystem-commands.md",
-		"../../../release/axi-catalog-entry.md",
 	}
 
 	if len(countStatingFiles) != len(want) {
@@ -127,6 +128,22 @@ func TestCountStatingFilesCoversEveryKnownFile(t *testing.T) {
 			t.Errorf("countStatingFiles[%d] = %q, want %q — a file is checked by name or not at all",
 				i, countStatingFiles[i], want[i])
 		}
+	}
+}
+
+// The catalog entry is left out of countStatingFiles because it states no
+// count. If one is added to it, nothing would check that number against the
+// binary, and it would drift the way the README's did. This keeps the
+// exclusion true: a count in the entry fails here and has to be added to the
+// list instead.
+func TestCatalogEntryStatesNoCommandCount(t *testing.T) {
+	const entry = "../../../docs/axi-catalog-entry.yaml"
+	body, err := os.ReadFile(entry)
+	if err != nil {
+		t.Fatalf("reading %s: %v", entry, err)
+	}
+	if m := commandCountRe.Find(body); m != nil {
+		t.Errorf("%s states %q; add it to countStatingFiles or drop the count", entry, m)
 	}
 }
 
