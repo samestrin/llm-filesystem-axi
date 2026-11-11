@@ -35,4 +35,4 @@ python3 benchmarks/performance.py report
 
 The script fails, and leaves the previous results untouched, when any run records no timings, a command exits non-zero, or the MCP server answers with an error (a refused call still produces a response, and timing it would publish the error path as a read). `benchmark_test.go` checks those failures against stand-ins in `testdata/`, since CI runs no benchmark.
 
-For the token benchmark behind the README's token-reduction figures (TOON with a minimal field set vs full JSON), run ./tokens.sh; its generated report is results-tokens.md.
+For the token benchmark behind the token-reduction figures in [docs/background.md](../docs/background.md) (TOON with a minimal field set vs full JSON), run ./tokens.sh; its generated report is results-tokens.md.
