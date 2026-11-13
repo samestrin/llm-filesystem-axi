@@ -925,3 +925,81 @@ func TestInstallScriptVerifiesWithShasum(t *testing.T) {
 		assertNothingInstalled(t, home, out)
 	})
 }
+
+// A machine with wget but no curl takes a different fetch branch, and the
+// server download parses its HTTP status from wget's --server-response
+// output. CI on Linux has curl and never runs that branch (the same gap as
+// TD #31 for shasum), so hide curl and prove wget installs both binaries,
+// skips a release without the server asset, and refuses a bad server
+// checksum.
+func TestInstallScriptWorksWithWget(t *testing.T) {
+	real, err := exec.LookPath("wget")
+	if err != nil {
+		t.Skip("wget not available")
+	}
+	bin := pathWithout(t, "curl", "wget")
+	marker := filepath.Join(t.TempDir(), "wget-ran")
+	writeExecutable(t, bin, "wget", "#!/bin/sh\ntouch '"+marker+"'\nexec '"+real+"' \"$@\"\n")
+	if _, err := exec.LookPath(filepath.Join(bin, "curl")); err == nil {
+		t.Fatal("curl is still reachable; the test would run the wrong branch")
+	}
+
+	t.Run("both assets install", func(t *testing.T) {
+		_ = os.Remove(marker)
+		srv := installReleaseWithServer(t, fakeBinary, fakeServerBinary)
+		home := t.TempDir()
+		out, code := runInstaller(t, srv.URL, home, "PATH="+bin)
+		if code != 0 {
+			t.Fatalf("install.sh exited %d with only wget\noutput:\n%s", code, out)
+		}
+		if _, err := os.Stat(marker); err != nil {
+			t.Errorf("wget never ran; the downloads did not use it\noutput:\n%s", out)
+		}
+		dir := filepath.Join(home, ".local", "bin")
+		for name, want := range map[string]string{"llm-filesystem": fakeBinary, "llm-filesystem-mcp": fakeServerBinary} {
+			got, err := os.ReadFile(filepath.Join(dir, name))
+			if err != nil || string(got) != want {
+				t.Errorf("%s not installed from its asset with only wget: %q, %v\noutput:\n%s", name, got, err, out)
+			}
+		}
+	})
+
+	t.Run("missing server asset skips", func(t *testing.T) {
+		_ = os.Remove(marker)
+		srv := installRelease(t, fakeBinary)
+		home := t.TempDir()
+		out, code := runInstaller(t, srv.URL, home, "PATH="+bin)
+		if code != 0 {
+			t.Fatalf("install.sh exited %d on a serverless release with only wget\noutput:\n%s", code, out)
+		}
+		if !strings.Contains(out, "llm-filesystem-mcp was not installed") {
+			t.Errorf("no skip line with only wget\noutput:\n%s", out)
+		}
+		if got, err := os.ReadFile(filepath.Join(home, ".local", "bin", "llm-filesystem")); err != nil || string(got) != fakeBinary {
+			t.Errorf("CLI not installed with only wget: %q, %v\noutput:\n%s", got, err, out)
+		}
+		if entries, _ := os.ReadDir(filepath.Join(home, ".local", "bin")); len(entries) != 1 {
+			t.Errorf("install directory holds %d entries, want only the CLI: %v", len(entries), entries)
+		}
+	})
+
+	t.Run("bad server checksum installs nothing", func(t *testing.T) {
+		_ = os.Remove(marker)
+		asset, serverAsset := releaseAsset(), releaseServerAsset()
+		srv := fakeRelease(t, map[string]string{
+			asset:       fakeBinary,
+			serverAsset: fakeServerBinary,
+			"SHA256SUMS.txt": sha256Hex(fakeBinary) + "  " + asset + "\n" +
+				sha256Hex("a different server") + "  " + serverAsset + "\n",
+		})
+		home := t.TempDir()
+		out, code := runInstaller(t, srv.URL, home, "PATH="+bin)
+		if code == 0 {
+			t.Errorf("install.sh exited 0 on a server checksum mismatch with only wget\noutput:\n%s", out)
+		}
+		if _, err := os.Stat(marker); err != nil {
+			t.Errorf("wget never ran\noutput:\n%s", out)
+		}
+		assertNothingInstalled(t, home, out)
+	})
+}
