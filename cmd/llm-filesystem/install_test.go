@@ -30,9 +30,19 @@ const installScript = "../../install.sh"
 // installer's "does it run" check can execute it on any platform.
 const fakeBinary = "#!/bin/sh\necho 'llm-filesystem fake'\n"
 
+// fakeServerBinary is a stand-in release asset for the MCP server, with
+// different bytes than fakeBinary so a test can tell the two installs apart.
+const fakeServerBinary = "#!/bin/sh\necho 'llm-filesystem-mcp fake'\n"
+
 // releaseAsset is the asset name release.yml builds for this platform.
 func releaseAsset() string {
 	return fmt.Sprintf("llm-filesystem-%s-%s", runtime.GOOS, runtime.GOARCH)
+}
+
+// releaseServerAsset is the MCP server asset name the installer fetches
+// beside the CLI, for this platform.
+func releaseServerAsset() string {
+	return fmt.Sprintf("llm-filesystem-mcp-%s-%s", runtime.GOOS, runtime.GOARCH)
 }
 
 func sha256Hex(b string) string {
@@ -352,7 +362,8 @@ func TestNoDocNamesSudoInstall(t *testing.T) {
 }
 
 // installRelease serves bin as this platform's release asset with a matching
-// checksum, so a test can vary only the binary.
+// checksum, so a test can vary only the binary. It serves no server asset,
+// like the releases that predate the MCP server.
 func installRelease(t *testing.T, bin string) *httptest.Server {
 	t.Helper()
 	asset := releaseAsset()
@@ -360,6 +371,50 @@ func installRelease(t *testing.T, bin string) *httptest.Server {
 		asset:            bin,
 		"SHA256SUMS.txt": sha256Hex(bin) + "  " + asset + "\n",
 	})
+}
+
+// installReleaseWithServer serves both of this platform's release assets
+// with matching checksums, so a test can vary either binary.
+func installReleaseWithServer(t *testing.T, bin, mcp string) *httptest.Server {
+	t.Helper()
+	asset, serverAsset := releaseAsset(), releaseServerAsset()
+	return fakeRelease(t, map[string]string{
+		asset:       bin,
+		serverAsset: mcp,
+		"SHA256SUMS.txt": sha256Hex(bin) + "  " + asset + "\n" +
+			sha256Hex(mcp) + "  " + serverAsset + "\n",
+	})
+}
+
+// The older pair an upgrading machine already has in its install directory.
+const (
+	oldCLIBinary = "#!/bin/sh\necho 'llm-filesystem version v0.9.0'\n"
+	oldMCPBinary = "#!/bin/sh\necho 'llm-filesystem-mcp version v0.9.0'\n"
+)
+
+// installExistingPair writes an older CLI and server into the install
+// directory, as a machine upgrading would have.
+func installExistingPair(t *testing.T, home string) {
+	t.Helper()
+	dir := filepath.Join(home, ".local", "bin")
+	writeExecutable(t, dir, "llm-filesystem", oldCLIBinary)
+	writeExecutable(t, dir, "llm-filesystem-mcp", oldMCPBinary)
+}
+
+// assertPairUntouched fails if a refused install changed either existing
+// binary or left extra files beside them.
+func assertPairUntouched(t *testing.T, home, out string) {
+	t.Helper()
+	dir := filepath.Join(home, ".local", "bin")
+	for name, want := range map[string]string{"llm-filesystem": oldCLIBinary, "llm-filesystem-mcp": oldMCPBinary} {
+		got, err := os.ReadFile(filepath.Join(dir, name))
+		if err != nil || string(got) != want {
+			t.Errorf("existing %s was changed by a refused install: %q, %v\noutput:\n%s", name, got, err, out)
+		}
+	}
+	if entries, _ := os.ReadDir(dir); len(entries) != 2 {
+		t.Errorf("refused install left extra files: %v\noutput:\n%s", entries, out)
+	}
 }
 
 // writeExecutable writes an executable script at dir/name, creating dir.
@@ -484,24 +539,305 @@ func TestInstallScriptWarnsAboutShadowingBinary(t *testing.T) {
 	}
 }
 
-// The MCP server was removed, but an old install of it still runs (TD #23).
-// The installer does not delete files it did not install; it names the path
-// so the user can. The name is split so the no-MCP guard does not trip.
-func TestInstallScriptWarnsAboutLeftoverMCPServer(t *testing.T) {
+// The MCP server ships beside the CLI now, but an older llm-filesystem-mcp
+// earlier on PATH still wins after an install. The install succeeds, and the
+// user must be told which binary their shell will run instead, by its path.
+// The installer does not delete files it did not install.
+func TestInstallScriptWarnsAboutShadowingMCPServer(t *testing.T) {
+	srv := installReleaseWithServer(t, fakeBinary, fakeServerBinary)
+	home := t.TempDir()
+	installDir := filepath.Join(home, ".local", "bin")
+	stale := writeExecutable(t, filepath.Join(home, "stale"), "llm-filesystem-mcp", "#!/bin/sh\n")
+
+	out, code := runInstaller(t, srv.URL, home,
+		"PATH="+filepath.Dir(stale)+string(os.PathListSeparator)+installDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	if code != 0 {
+		t.Fatalf("install.sh exited %d\noutput:\n%s", code, out)
+	}
+	if !strings.Contains(out, "Warning:") || !strings.Contains(out, "shadows") || !strings.Contains(out, stale) {
+		t.Errorf("no warning naming the shadowing server %s\noutput:\n%s", stale, out)
+	}
+	if _, err := os.Stat(stale); err != nil {
+		t.Errorf("the installer removed a file it did not install: %v", err)
+	}
+	// The new server is installed even though an older one shadows it.
+	if got, err := os.ReadFile(filepath.Join(installDir, "llm-filesystem-mcp")); err != nil || string(got) != fakeServerBinary {
+		t.Errorf("server not installed beside the CLI: %q, %v\noutput:\n%s", got, err, out)
+	}
+
+	// The control: with the install directory first the stale copy no longer
+	// shadows the new server, and a warning would be noise users learn to
+	// ignore.
+	home2 := t.TempDir()
+	out, code = runInstaller(t, srv.URL, home2,
+		"PATH="+filepath.Join(home2, ".local", "bin")+string(os.PathListSeparator)+filepath.Dir(stale)+string(os.PathListSeparator)+os.Getenv("PATH"))
+	if code != 0 {
+		t.Fatalf("install.sh exited %d\noutput:\n%s", code, out)
+	}
+	if strings.Contains(out, "shadows") {
+		t.Errorf("warned about shadowing with the install directory first on PATH\noutput:\n%s", out)
+	}
+}
+
+// The installer ships the MCP server beside the CLI: a release with both
+// assets installs both, each the exact bytes of its own asset, executable,
+// and nothing else in the install directory. Different bytes per asset catch
+// an installer that copies one download over both names.
+func TestInstallScriptInstallsBothBinaries(t *testing.T) {
+	srv := installReleaseWithServer(t, fakeBinary, fakeServerBinary)
+	home := t.TempDir()
+
+	out, code := runInstaller(t, srv.URL, home)
+	if code != 0 {
+		t.Fatalf("install.sh exited %d with both assets present\noutput:\n%s", code, out)
+	}
+	dir := filepath.Join(home, ".local", "bin")
+	for _, f := range []struct{ name, want string }{
+		{"llm-filesystem", fakeBinary},
+		{"llm-filesystem-mcp", fakeServerBinary},
+	} {
+		dest := filepath.Join(dir, f.name)
+		got, err := os.ReadFile(dest)
+		if err != nil {
+			t.Fatalf("%s not installed: %v\noutput:\n%s", f.name, err, out)
+		}
+		if string(got) != f.want {
+			t.Errorf("installed %s differs from its release asset: %q", f.name, got)
+		}
+		info, err := os.Stat(dest)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if info.Mode().Perm()&0o111 == 0 {
+			t.Errorf("installed %s is not executable: %v", f.name, info.Mode())
+		}
+	}
+	entries, _ := os.ReadDir(dir)
+	if len(entries) != 2 {
+		t.Errorf("install directory holds %d entries, want 2: %v", len(entries), entries)
+	}
+}
+
+// Releases before the MCP server existed (v1.0.3 and earlier, which
+// releases/latest still serves) have no server asset. The installer must say
+// the server was not installed and why, still install the verified CLI, and
+// exit 0 — not fail the whole install, and not pretend it installed a server.
+func TestInstallScriptSkipsServerWhenReleaseHasNoAsset(t *testing.T) {
+	srv := installRelease(t, fakeBinary) // no server asset: it 404s
+	home := t.TempDir()
+
+	out, code := runInstaller(t, srv.URL, home)
+	if code != 0 {
+		t.Fatalf("install.sh exited %d on a release without the server asset\noutput:\n%s", code, out)
+	}
+	dest := filepath.Join(home, ".local", "bin", "llm-filesystem")
+	got, err := os.ReadFile(dest)
+	if err != nil || string(got) != fakeBinary {
+		t.Errorf("CLI not installed from a serverless release: %q, %v\noutput:\n%s", got, err, out)
+	}
+	if !strings.Contains(out, "llm-filesystem-mcp was not installed") || !strings.Contains(out, releaseServerAsset()) {
+		t.Errorf("no skip line saying the server was not installed and why\noutput:\n%s", out)
+	}
+	entries, _ := os.ReadDir(filepath.Dir(dest))
+	if len(entries) != 1 {
+		t.Errorf("install directory holds %d entries, want only the CLI: %v", len(entries), entries)
+	}
+}
+
+// When the server is skipped there is no new server to shadow, so the
+// installer must not warn about one — and it still must not touch an old
+// llm-filesystem-mcp it did not install.
+func TestInstallScriptSkipLeavesOldServerAlone(t *testing.T) {
 	srv := installRelease(t, fakeBinary)
 	home := t.TempDir()
-	stale := writeExecutable(t, filepath.Join(home, "stale"), "llm-filesystem"+"-mcp", "#!/bin/sh\n")
+	stale := writeExecutable(t, filepath.Join(home, "stale"), "llm-filesystem-mcp", "#!/bin/sh\n")
 
 	out, code := runInstaller(t, srv.URL, home,
 		"PATH="+filepath.Join(home, ".local", "bin")+string(os.PathListSeparator)+filepath.Dir(stale)+string(os.PathListSeparator)+os.Getenv("PATH"))
 	if code != 0 {
 		t.Fatalf("install.sh exited %d\noutput:\n%s", code, out)
 	}
-	if !strings.Contains(out, "Warning:") || !strings.Contains(out, stale) {
-		t.Errorf("no warning naming the leftover server %s\noutput:\n%s", stale, out)
+	if strings.Contains(out, "shadows") {
+		t.Errorf("warned about a shadowing server when no server was installed\noutput:\n%s", out)
 	}
 	if _, err := os.Stat(stale); err != nil {
 		t.Errorf("the installer removed a file it did not install: %v", err)
+	}
+}
+
+// A server asset that is present but fails its checksum is fatal: neither
+// binary is installed, and an existing pair is left untouched. The CLI
+// passing its own checksum must not buy the server a pass.
+func TestInstallScriptRefusesBadServerChecksum(t *testing.T) {
+	asset, serverAsset := releaseAsset(), releaseServerAsset()
+	srv := fakeRelease(t, map[string]string{
+		asset:       fakeBinary,
+		serverAsset: fakeServerBinary,
+		"SHA256SUMS.txt": sha256Hex(fakeBinary) + "  " + asset + "\n" +
+			sha256Hex("a different server") + "  " + serverAsset + "\n",
+	})
+
+	t.Run("fresh install", func(t *testing.T) {
+		home := t.TempDir()
+		out, code := runInstaller(t, srv.URL, home)
+		if code == 0 {
+			t.Errorf("install.sh exited 0 on a server checksum mismatch\noutput:\n%s", out)
+		}
+		assertNothingInstalled(t, home, out)
+	})
+
+	t.Run("keeps existing binaries", func(t *testing.T) {
+		home := t.TempDir()
+		installExistingPair(t, home)
+		out, code := runInstaller(t, srv.URL, home)
+		if code == 0 {
+			t.Errorf("install.sh exited 0 on a server checksum mismatch\noutput:\n%s", out)
+		}
+		assertPairUntouched(t, home, out)
+	})
+}
+
+// A present server asset with no usable checksum line is as fatal as a
+// mismatch: the server cannot be verified, so neither binary installs.
+func TestInstallScriptRefusesUnverifiableServer(t *testing.T) {
+	asset, serverAsset := releaseAsset(), releaseServerAsset()
+	goodCLI := sha256Hex(fakeBinary) + "  " + asset + "\n"
+	cases := map[string]string{
+		"no checksum for the server":      goodCLI,
+		"two checksums for the server":    goodCLI + sha256Hex(fakeServerBinary) + "  " + serverAsset + "\n" + sha256Hex("other") + "  " + serverAsset + "\n",
+		"checksum only for a longer name": goodCLI + sha256Hex(fakeServerBinary) + "  " + serverAsset + ".exe\n",
+	}
+	for name, sums := range cases {
+		t.Run(name, func(t *testing.T) {
+			srv := fakeRelease(t, map[string]string{
+				asset:            fakeBinary,
+				serverAsset:      fakeServerBinary,
+				"SHA256SUMS.txt": sums,
+			})
+			home := t.TempDir()
+			out, code := runInstaller(t, srv.URL, home)
+			if code == 0 {
+				t.Errorf("install.sh exited 0\noutput:\n%s", out)
+			}
+			assertNothingInstalled(t, home, out)
+		})
+	}
+}
+
+// A server that passes its checksum but does not run here is fatal too, and
+// the CLI that verified must not install without it: all or nothing.
+func TestInstallScriptRefusesServerThatDoesNotRun(t *testing.T) {
+	srv := installReleaseWithServer(t, fakeBinary, "#!/bin/sh\necho 'cannot execute binary file' >&2\nexit 3\n")
+
+	t.Run("fresh install", func(t *testing.T) {
+		home := t.TempDir()
+		out, code := runInstaller(t, srv.URL, home)
+		if code == 0 {
+			t.Errorf("install.sh exited 0 over a server whose --version failed\noutput:\n%s", out)
+		}
+		assertNothingInstalled(t, home, out)
+	})
+
+	t.Run("keeps existing binaries", func(t *testing.T) {
+		home := t.TempDir()
+		installExistingPair(t, home)
+		out, code := runInstaller(t, srv.URL, home)
+		if code == 0 {
+			t.Errorf("install.sh exited 0 over a server whose --version failed\noutput:\n%s", out)
+		}
+		assertPairUntouched(t, home, out)
+	})
+}
+
+// Only a 404 means "this release has no server asset". A server download
+// that fails any other way — a stalled connection, an HTTP server error —
+// must fail the install, not quietly skip the server, so a network fault
+// cannot be reported as a successful install of the pair.
+func TestInstallScriptRefusesFailedServerDownload(t *testing.T) {
+	asset, serverAsset := releaseAsset(), releaseServerAsset()
+	sums := sha256Hex(fakeBinary) + "  " + asset + "\n" + sha256Hex(fakeServerBinary) + "  " + serverAsset + "\n"
+
+	t.Run("stalled download", func(t *testing.T) {
+		release := make(chan struct{})
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			switch strings.TrimPrefix(r.URL.Path, "/") {
+			case asset:
+				_, _ = w.Write([]byte(fakeBinary))
+			case "SHA256SUMS.txt":
+				_, _ = w.Write([]byte(sums))
+			case serverAsset:
+				w.Header().Set("Content-Length", "1000000")
+				_, _ = w.Write([]byte(fakeServerBinary))
+				w.(http.Flusher).Flush()
+				select {
+				case <-release:
+				case <-r.Context().Done():
+				}
+			default:
+				http.NotFound(w, r)
+			}
+		}))
+		t.Cleanup(srv.Close)
+		t.Cleanup(func() { close(release) }) // runs first, so Close does not wait on the handler
+		home := t.TempDir()
+		out, code := runInstaller(t, srv.URL, home, "LLM_FILESYSTEM_DOWNLOAD_TIMEOUT=2")
+		if code == 0 {
+			t.Errorf("install.sh exited 0 on a stalled server download\noutput:\n%s", out)
+		}
+		assertNothingInstalled(t, home, out)
+	})
+
+	t.Run("http server error", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			switch strings.TrimPrefix(r.URL.Path, "/") {
+			case asset:
+				_, _ = w.Write([]byte(fakeBinary))
+			case "SHA256SUMS.txt":
+				_, _ = w.Write([]byte(sums))
+			case serverAsset:
+				http.Error(w, "boom", http.StatusInternalServerError)
+			default:
+				http.NotFound(w, r)
+			}
+		}))
+		t.Cleanup(srv.Close)
+		home := t.TempDir()
+		out, code := runInstaller(t, srv.URL, home)
+		if code == 0 {
+			t.Errorf("install.sh exited 0 on an HTTP 500 for the server asset\noutput:\n%s", out)
+		}
+		assertNothingInstalled(t, home, out)
+	})
+}
+
+// Re-running the installer upgrades both binaries; the output is the record
+// of what changed, so it names the version installed and the one replaced
+// for the server as it already does for the CLI.
+func TestInstallScriptUpgradesBothBinaries(t *testing.T) {
+	const newCLI = "#!/bin/sh\necho 'llm-filesystem version v1.2.0'\n"
+	const newMCP = "#!/bin/sh\necho 'llm-filesystem-mcp version v1.2.0'\n"
+	srv := installReleaseWithServer(t, newCLI, newMCP)
+	home := t.TempDir()
+	installExistingPair(t, home)
+
+	out, code := runInstaller(t, srv.URL, home)
+	if code != 0 {
+		t.Fatalf("install.sh exited %d\noutput:\n%s", code, out)
+	}
+	for _, v := range []string{"v0.9.0", "v1.2.0"} {
+		if !strings.Contains(out, v) {
+			t.Errorf("upgrade output does not name %s\noutput:\n%s", v, out)
+		}
+	}
+	if n := strings.Count(out, "Replaced:"); n != 2 {
+		t.Errorf("upgrade output has %d Replaced lines, want one per binary\noutput:\n%s", n, out)
+	}
+	dir := filepath.Join(home, ".local", "bin")
+	for name, want := range map[string]string{"llm-filesystem": newCLI, "llm-filesystem-mcp": newMCP} {
+		got, err := os.ReadFile(filepath.Join(dir, name))
+		if err != nil || string(got) != want {
+			t.Errorf("%s was not upgraded to the release asset: %q, %v\noutput:\n%s", name, got, err, out)
+		}
 	}
 }
 
