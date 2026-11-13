@@ -7,7 +7,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/samestrin/llm-filesystem-axi/internal/filesystem/commands"
@@ -22,6 +21,16 @@ func main() {
 }
 
 func run() error {
+	// --version answers from the CLI's shared stamp and exits before the
+	// server resolves the CLI binary or reads stdin, so it works even on a
+	// machine with only the server installed.
+	for _, arg := range os.Args[1:] {
+		if arg == "--version" {
+			fmt.Println(commands.DisplayVersion())
+			return nil
+		}
+	}
+
 	binary, err := mcpserver.ResolveBinary()
 	if err != nil {
 		return err
@@ -31,7 +40,7 @@ func run() error {
 		return err
 	}
 
-	server, err := mcpserver.NewServer(strings.TrimPrefix(commands.Version, "v"),
+	server, err := mcpserver.NewServer(commands.DisplayVersion(),
 		mcpserver.Runner{Binary: binary, Timeout: timeout})
 	if err != nil {
 		return err
