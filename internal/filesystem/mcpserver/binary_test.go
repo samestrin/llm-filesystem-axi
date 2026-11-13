@@ -86,14 +86,14 @@ func TestResolveBinaryBadVariableIsAnError(t *testing.T) {
 // path tried, so a broken install is fixable from the error alone.
 func TestResolveBinaryNotFoundNamesEverything(t *testing.T) {
 	dirA, dirB := t.TempDir(), t.TempDir()
-	t.Setenv("PATH", dirA+string(os.PathListSeparator)+dirB)
+	pathVar := dirA + string(os.PathListSeparator) + dirB
 	serverDir := t.TempDir()
 	// Present but not executable: must not count as found.
 	if err := os.WriteFile(filepath.Join(serverDir, "llm-filesystem"), nil, 0o644); err != nil {
 		t.Fatal(err)
 	}
 
-	_, err := fakeLookup{exe: filepath.Join(serverDir, "llm-filesystem-mcp")}.resolve()
+	_, err := fakeLookup{env: map[string]string{"PATH": pathVar}, exe: filepath.Join(serverDir, "llm-filesystem-mcp")}.resolve()
 	if err == nil {
 		t.Fatal("found a binary that is not there")
 	}

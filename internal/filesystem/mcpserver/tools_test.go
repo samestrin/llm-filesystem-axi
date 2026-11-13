@@ -122,7 +122,7 @@ func TestEveryToolParameterIsARealFlag(t *testing.T) {
 				t.Errorf("tool %s exposes hidden flag --%s", tool.Name, flagName)
 			}
 			want := map[string]string{
-				"bool": "boolean", "int": "integer", "string": "string",
+				"bool": "boolean", "int": "integer", "int64": "integer", "string": "string",
 				"stringSlice": "array", "intSlice": "array",
 			}[f.Value.Type()]
 			if got := raw.(map[string]any)["type"]; got != want {

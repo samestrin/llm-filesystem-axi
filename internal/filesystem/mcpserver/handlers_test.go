@@ -14,7 +14,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-func toolFor(t *testing.T, command string) Tool {
+func toolNamed(t *testing.T, command string) Tool {
 	t.Helper()
 	for _, tool := range mustTools(t) {
 		if tool.Command == command {
@@ -26,7 +26,7 @@ func toolFor(t *testing.T, command string) Tool {
 }
 
 func TestArgsBuildsFlagsFromParameters(t *testing.T) {
-	tool := toolFor(t, "write-file")
+	tool := toolNamed(t, "write-file")
 	got, err := tool.Args(map[string]any{
 		"path":    "/tmp/a b.txt",
 		"content": "-starts with a dash",
@@ -47,7 +47,7 @@ func TestArgsBuildsFlagsFromParameters(t *testing.T) {
 // when the caller sets it. A server that added it on its own would turn every
 // MCP delete into a confirmed one.
 func TestConfirmIsPassedOnlyWhenTheCallerSetsIt(t *testing.T) {
-	tool := toolFor(t, "delete-file")
+	tool := toolNamed(t, "delete-file")
 
 	got, err := tool.Args(map[string]any{"path": "/x"})
 	if err != nil {
@@ -80,7 +80,7 @@ func contains(list []string, s string) bool {
 // A string-slice flag is parsed by pflag as CSV, so a path that contains a
 // comma must be quoted or it arrives as two paths.
 func TestSliceParametersSurviveCommas(t *testing.T) {
-	tool := toolFor(t, "read-multiple-files")
+	tool := toolNamed(t, "read-multiple-files")
 	got, err := tool.Args(map[string]any{"paths": []any{"/a,b.txt", "/c.txt"}})
 	if err != nil {
 		t.Fatalf("Args: %v", err)
@@ -91,7 +91,7 @@ func TestSliceParametersSurviveCommas(t *testing.T) {
 }
 
 func TestIntegerParameters(t *testing.T) {
-	tool := toolFor(t, "edit-file")
+	tool := toolNamed(t, "edit-file")
 	got, err := tool.Args(map[string]any{"path": "/p", "operation": "insert", "line": float64(3)})
 	if err != nil {
 		t.Fatalf("Args: %v", err)
@@ -108,7 +108,7 @@ func TestIntegerParameters(t *testing.T) {
 // nothing and exits 0. An argument the tool does not have is refused, never
 // dropped.
 func TestUnknownOrMistypedArgumentsAreRefused(t *testing.T) {
-	tool := toolFor(t, "read-file")
+	tool := toolNamed(t, "read-file")
 	cases := map[string]map[string]any{
 		"unknown key":       {"path": "/p", "file_path": "/q"},
 		"string as number":  {"path": 7},
