@@ -203,6 +203,52 @@ func TestDeleteWithoutConfirmTouchesNothing(t *testing.T) {
 	}
 }
 
+// Defends the argument guards at the MCP boundary (review of PR #62). Without
+// them a bad call reaches the runner with no argv, runs the bare root, exits 0
+// and returns the home screen as a success. Each bad call must come back as a
+// usage error, and the write it names must not have happened.
+func TestBadArgumentsAreRefusedAndRunNothing(t *testing.T) {
+	session, _, _ := connect(t)
+	dir := t.TempDir()
+
+	cases := map[string]any{
+		"unknown parameter":     map[string]any{"path": filepath.Join(dir, "a.txt"), "content": "x", "file_path": "y"},
+		"wrongly typed":         map[string]any{"path": filepath.Join(dir, "b.txt"), "content": 42},
+		"arguments not objects": []any{filepath.Join(dir, "c.txt"), "x"},
+	}
+	for name, args := range cases {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		r, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "llm_filesystem_write_file", Arguments: args})
+		cancel()
+		if err != nil {
+			// The SDK refusing the call at the protocol level is also a
+			// refusal; what matters is that nothing ran.
+			t.Logf("%s: refused by the protocol: %v", name, err)
+			continue
+		}
+		var text strings.Builder
+		for _, c := range r.Content {
+			if tc, ok := c.(*mcp.TextContent); ok {
+				text.WriteString(tc.Text + "\n")
+			}
+		}
+		if !r.IsError {
+			t.Errorf("%s: reported success: %s", name, text.String())
+		}
+		if !strings.Contains(text.String(), "exit_code: 2") {
+			t.Errorf("%s: not a usage error: %s", name, text.String())
+		}
+	}
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Errorf("a refused call wrote %d file(s): %v", len(entries), entries)
+	}
+}
+
 var helpFlag = regexp.MustCompile(`--([a-z][a-z0-9-]*)`)
 
 // Defends AC2 against the shipped binary rather than the source tree: the
