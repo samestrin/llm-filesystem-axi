@@ -6,7 +6,7 @@ Verified against `.github/workflows/release.yml` and the `Makefile`.
 2. Re-run `benchmarks/benchmark.sh` and commit any changed results.
 3. Re-render the demo (`vhs docs/demo/llm-filesystem.tape`) if a command it shows has changed.
 4. Cut the changelog and update any affected `docs/` page.
-5. Optional dry run: `make build-all` builds the five binaries into `dist/` locally.
+5. Optional dry run: `make build-all` builds the ten binaries (the CLI and the MCP server for each platform) into `dist/` locally.
 6. Push a `v*` tag, for example `git tag v1.0.3 && git push origin v1.0.3`.
-7. The `release` workflow then verifies (gofmt, vet, `make build`, `go test -race`), builds five binaries (darwin/amd64, darwin/arm64, linux/amd64, linux/arm64, windows/amd64) with the tag stamped as the version, writes `SHA256SUMS.txt`, checks five binaries and five matching checksums, and publishes the release.
-8. Check the published release has the five binaries and `SHA256SUMS.txt`.
+7. The `release` workflow then verifies (gofmt, vet, `make build`, `go test -race`), builds ten binaries — `llm-filesystem` and `llm-filesystem-mcp` for each platform (darwin/amd64, darwin/arm64, linux/amd64, linux/arm64, windows/amd64) — with the tag stamped as the version into both, writes `SHA256SUMS.txt`, checks ten binaries and ten matching checksums and that both linux/amd64 binaries report one version, and publishes the release.
+8. Check the published release has the ten binaries and `SHA256SUMS.txt`.
