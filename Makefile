@@ -1,6 +1,7 @@
 .PHONY: build build-all test test-race test-cover lint vet fmt install clean hooks
 
 CLI_BINARY := llm-filesystem
+MCP_BINARY := llm-filesystem-mcp
 BUILD_DIR  := build
 DIST_DIR   := dist
 
@@ -14,6 +15,7 @@ PLATFORMS := darwin/amd64 darwin/arm64 linux/amd64 linux/arm64 windows/amd64
 build:
 	@mkdir -p $(BUILD_DIR)
 	go build $(CLI_LDFLAGS) -o $(BUILD_DIR)/$(CLI_BINARY) ./cmd/llm-filesystem
+	go build $(CLI_LDFLAGS) -o $(BUILD_DIR)/$(MCP_BINARY) ./cmd/llm-filesystem-mcp
 
 build-all:
 	@mkdir -p $(DIST_DIR)
