@@ -249,6 +249,39 @@ func TestBadArgumentsAreRefusedAndRunNothing(t *testing.T) {
 	}
 }
 
+// Defends the non-object guard in server.go on its own (second review of PR
+// #62). The write_file case above cannot: write_file has required flags, so
+// with the guard gone the CLI still refuses the empty call and the assertions
+// hold for the wrong reason. list-allowed-directories has no required flags,
+// so without the guard the call runs and succeeds. The assertion names the
+// guard's own message, which only the server produces.
+func TestNonObjectArgumentsAreRefusedByTheServer(t *testing.T) {
+	session, _, _ := connect(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	r, err := session.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "llm_filesystem_list_allowed_directories",
+		Arguments: []any{"a", "b"},
+	})
+	if err != nil {
+		t.Fatalf("tools/call: %v", err)
+	}
+	var text strings.Builder
+	for _, c := range r.Content {
+		if tc, ok := c.(*mcp.TextContent); ok {
+			text.WriteString(tc.Text + "\n")
+		}
+	}
+	if !r.IsError {
+		t.Fatalf("non-object arguments reported success: %s", text.String())
+	}
+	for _, want := range []string{"arguments are not a JSON object", "exit_code: 2"} {
+		if !strings.Contains(text.String(), want) {
+			t.Errorf("result %q lacks %q", text.String(), want)
+		}
+	}
+}
+
 var helpFlag = regexp.MustCompile(`--([a-z][a-z0-9-]*)`)
 
 // Defends AC2 against the shipped binary rather than the source tree: the
