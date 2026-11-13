@@ -35,16 +35,22 @@ func NewServer(version string, runner Runner) (*mcp.Server, error) {
 			var args map[string]any
 			if len(req.Params.Arguments) > 0 {
 				if err := json.Unmarshal(req.Params.Arguments, &args); err != nil {
-					return errorResult(nil, "arguments are not a JSON object: "+err.Error()), nil
+					return usageError("arguments are not a JSON object: " + err.Error()), nil
 				}
 			}
 			argv, err := tool.Args(args)
 			if err != nil {
-				// Nothing ran, so this is the CLI's usage class.
-				return errorResult(nil, err.Error()+"\nexit_code: 2"), nil
+				return usageError(err.Error()), nil
 			}
 			return runner.Run(ctx, argv), nil
 		})
 	}
 	return server, nil
+}
+
+// usageError refuses a call before anything runs. It carries exit_code 2, the
+// CLI's own code for "nothing was attempted", so a caller reads a bad call
+// from the server the same way as one the CLI itself refused.
+func usageError(msg string) *mcp.CallToolResult {
+	return errorResult(nil, msg+"\nexit_code: 2")
 }
