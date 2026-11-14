@@ -23,6 +23,39 @@ import (
 // the bare run over a routing-only summary (epic 05, question 1).
 const setupHookCommand = "llm-filesystem"
 
+// openCodePluginMarker opens every plugin file setup writes. A file at the
+// plugin's path without it is the user's own, and is never overwritten.
+const openCodePluginMarker = "// Managed by `llm-filesystem setup`"
+
+// openCodePluginTemplate is the OpenCode plugin, with %s standing for the
+// command as a string literal. OpenCode (checked on 1.19.5) loads every .js
+// file in .opencode/plugins/, calls each exported function with the project's
+// directory, and calls the experimental.chat.system.transform hook before each
+// request with the system prompt as a list to add to. The home view is run once
+// when the plugin loads, the way the SessionStart hooks run once per session.
+// It is run without a shell, so the command needs no quoting. A failed run adds
+// nothing, rather than half a view or an error in the prompt.
+const openCodePluginTemplate = openCodePluginMarker + `; a later run rewrites this file.
+// Adds the llm-filesystem home view to OpenCode's system context. No tool.
+import { execFile } from "node:child_process";
+
+const command = %s;
+
+export const LlmFilesystem = async ({ directory }) => {
+  const home = new Promise((resolve) => {
+    execFile(command, [], { cwd: directory, timeout: 10000 }, (err, stdout) => {
+      resolve(err ? "" : String(stdout).trim());
+    });
+  });
+  return {
+    "experimental.chat.system.transform": async (_input, output) => {
+      const view = await home;
+      if (view) output.system.push(view);
+    },
+  };
+};
+`
+
 // setupExecutable is indirected so a test can decide where "this binary" lives;
 // under go test the real one is the test binary.
 var setupExecutable = os.Executable
@@ -67,29 +100,35 @@ func setupCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "setup",
-		Short: "Register llm-filesystem with Claude Code and Codex in this project",
+		Short: "Register llm-filesystem with Claude Code, Codex and OpenCode in this project",
 		Long: `Merge a SessionStart hook that runs llm-filesystem into .claude/settings.json,
-write the Agent Skill to .claude/skills/llm-filesystem/SKILL.md, and merge a
-SessionStart hook into .codex/hooks.json for Codex.
+write the Agent Skill to .claude/skills/llm-filesystem/SKILL.md, merge a
+SessionStart hook into .codex/hooks.json for Codex, and write an OpenCode
+plugin to .opencode/plugins/llm-filesystem.js that adds the home view to
+OpenCode's system context (it adds no tool).
 
-The Codex hook runs llm-filesystem by name when PATH finds this same binary,
-and by its absolute path otherwise. A later run points an existing
-llm-filesystem hook in .codex/hooks.json at the binary's current location, so
-a moved or reinstalled binary is repaired rather than registered twice.
+The Codex hook and the OpenCode plugin run llm-filesystem by name when PATH
+finds this same binary, and by its absolute path otherwise. A later run points
+an existing llm-filesystem hook in .codex/hooks.json, and the plugin, at the
+binary's current location, so a moved or reinstalled binary is repaired rather
+than registered twice.
 
-Every other key and hook in either file is kept. A file that is not a JSON
+Every other key and hook in either JSON file is kept. A file that is not a JSON
 object, or whose "hooks" or "hooks.SessionStart" has the wrong type, is
-refused and left as it is.
+refused and left as it is. So is a file at the plugin's path that setup did
+not write.
 
-Only the working directory is written to. The user-wide ~/.claude and ~/.codex
-are never touched: running setup in the home directory is refused, and so is a
-.claude or .codex symlink that leads out of the project. Every file is planned
-before any is written, and each is written to a temporary file and renamed into
-place.
+Only the working directory is written to. The user-wide ~/.claude, ~/.codex and
+~/.config/opencode are never touched: running setup in the home directory is
+refused, and so is a .claude, .codex or .opencode symlink that leads out of the
+project. Every file is planned before any is written, and each is written to a
+temporary file and renamed into place.
 
 Codex (checked on 0.166.0, where the hooks feature is on by default) reads
 .codex/hooks.json only in a project it trusts, and lists a new or changed hook
-as untrusted until you review it. Session-end capture is not set up.
+as untrusted until you review it. OpenCode (checked on 1.19.5) runs the
+plugin's home view once when it loads the plugin. Session-end capture is not
+set up.
 
 Safe to run again: a second run changes no bytes and says so. Never prompts.
 
@@ -178,7 +217,8 @@ func planSetup(dir string) ([]setupPlan, error) {
 	settingsRel := filepath.Join(".claude", "settings.json")
 	skillRel := filepath.Join(".claude", "skills", "llm-filesystem", "SKILL.md")
 	codexRel := filepath.Join(".codex", "hooks.json")
-	for _, rel := range []string{settingsRel, skillRel, codexRel} {
+	openCodeRel := filepath.Join(".opencode", "plugins", "llm-filesystem.js")
+	for _, rel := range []string{settingsRel, skillRel, codexRel, openCodeRel} {
 		if err := checkInsideProject(dir, filepath.Join(dir, rel)); err != nil {
 			return nil, err
 		}
@@ -200,11 +240,11 @@ func planSetup(dir string) ([]setupPlan, error) {
 	}
 	settings.rel = settingsRel
 
-	codexCommand, err := setupPortableCommand()
+	command, err := setupPortableCommand()
 	if err != nil {
 		return nil, err
 	}
-	codex, err := planHooksFile(filepath.Join(dir, codexRel), codexCommand, true)
+	codex, err := planHooksFile(filepath.Join(dir, codexRel), shellQuote(command), true)
 	if err != nil {
 		return nil, err
 	}
@@ -222,15 +262,39 @@ func planSetup(dir string) ([]setupPlan, error) {
 		skillPlan.mode = fileMode(filepath.Join(dir, skillRel))
 	}
 
-	return []setupPlan{settings, skillPlan, codex}, nil
+	openCode, err := planOpenCodePlugin(filepath.Join(dir, openCodeRel), command)
+	if err != nil {
+		return nil, err
+	}
+	openCode.rel = openCodeRel
+
+	return []setupPlan{settings, skillPlan, codex, openCode}, nil
 }
 
-// setupPortableCommand is the hook command for the running binary: its bare
-// name when PATH finds this same file, so a global install survives an upgrade
-// in place, and its absolute path otherwise, so the hook never runs a different
+// planOpenCodePlugin plans the plugin file. setup owns the whole file, so path
+// repair is a rewrite: any plugin carrying the marker whose bytes differ, such
+// as one naming a binary that has since moved, is replaced. A file without the
+// marker is refused and left as it is.
+func planOpenCodePlugin(path, command string) (setupPlan, error) {
+	want := []byte(fmt.Sprintf(openCodePluginTemplate, jsonString(command)))
+	existing, err := os.ReadFile(path)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return setupPlan{content: want, mode: 0o644, changed: true}, nil
+	case err != nil:
+		return setupPlan{}, fmt.Errorf("read %s: %w", path, err)
+	case !bytes.HasPrefix(existing, []byte(openCodePluginMarker)):
+		return setupPlan{}, fmt.Errorf("%s was not written by setup; refusing to overwrite it — move it aside, then run setup again", path)
+	}
+	return setupPlan{content: want, mode: fileMode(path), changed: !bytes.Equal(existing, want)}, nil
+}
+
+// setupPortableCommand is the command for the running binary: its bare name
+// when PATH finds this same file, so a global install survives an upgrade in
+// place, and its absolute path otherwise, so a hook never runs a different
 // llm-filesystem that PATH happens to find first. The path is not resolved
 // through symlinks: a package manager's link outlives the versioned file it
-// points at.
+// points at. It is unquoted; a hook run through a shell needs shellQuote.
 func setupPortableCommand() (string, error) {
 	exe, err := setupExecutable()
 	if err == nil {
@@ -246,7 +310,7 @@ func setupPortableCommand() (string, error) {
 			return setupHookCommand, nil
 		}
 	}
-	return shellQuote(exe), nil
+	return exe, nil
 }
 
 // shellQuote single-quotes a path the shell running the hook would otherwise
@@ -618,7 +682,7 @@ func setupSteps(res setupResult) []string {
 		return []string{"Write these files: llm-filesystem setup"}
 	case count[setupWritten] > 0:
 		return []string{
-			"Start a new Claude Code or Codex session in this directory to load the hooks and the skill",
+			"Start a new Claude Code, Codex or OpenCode session in this directory to load the hooks, the plugin and the skill",
 			"Codex runs the hook only in a project it trusts, once you review the new hook",
 			"See what the hook will print: llm-filesystem",
 		}

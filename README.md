@@ -60,13 +60,13 @@ make install               # copies it to /usr/local/bin (may require sudo)
 
 ### Agent paths
 
-With Claude Code or Codex, run one command in your project:
+With Claude Code, Codex or OpenCode, run one command in your project:
 
 ```bash
 llm-filesystem setup
 ```
 
-It merges a SessionStart hook into `.claude/settings.json` (keeping every other key and hook), writes the Agent Skill to `.claude/skills/llm-filesystem/SKILL.md`, and merges a SessionStart hook into `.codex/hooks.json` for Codex. The Codex hook names the binary by its absolute path unless `PATH` finds this same binary, and a later run repairs the path if the binary has moved. Codex runs a project's hooks only once you trust the project and review the hook. It is idempotent, never prompts, and supports `--dry-run`. See [`integrations/claude-code/`](integrations/claude-code/).
+It merges a SessionStart hook into `.claude/settings.json` (keeping every other key and hook), writes the Agent Skill to `.claude/skills/llm-filesystem/SKILL.md`, merges a SessionStart hook into `.codex/hooks.json` for Codex, and writes a plugin to `.opencode/plugins/llm-filesystem.js` that adds the home view to OpenCode's system context. The Codex hook and the OpenCode plugin name the binary by its absolute path unless `PATH` finds this same binary, and a later run repairs the path if the binary has moved. Codex runs a project's hooks only once you trust the project and review the hook. It is idempotent, never prompts, and supports `--dry-run`. See [`integrations/claude-code/`](integrations/claude-code/).
 
 To install only the skill with the skills CLI:
 
@@ -106,7 +106,7 @@ rm "$(go env GOPATH)/bin/llm-filesystem"       # go install
 sudo rm /usr/local/bin/llm-filesystem          # make install
 ```
 
-`setup` has no undo command. To remove what it wrote in a project, delete `.claude/skills/llm-filesystem/` and remove the SessionStart hook whose command is `llm-filesystem` from `.claude/settings.json`, and the one whose command is `llm-filesystem` or a path ending in `llm-filesystem` from `.codex/hooks.json`.
+`setup` has no undo command. To remove what it wrote in a project, delete `.claude/skills/llm-filesystem/` and remove the SessionStart hook whose command is `llm-filesystem` from `.claude/settings.json`, and the one whose command is `llm-filesystem` or a path ending in `llm-filesystem` from `.codex/hooks.json`, and delete `.opencode/plugins/llm-filesystem.js`.
 
 ## Quick start
 
@@ -179,7 +179,7 @@ The binary has 29 commands. `llm-filesystem --help` lists them and `llm-filesyst
 | `compress-files` | Compress files into an archive |
 | `extract-archive` | Extract an archive |
 | `list-allowed-directories` | List allowed directories |
-| `setup` | Register llm-filesystem with Claude Code and Codex in this project |
+| `setup` | Register llm-filesystem with Claude Code, Codex and OpenCode in this project |
 
 One example per main command:
 
@@ -273,7 +273,7 @@ Destructive syncs can be previewed. `sync-directories --dry-run` reports what it
 
 Known gaps against the [AXI](https://axi.md) principles, the same ones the catalog entry in [`docs/axi-catalog-entry.yaml`](docs/axi-catalog-entry.yaml) states:
 
-- Principle 7: `setup` registers Claude Code (a SessionStart hook in the project's .claude/settings.json plus the skill) and Codex (a SessionStart hook in the project's .codex/hooks.json); there is no OpenCode plugin and no session-end capture.
+- Principle 7: `setup` registers Claude Code (a SessionStart hook in the project's .claude/settings.json plus the skill), Codex (a SessionStart hook in the project's .codex/hooks.json) and OpenCode (a plugin in the project's .opencode/plugins/ that adds the home view to the system context); there is no session-end capture.
 - Principle 6: once --format text is parsed, usage and tool errors go to stderr and stdout is empty; a flag error listed before --format (as in `read-file --bogus --format text`) is hit before the format flag is parsed and renders in the default toon on stdout, which is also where the json format puts errors.
 - Principles 3 and 4: search-code and search-files stop at --max-results (default 1000) and report that cap as total_matches or total, with no truncation marker or hint.
 - write-file, move-file and copy-file replace an existing destination without --confirm; delete-file requires it, and so does any batch-file-operations entry that destroys something: a delete, or a move or copy onto a path that already exists.

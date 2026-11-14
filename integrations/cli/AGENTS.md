@@ -79,7 +79,7 @@ Every command takes `--help`. Run `llm-filesystem` with no arguments to see the 
 
 | Command | Use it for |
 |---|---|
-| `setup` | Register this tool with Claude Code and Codex in the working directory: SessionStart hooks and the skill, with `--dry-run` to preview |
+| `setup` | Register this tool with Claude Code, Codex and OpenCode in the working directory: SessionStart hooks, an OpenCode plugin and the skill, with `--dry-run` to preview |
 
 ## Two behaviours that will surprise you
 
