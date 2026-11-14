@@ -115,6 +115,11 @@ func TestSearchCodeCountsPastTheCap(t *testing.T) {
 	// Three files of 500, so the cap of 1000 falls between files and the third
 	// file is reached only by counting: total_files must still include it.
 	dir := manyMatchesFixture(t, 3, 500)
+	// A readable text file with no match: total_files counts files that
+	// matched, not files scanned, so this one must not raise it to 4.
+	if err := os.WriteFile(filepath.Join(dir, "plain.txt"), []byte("haystack\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 
 	res, err := SearchCode(SearchCodeOptions{Path: dir, Pattern: "needle"})
 	if err != nil {

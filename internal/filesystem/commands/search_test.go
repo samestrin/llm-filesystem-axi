@@ -244,7 +244,8 @@ func TestSearchUnderTheCapHasNoMarkerOrHint(t *testing.T) {
 	} {
 		for _, format := range []string{"toon", "json", "text"} {
 			out, _, _ := runCLI(t, append(args, "--format", format)...)
-			for _, bad := range []string{"truncated", "shown", "--max-results"} {
+			// "showing" is the text format's spelling of the marker.
+			for _, bad := range []string{"truncated", "shown", "showing", "--max-results"} {
 				if strings.Contains(out, bad) {
 					t.Errorf("%v --format %s mentions %q with nothing cut:\n%s", args, format, bad, out)
 				}
