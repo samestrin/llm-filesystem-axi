@@ -48,23 +48,36 @@ jobs:
             VERSION="dev-${GITHUB_SHA::12}"
           fi
           mkdir -p dist
+          # One stamp for both binaries: they share the commands package, so
+          # the CLI and the MCP server report the same version.
           CLI_LDFLAGS="-s -w -X github.com/samestrin/llm-filesystem-axi/internal/filesystem/commands.Version=$VERSION"
           for platform in darwin/amd64 darwin/arm64 linux/amd64 linux/arm64 windows/amd64; do
             os=${platform%/*}; arch=${platform#*/}
             ext=""; [ "$os" = "windows" ] && ext=".exe"
             GOOS=$os GOARCH=$arch go build -ldflags "$CLI_LDFLAGS" -o dist/llm-filesystem-$os-$arch$ext ./cmd/llm-filesystem
+            GOOS=$os GOARCH=$arch go build -ldflags "$CLI_LDFLAGS" -o dist/llm-filesystem-mcp-$os-$arch$ext ./cmd/llm-filesystem-mcp
           done
           cd dist && sha256sum * > SHA256SUMS.txt
 
-      # Check the output instead of trusting the loop: five binaries, five
-      # checksum lines, and every checksum matches.
+      # Check the output instead of trusting the loop: ten binaries (five per
+      # tool), ten checksum lines, and every checksum matches. The
+      # llm-filesystem-* glob matches both sets, so the per-set count keeps
+      # ten of one binary from passing as ten of each. The runner can execute
+      # the linux/amd64 pair, so it also proves both report one version.
       - name: check the build
         working-directory: dist
         run: |
           cat SHA256SUMS.txt
-          test "$(ls llm-filesystem-* | wc -l)" -eq 5
-          test "$(wc -l < SHA256SUMS.txt)" -eq 5
+          test "$(ls llm-filesystem-* | wc -l)" -eq 10
+          test "$(ls llm-filesystem-mcp-* | wc -l)" -eq 5
+          test "$(wc -l < SHA256SUMS.txt)" -eq 10
           sha256sum -c SHA256SUMS.txt
+          # Both must run and report one version. An empty answer is a
+          # failure, not a match: two broken binaries would otherwise
+          # compare equal.
+          cli_version="$(./llm-filesystem-linux-amd64 --version)"
+          test -n "$cli_version"
+          test "$cli_version" = "$(./llm-filesystem-mcp-linux-amd64 --version)"
 
       - uses: actions/upload-artifact@v4
         with:

@@ -26,12 +26,13 @@ var Version = defaultVersion
 // records in the binary.
 var readBuildInfo = debug.ReadBuildInfo
 
-// displayVersion is the bare version --version prints. A release build's
-// ldflags stamp wins. Without one — `go install ...@v1.0.3` runs no ldflags —
-// it falls back to the module version Go recorded, so the binary does not
-// claim the default for a release it is not. "(devel)" is not a version and
-// leaves the default in place.
-func displayVersion() string {
+// DisplayVersion is the bare version --version prints, shared by the CLI and
+// the MCP server so both report one version. A release build's ldflags stamp
+// wins. Without one — `go install ...@v1.0.3` runs no ldflags — it falls back
+// to the module version Go recorded, so the binary does not claim the default
+// for a release it is not. "(devel)" is not a version and leaves the default
+// in place.
+func DisplayVersion() string {
 	v := Version
 	if v == defaultVersion {
 		if info, ok := readBuildInfo(); ok && info != nil {
@@ -86,7 +87,7 @@ func RootCmd() *cobra.Command {
 		// The bare version, matching the release tag without its "v": the
 		// ldflags stamp the tag itself (v1.0.2), and an agent comparing
 		// versions wants one form, not "llm-filesystem version v1.0.2".
-		Version: displayVersion(),
+		Version: DisplayVersion(),
 		// No command count here on purpose. It was wrong (27 against a real 28),
 		// and the list of commands printed directly below this text is the
 		// authoritative answer — a maintained number can only ever drift from it.

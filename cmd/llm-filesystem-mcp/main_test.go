@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -11,6 +13,7 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/samestrin/llm-filesystem-axi/internal/filesystem/commands"
 )
 
 const (
@@ -344,6 +347,120 @@ func TestToolsMatchTheBuiltCLI(t *testing.T) {
 				t.Errorf("tool %s names %q; `%s --help` has no --%s", tool.Name, prop, command, flag)
 			}
 		}
+	}
+}
+
+// Defends epic 09 T3: --version prints the bare version from the CLI's
+// shared stamp (the "v" stripped, like the CLI) and exits before the server
+// resolves the CLI binary or reads stdin. The CLI is deliberately absent:
+// a --version that resolves it first would fail here instead of printing.
+// This runs without a built binary, so the version path is tested even when
+// the end-to-end tests skip.
+func TestVersionFlagExitsBeforeResolvingTheCLI(t *testing.T) {
+	prev := commands.Version
+	commands.Version = "v9.9.9-test"
+	t.Cleanup(func() { commands.Version = prev })
+
+	t.Setenv("LLM_FILESYSTEM_BINARY", filepath.Join(t.TempDir(), "absent"))
+
+	prevArgs := os.Args
+	os.Args = []string{"llm-filesystem-mcp", "--version"}
+	t.Cleanup(func() { os.Args = prevArgs })
+
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	prevOut := os.Stdout
+	os.Stdout = w
+	t.Cleanup(func() { os.Stdout = prevOut })
+
+	runErr := run()
+	w.Close()
+	out, _ := io.ReadAll(r)
+	if runErr != nil {
+		t.Fatalf("--version returned an error (did it resolve the CLI first?): %v", runErr)
+	}
+	if string(out) != "9.9.9-test\n" {
+		t.Errorf("stdout = %q, want %q", out, "9.9.9-test\n")
+	}
+}
+
+// Defends the shared-version wiring on the startup path in process: run()
+// without --version builds the server with commands.DisplayVersion() and
+// exits cleanly when stdin closes. The end-to-end tests exercise this in a
+// built binary, which the coverage profile cannot see. The test binary
+// itself stands in for the CLI: ResolveBinary only needs an executable, and
+// with stdin at EOF no tool call ever runs it.
+func TestRunStartsAndExitsCleanlyOnStdinEOF(t *testing.T) {
+	t.Setenv("LLM_FILESYSTEM_BINARY", os.Args[0])
+
+	prevArgs := os.Args
+	os.Args = []string{"llm-filesystem-mcp"}
+	t.Cleanup(func() { os.Args = prevArgs })
+
+	devNull, err := os.Open(os.DevNull)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { devNull.Close() })
+	prevIn := os.Stdin
+	os.Stdin = devNull
+	t.Cleanup(func() { os.Stdin = prevIn })
+
+	if err := run(); err != nil {
+		t.Fatalf("run with closed stdin: %v", err)
+	}
+}
+
+// Defends epic 09 T3's "Done when" against the built binaries: the server's
+// --version equals the CLI's --version (make build stamps both from one
+// VERSION), and the server exits without reading stdin or starting. Stdin is
+// a pipe that never delivers and the CLI is absent, so a server that starts
+// instead of printing hangs until the context kills it, and one that
+// resolves the CLI first errors.
+func TestVersionFlagMatchesTheBuiltCLI(t *testing.T) {
+	cli, server := requireBinaries(t)
+	want, err := exec.Command(cli, "--version").Output()
+	if err != nil {
+		t.Fatalf("cli --version: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, server, "--version")
+	cmd.Env = append(os.Environ(), "LLM_FILESYSTEM_BINARY="+filepath.Join(t.TempDir(), "absent"))
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = stdin.Close() })
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	got, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("server --version: %v (stderr: %s)", err, &stderr)
+	}
+	if string(got) != string(want) {
+		t.Errorf("server --version = %q, cli --version = %q", got, want)
+	}
+	if stderr.Len() != 0 {
+		t.Errorf("server --version wrote to stderr (it started): %q", stderr.String())
+	}
+}
+
+// Defends the one-shared-version rule at the MCP boundary: initialize must
+// report the same version the CLI prints, module-version fallback included.
+// The server used to read commands.Version raw, so a `go install` build
+// would have advertised the default while the CLI printed the module version.
+func TestInitializeReportsTheCLIsVersion(t *testing.T) {
+	_, init, cli := connect(t)
+	want, err := exec.Command(cli, "--version").Output()
+	if err != nil {
+		t.Fatalf("cli --version: %v", err)
+	}
+	if init.ServerInfo.Version != strings.TrimSpace(string(want)) {
+		t.Errorf("initialize version = %q, cli --version = %q", init.ServerInfo.Version, want)
 	}
 }
 

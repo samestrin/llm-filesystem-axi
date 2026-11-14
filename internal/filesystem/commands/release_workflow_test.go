@@ -130,6 +130,85 @@ func TestReleaseWorkflowBuildJobBuildsEverything(t *testing.T) {
 	}
 }
 
+// Defends epic 09 T3: every release ships both binaries for every platform
+// under one version stamp, and the check step proves the counts instead of
+// trusting the loop. `ls llm-filesystem-*` matches both sets, so a total of
+// ten alone could pass with ten of one binary; the per-set count pins five
+// of each. The two builds must share the one CLI_LDFLAGS stamp, and the
+// linux/amd64 pair (the runner can execute it) must report one version.
+func TestReleaseWorkflowBuildsAndChecksBothBinaries(t *testing.T) {
+	build := readReleaseWorkflow(t).jobs["build"]
+	for _, want := range []string{
+		`go build -ldflags "$CLI_LDFLAGS" -o dist/llm-filesystem-$os-$arch$ext ./cmd/llm-filesystem`,
+		`go build -ldflags "$CLI_LDFLAGS" -o dist/llm-filesystem-mcp-$os-$arch$ext ./cmd/llm-filesystem-mcp`,
+		`test "$(ls llm-filesystem-* | wc -l)" -eq 10`,
+		`test "$(ls llm-filesystem-mcp-* | wc -l)" -eq 5`,
+		`test "$(wc -l < SHA256SUMS.txt)" -eq 10`,
+		`cli_version="$(./llm-filesystem-linux-amd64 --version)"`,
+		`test -n "$cli_version"`,
+		`test "$cli_version" = "$(./llm-filesystem-mcp-linux-amd64 --version)"`,
+	} {
+		if !strings.Contains(build, want) {
+			t.Errorf("build job is missing %q", want)
+		}
+	}
+	if n := strings.Count(build, `-ldflags "$CLI_LDFLAGS"`); n != 2 {
+		t.Errorf("want both builds stamped with the one CLI_LDFLAGS, got %d uses", n)
+	}
+}
+
+// Defends epic 09 T3's snapshot path: `make build-all` must build both
+// binaries for every platform with the one shared stamp, like the release
+// workflow's loop. A snapshot that ships only the CLI would mislead anyone
+// proving a release early, and the installer downloads the server asset by
+// its exact name.
+func TestMakeBuildAllBuildsBothBinaries(t *testing.T) {
+	body, err := os.ReadFile(filepath.Join("../../..", "Makefile"))
+	if err != nil {
+		t.Fatalf("reading Makefile: %v", err)
+	}
+	makefile := string(body)
+	if !strings.Contains(makefile, "MCP_BINARY := llm-filesystem-mcp") {
+		t.Error("Makefile no longer names the server asset llm-filesystem-mcp")
+	}
+	for _, platform := range []string{"darwin/amd64", "darwin/arm64", "linux/amd64", "linux/arm64", "windows/amd64"} {
+		if !strings.Contains(makefile, platform) {
+			t.Errorf("Makefile platforms do not include %q", platform)
+		}
+	}
+
+	var recipe []string
+	inRecipe := false
+	for _, line := range strings.Split(makefile, "\n") {
+		if strings.HasPrefix(line, "build-all:") {
+			inRecipe = true
+			continue
+		}
+		if inRecipe {
+			if line != "" && !strings.HasPrefix(line, "\t") {
+				break
+			}
+			recipe = append(recipe, line)
+		}
+	}
+	if len(recipe) == 0 {
+		t.Fatal("Makefile has no build-all recipe; this test would pass vacuously")
+	}
+	r := strings.Join(recipe, "\n")
+	for _, want := range []string{
+		"for platform in $(PLATFORMS)",
+		"go build $(CLI_LDFLAGS) -o $(DIST_DIR)/$(CLI_BINARY)-$$os-$$arch$$ext ./cmd/llm-filesystem;",
+		"go build $(CLI_LDFLAGS) -o $(DIST_DIR)/$(MCP_BINARY)-$$os-$$arch$$ext ./cmd/llm-filesystem-mcp;",
+	} {
+		if !strings.Contains(r, want) {
+			t.Errorf("build-all recipe is missing %q", want)
+		}
+	}
+	if n := strings.Count(r, "$(CLI_LDFLAGS)"); n != 2 {
+		t.Errorf("want both builds stamped with the one CLI_LDFLAGS, got %d uses", n)
+	}
+}
+
 // The end-to-end tests exec ./build/llm-filesystem and fail under CI when it
 // is missing, so the verify step must build it first. Without "make build"
 // ahead of "go test", every release run goes red (or, before TD #24, skipped

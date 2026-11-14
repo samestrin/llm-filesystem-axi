@@ -7,7 +7,8 @@ DIST_DIR   := dist
 
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 
-# Version is stamped into the CLI's commands package.
+# Version is stamped into the commands package both binaries share, so the
+# CLI and the MCP server always report one version.
 CLI_LDFLAGS := -ldflags "-s -w -X github.com/samestrin/llm-filesystem-axi/internal/filesystem/commands.Version=$(VERSION)"
 
 PLATFORMS := darwin/amd64 darwin/arm64 linux/amd64 linux/arm64 windows/amd64
@@ -24,6 +25,7 @@ build-all:
 		ext=""; [ "$$os" = "windows" ] && ext=".exe"; \
 		echo "Building $$os/$$arch..."; \
 		GOOS=$$os GOARCH=$$arch go build $(CLI_LDFLAGS) -o $(DIST_DIR)/$(CLI_BINARY)-$$os-$$arch$$ext ./cmd/llm-filesystem; \
+		GOOS=$$os GOARCH=$$arch go build $(CLI_LDFLAGS) -o $(DIST_DIR)/$(MCP_BINARY)-$$os-$$arch$$ext ./cmd/llm-filesystem-mcp; \
 	done
 
 test:
