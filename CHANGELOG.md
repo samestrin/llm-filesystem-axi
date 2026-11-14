@@ -6,6 +6,21 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **A thin MCP stdio server, `llm-filesystem-mcp`.** It exposes the CLI's
+  operational commands as MCP tools by running the `llm-filesystem` binary,
+  rather than maintaining a second filesystem implementation. Binary lookup
+  uses `LLM_FILESYSTEM_BINARY`, then `PATH`, then the server's own directory.
+- **The installer installs `llm-filesystem-mcp` beside the CLI.** Both release
+  binaries are checksum- and version-checked before either is installed. A
+  release without a server asset still installs the verified CLI with a
+  visible skip notice; an invalid server asset installs neither binary.
+- **Release assets include the MCP server for every supported platform.**
+  Releases now build and version-stamp both `llm-filesystem` and
+  `llm-filesystem-mcp` for Linux, macOS and Windows, and list all ten binaries
+  in `SHA256SUMS.txt`.
+
 ### Fixed
 
 - **The README's stderr sentence and the release checklist's benchmark
