@@ -20,6 +20,13 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Releases now build and version-stamp both `llm-filesystem` and
   `llm-filesystem-mcp` for Linux, macOS and Windows, and list all ten binaries
   in `SHA256SUMS.txt`.
+- **`setup` also registers Codex.** It merges a SessionStart hook that runs
+  `llm-filesystem` into the project's `.codex/hooks.json`, keeping every other
+  hook. The hook names the binary by its absolute path unless `PATH` finds
+  this same binary, and a later run repairs that path after the binary moves
+  instead of adding a second hook. Nothing is written under `~/.codex`. Codex
+  runs a project's hooks only once the project is trusted and the hook
+  reviewed.
 
 ### Fixed
 
