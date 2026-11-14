@@ -33,7 +33,12 @@ type SearchFilesResult struct {
 	Pattern string             `json:"pattern"`
 	Path    string             `json:"path"`
 	Matches []FileSearchResult `json:"matches"`
-	Total   int                `json:"total"`
+	// Total counts every match, including those past MaxResults that were
+	// counted but not stored. Shown and Truncated are set only when the cap
+	// cut results, so an uncut search carries no marker.
+	Total     int  `json:"total"`
+	Shown     int  `json:"shown,omitempty"`
+	Truncated bool `json:"truncated,omitempty"`
 }
 
 // SearchFiles searches for files by name pattern
@@ -148,11 +153,16 @@ type SearchCodeOptions struct {
 
 // SearchCodeResult represents the result of a code search
 type SearchCodeResult struct {
-	Pattern      string      `json:"pattern"`
-	Path         string      `json:"path"`
-	Matches      []CodeMatch `json:"matches"`
-	TotalFiles   int         `json:"total_files"`
-	TotalMatches int         `json:"total_matches"`
+	Pattern string      `json:"pattern"`
+	Path    string      `json:"path"`
+	Matches []CodeMatch `json:"matches"`
+	// TotalFiles and TotalMatches count everything that matched, including
+	// matches past MaxResults that were counted but not stored. Shown and
+	// Truncated are set only when the cap cut results.
+	TotalFiles   int  `json:"total_files"`
+	TotalMatches int  `json:"total_matches"`
+	Shown        int  `json:"shown,omitempty"`
+	Truncated    bool `json:"truncated,omitempty"`
 }
 
 // SearchCode searches for patterns in file contents
