@@ -27,6 +27,13 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   instead of adding a second hook. Nothing is written under `~/.codex`. Codex
   runs a project's hooks only once the project is trusted and the hook
   reviewed.
+- **`setup` also registers OpenCode.** It writes a plugin to the project's
+  `.opencode/plugins/llm-filesystem.js` that runs `llm-filesystem` once when
+  OpenCode loads it and adds the home view to the system context; it adds no
+  tool. The plugin names the binary the same way the Codex hook does, a later
+  run rewrites it after the binary moves, and a file at that path that `setup`
+  did not write is refused and left alone. Nothing is written under
+  `~/.config/opencode`.
 
 ### Fixed
 
