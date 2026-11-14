@@ -76,6 +76,7 @@ func SearchFiles(opts SearchFilesOptions) (*SearchFilesResult, error) {
 	}
 
 	var matches []FileSearchResult
+	total := 0
 
 	walkFn := func(filePath string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -103,8 +104,11 @@ func SearchFiles(opts SearchFilesOptions) (*SearchFilesResult, error) {
 			return nil
 		}
 
+		// The cap limits what is stored, not what is counted: stopping here
+		// once reported the cap itself as the total (epic 10 T4).
+		total++
 		if len(matches) >= maxResults {
-			return filepath.SkipAll
+			return nil
 		}
 
 		matches = append(matches, FileSearchResult{
@@ -122,12 +126,17 @@ func SearchFiles(opts SearchFilesOptions) (*SearchFilesResult, error) {
 		return nil, fmt.Errorf("failed to search files: %w", err)
 	}
 
-	return &SearchFilesResult{
+	result := &SearchFilesResult{
 		Pattern: opts.Pattern,
 		Path:    normalizedPath,
 		Matches: matches,
-		Total:   len(matches),
-	}, nil
+		Total:   total,
+	}
+	if total > len(matches) {
+		result.Shown = len(matches)
+		result.Truncated = true
+	}
+	return result, nil
 }
 
 // CodeMatch represents a single code match
@@ -229,7 +238,7 @@ func SearchCode(opts SearchCodeOptions) (*SearchCodeResult, error) {
 	}
 
 	var matches []CodeMatch
-	filesWithMatches := make(map[string]bool)
+	totalMatches, totalFiles := 0, 0
 
 	walkFn := func(filePath string, info os.FileInfo, err error) error {
 		if err != nil || info.IsDir() {
@@ -263,19 +272,21 @@ func SearchCode(opts SearchCodeOptions) (*SearchCodeResult, error) {
 			return nil
 		}
 
-		// Search in file
-		fileMatches, err := searchInFile(filePath, searchFn, opts.ContextLines)
+		// Search in file. The cap limits what is stored, not what is counted:
+		// stopping at it once reported the cap itself as total_matches (epic
+		// 10 T4), so files past it are still read, only to count.
+		fileMatches, count, err := searchInFile(filePath, searchFn, opts.ContextLines, maxResults-len(matches))
 		if err != nil {
 			return nil // Skip files that can't be read
 		}
 
 		for _, m := range fileMatches {
-			if len(matches) >= maxResults {
-				return filepath.SkipAll
-			}
 			m.File = filePath
 			matches = append(matches, m)
-			filesWithMatches[filePath] = true
+		}
+		totalMatches += count
+		if count > 0 {
+			totalFiles++
 		}
 
 		return nil
@@ -285,56 +296,74 @@ func SearchCode(opts SearchCodeOptions) (*SearchCodeResult, error) {
 		return nil, fmt.Errorf("failed to search code: %w", err)
 	}
 
-	return &SearchCodeResult{
+	result := &SearchCodeResult{
 		Pattern:      opts.Pattern,
 		Path:         normalizedPath,
 		Matches:      matches,
-		TotalFiles:   len(filesWithMatches),
-		TotalMatches: len(matches),
-	}, nil
+		TotalFiles:   totalFiles,
+		TotalMatches: totalMatches,
+	}
+	if totalMatches > len(matches) {
+		result.Shown = len(matches)
+		result.Truncated = true
+	}
+	return result, nil
 }
 
-func searchInFile(filePath string, matchFn func(string) bool, contextLines int) ([]CodeMatch, error) {
+// searchInFile returns at most keep matches and the count of every match in the
+// file. Matches past keep are counted but never built, so a search past its cap
+// costs a scan, not memory.
+func searchInFile(filePath string, matchFn func(string) bool, contextLines int, keep int) ([]CodeMatch, int, error) {
 	file, err := os.Open(filePath)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	defer file.Close()
 
 	var matches []CodeMatch
-	var lines []string
+	count := 0
 	scanner := bufio.NewScanner(file)
 
-	// Read all lines if context is needed
-	if contextLines > 0 {
+	// Read all lines only if context is needed for a match that will be kept
+	if contextLines > 0 && keep > 0 {
+		var lines []string
 		for scanner.Scan() {
 			lines = append(lines, scanner.Text())
 		}
 		if err := scanner.Err(); err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 
 		for i, line := range lines {
-			if matchFn(line) {
-				start := max(0, i-contextLines)
-				end := min(len(lines), i+contextLines+1)
-				context := make([]string, 0, end-start)
-				for j := start; j < end; j++ {
-					context = append(context, lines[j])
-				}
-				matches = append(matches, CodeMatch{
-					Line:    i + 1,
-					Content: line,
-					Context: context,
-				})
+			if !matchFn(line) {
+				continue
 			}
+			count++
+			if len(matches) >= keep {
+				continue
+			}
+			start := max(0, i-contextLines)
+			end := min(len(lines), i+contextLines+1)
+			context := make([]string, 0, end-start)
+			for j := start; j < end; j++ {
+				context = append(context, lines[j])
+			}
+			matches = append(matches, CodeMatch{
+				Line:    i + 1,
+				Content: line,
+				Context: context,
+			})
 		}
 	} else {
 		lineNum := 0
 		for scanner.Scan() {
 			lineNum++
 			line := scanner.Text()
-			if matchFn(line) {
+			if !matchFn(line) {
+				continue
+			}
+			count++
+			if len(matches) < keep {
 				matches = append(matches, CodeMatch{
 					Line:    lineNum,
 					Content: line,
@@ -342,11 +371,11 @@ func searchInFile(filePath string, matchFn func(string) bool, contextLines int) 
 			}
 		}
 		if err := scanner.Err(); err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 	}
 
-	return matches, nil
+	return matches, count, nil
 }
 
 func isBinaryFile(path string) bool {

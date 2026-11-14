@@ -85,6 +85,12 @@ func TestKnownGapStatementsAreTrue(t *testing.T) {
 		if strings.Contains(joined, "Principle 6") || strings.Contains(joined, "stderr") {
 			t.Error("a principle 6 gap remains, but errors now go to stdout in every format")
 		}
+		// Epic 10 T4: a capped search reports the exact total, truncated: true
+		// and a --max-results hint (TestSearchCappedShowsExactTotalMarkerAndHint),
+		// so a principles 3 and 4 gap saying it reports the cap is now false.
+		if strings.Contains(joined, "Principles 3 and 4") || strings.Contains(joined, "report that cap") {
+			t.Error("a principles 3 and 4 gap remains, but capped searches now report the exact total with a marker and hint")
+		}
 		// Epic 10 T2: and OpenCode
 		// (TestSetupWritesTheOpenCodePluginOnceRepairsAfterAMoveAndLeavesItAlone).
 		if strings.Contains(joined, "no OpenCode plugin") || !strings.Contains(joined, ".opencode/plugins/") {
