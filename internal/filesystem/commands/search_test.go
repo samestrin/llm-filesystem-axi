@@ -1,6 +1,8 @@
 package commands
 
 import (
+	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -147,4 +149,125 @@ func TestSearchCodeNegativeContextBehavesAsNoContext(t *testing.T) {
 	if !strings.Contains(out, "add --context") {
 		t.Errorf("--context -1 suppresses the hint that names --context, leaving no way to learn how to get context:\n%s", out)
 	}
+}
+
+// capFixture writes n lines containing "needle" across files of 500 lines, and
+// n empty files named *.hit, so search-code and search-files both have exactly
+// n matches.
+func capFixture(t *testing.T, n int) string {
+	t.Helper()
+	dir := t.TempDir()
+	for f := 0; f*500 < n; f++ {
+		lines := min(500, n-f*500)
+		body := strings.Repeat("a needle on this line\n", lines)
+		if err := os.WriteFile(filepath.Join(dir, fmt.Sprintf("f%d.txt", f)), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for i := 0; i < n; i++ {
+		if err := os.WriteFile(filepath.Join(dir, fmt.Sprintf("m%d.hit", i)), nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return dir
+}
+
+// Epic 10 T4, the task's "done when". Both searches stopped at --max-results
+// (default 1000) and printed the cap as the total, with no marker and no hint,
+// so 1,500 matches read as "total_matches: 1000" — a wrong number an agent had
+// no way to doubt. A capped search must give the exact total, the shown count,
+// truncated: true, and a help line naming --max-results.
+func TestSearchCappedShowsExactTotalMarkerAndHint(t *testing.T) {
+	dir := capFixture(t, 1500)
+
+	for _, c := range []struct {
+		name, totalField string
+		args             []string
+	}{
+		{"search-code", "total_matches", []string{"search-code", "--path", dir, "--pattern", "needle"}},
+		{"search-files", "total", []string{"search-files", "--path", dir, "--pattern", "*.hit"}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			out, _, code := runCLI(t, c.args...)
+			if code != int(goaxi.ExitOK) && code != -1 {
+				t.Fatalf("exit = %d\n%s", code, out)
+			}
+			for _, want := range []string{c.totalField + ": 1500", "shown: 1000", "truncated: true"} {
+				if !hasTOONLine(out, want) {
+					t.Errorf("missing %q:\n%s", want, firstLines(out, 8))
+				}
+			}
+			if c.name == "search-code" && !hasTOONLine(out, "total_files: 3") {
+				t.Errorf("total_files is not the exact 3:\n%s", firstLines(out, 8))
+			}
+			if !helpNames(out, "--max-results") {
+				t.Errorf("no help line names --max-results:\n%s", tail(out, 6))
+			}
+
+			js, _, _ := runCLI(t, append(c.args, "--format", "json")...)
+			var payload map[string]interface{}
+			if err := json.Unmarshal([]byte(js), &payload); err != nil {
+				t.Fatalf("json: %v\n%s", err, js)
+			}
+			if payload[c.totalField] != float64(1500) || payload["shown"] != float64(1000) || payload["truncated"] != true {
+				t.Errorf("json %s=%v shown=%v truncated=%v; want 1500, 1000, true",
+					c.totalField, payload[c.totalField], payload["shown"], payload["truncated"])
+			}
+			if n := len(payload["matches"].([]interface{})); n != 1000 {
+				t.Errorf("json listed %d matches, want 1000", n)
+			}
+			if !strings.Contains(fmt.Sprint(payload["next_steps"]), "--max-results") {
+				t.Errorf("json next_steps do not name --max-results: %v", payload["next_steps"])
+			}
+
+			text, _, _ := runCLI(t, append(c.args, "--format", "text")...)
+			if !strings.Contains(firstLines(text, 1), "1500") || !strings.Contains(firstLines(text, 1), "showing 1000") {
+				t.Errorf("text header does not give 1000 of 1500: %q", firstLines(text, 1))
+			}
+			if !strings.Contains(text, "--max-results") {
+				t.Errorf("text output does not name --max-results:\n%s", tail(text, 6))
+			}
+		})
+	}
+}
+
+// The other half of "done when": ten matches under the cap carry no marker and
+// no hint. A truncated: false or a --max-results line on every ordinary search
+// would be noise, and would train an agent to ignore the real one.
+func TestSearchUnderTheCapHasNoMarkerOrHint(t *testing.T) {
+	dir := capFixture(t, 10)
+
+	for _, args := range [][]string{
+		{"search-code", "--path", dir, "--pattern", "needle"},
+		{"search-files", "--path", dir, "--pattern", "*.hit"},
+		{"search-code", "--path", dir, "--pattern", "needle", "--max-results", "10"},
+	} {
+		for _, format := range []string{"toon", "json", "text"} {
+			out, _, _ := runCLI(t, append(args, "--format", format)...)
+			for _, bad := range []string{"truncated", "shown", "--max-results"} {
+				if strings.Contains(out, bad) {
+					t.Errorf("%v --format %s mentions %q with nothing cut:\n%s", args, format, bad, out)
+				}
+			}
+			if !strings.Contains(out, "10") {
+				t.Errorf("%v --format %s does not report 10 matches:\n%s", args, format, out)
+			}
+		}
+	}
+}
+
+// helpNames reports whether a line of the trailing help block mentions s.
+func helpNames(out, s string) bool {
+	i := strings.LastIndex(out, "\nhelp[")
+	return i >= 0 && strings.Contains(out[i:], s)
+}
+
+func firstLines(s string, n int) string {
+	lines := strings.SplitN(s, "\n", n+1)
+	return strings.Join(lines[:min(n, len(lines))], "\n")
+}
+
+func tail(s string, n int) string {
+	lines := strings.Split(s, "\n")
+	return strings.Join(lines[max(0, len(lines)-n):], "\n")
 }
