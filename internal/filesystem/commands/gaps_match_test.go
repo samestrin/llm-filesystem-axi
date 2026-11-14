@@ -82,6 +82,11 @@ func TestKnownGapStatementsAreTrue(t *testing.T) {
 		if strings.Contains(joined, "Claude Code only") || !strings.Contains(joined, ".codex/hooks.json") {
 			t.Error("the principle 7 gap must say setup also registers Codex in .codex/hooks.json")
 		}
+		// Epic 10 T2: and OpenCode
+		// (TestSetupWritesTheOpenCodePluginOnceRepairsAfterAMoveAndLeavesItAlone).
+		if strings.Contains(joined, "no OpenCode plugin") || !strings.Contains(joined, ".opencode/plugins/") {
+			t.Error("the principle 7 gap must say setup also registers OpenCode with a plugin in .opencode/plugins/")
+		}
 	}
 }
 
