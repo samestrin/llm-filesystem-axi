@@ -21,14 +21,15 @@ Destructive commands state exactly what they changed.
 
 ## The CLI is the product
 
-`llm-filesystem` is the only surface, and there is no MCP server; an agent that can run a command can run this.
+`llm-filesystem` is the primary surface; an agent that can run a command can run this.
+A thin MCP server, `llm-filesystem-mcp`, ships beside it as a sibling fallback for hosts that only speak MCP, and every tool call runs the CLI itself.
 Output follows the AXI principles, and TOON through `go-axi` is the format given to a model.
 A bare run answers with live data about where the agent is, not a usage screen.
 Setup for an agent host works from the installed binary alone, with no clone.
 
 ## Small, fast and local
 
-It is one static Go binary with no runtime to install.
+It ships as static Go binaries with no runtime to install.
 It never calls a model and never uses the network.
 Startup time and output size are measured, because an agent pays for both on every call.
 

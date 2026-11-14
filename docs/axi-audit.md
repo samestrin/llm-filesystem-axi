@@ -3,6 +3,7 @@
 - **Audited:** 2026-11-03, on a `make build` of tag `v1.0.0` at `c3b0170`.
 - **Method:** by hand. `axi-axi` is not installed on the build host. Each principle was checked against the text on https://axi.md, by running `build/llm-filesystem` in a scratch temp directory and reading the code the output comes from (line numbers are at `v1.0.0`).
 - **Status:** the audit above is a snapshot of `v1.0.0`. Re-checked against `v1.0.2`: every gap it found (6a, 6b and the principle 7 and 8 gaps) is closed in a release — the fixes shipped in `v1.0.1`, and `v1.0.2` adds no new gap. The verdict column keeps the `v1.0.0` result; the `Closed by` column says what fixed it.
+- **MCP server (added after the audited releases):** epic 09 shipped `llm-filesystem-mcp`, a thin MCP stdio server beside the CLI. Every tool is one CLI command: the server runs the `llm-filesystem` binary and returns its output, and a failing command comes back as an MCP error carrying the CLI's own error and exit code, never as a success. The verdicts above are about the CLI and carry over to the server's results, because every tool result carries the CLI's own output. The server is stdio only, with no network listener, and the installer ships it beside the CLI.
 
 | # | Principle (axi.md) | Verdict | Evidence | Closed by |
 |---|---|---|---|---|

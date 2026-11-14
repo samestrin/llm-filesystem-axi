@@ -14,13 +14,19 @@
 # lines near the top that move every root.go citation down by 25; the rest is
 # tests, benchmarks, docs and CI. When a new tag is reviewed, re-check each
 # line at the new revision before changing reviewed_revision.
+#
+# The MCP server llm-filesystem-mcp landed after reviewed_revision (epic 09,
+# PRs #62, #63 and #64): a thin stdio server that runs the CLI for every tool
+# call. The description below names it; the source_observations stay pinned
+# to the reviewed revision, which predates it. Re-check the server's files
+# when the next tag is reviewed.
 
 community:
   - name: llm-filesystem-axi
     url: https://github.com/samestrin/llm-filesystem-axi
     author: samestrin
     domain: Filesystem
-    description: "Read, write, edit, search, and archive local files from one static Go binary, with TOON output, byte-capped reads that name the offset to continue from, and --confirm on deletes."
+    description: "Read, write, edit, search, and archive local files from one static Go binary, with TOON output, byte-capped reads that name the offset to continue from, and --confirm on deletes. A thin MCP stdio server, llm-filesystem-mcp, ships beside the CLI for hosts that only speak MCP; every tool call runs the CLI and returns its output."
     admission:
       status: exception
       reviewed_revision: 3c577f4534421c3d42701b5132fa56e48c40d64f

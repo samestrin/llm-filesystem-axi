@@ -4,7 +4,7 @@ This page holds the longer explanations that used to sit in the README: where th
 
 ## Origin
 
-`llm-filesystem` began as a Go port of the TypeScript [`fast-filesystem-mcp`](https://github.com/efforthye/fast-filesystem-mcp), rewritten for startup speed and single-binary deployment. It ships as one binary, a CLI. There is no MCP server; an agent that can run a command can run this. It follows the [AXI](https://axi.md) design principles, which treat the command line itself as the agent interface rather than something to be wrapped in a protocol.
+`llm-filesystem` began as a Go port of the TypeScript [`fast-filesystem-mcp`](https://github.com/efforthye/fast-filesystem-mcp), rewritten for startup speed and single-binary deployment. It ships as a CLI, with a thin MCP server (`llm-filesystem-mcp`) beside it for hosts that only speak MCP; an agent that can run a command can run the CLI directly. It follows the [AXI](https://axi.md) design principles, which treat the command line itself as the agent interface rather than something to be wrapped in a protocol.
 
 ## Why Go
 
