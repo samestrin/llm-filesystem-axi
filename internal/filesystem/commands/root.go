@@ -429,11 +429,12 @@ func OutputResultAXI(result interface{}, spec map[string][]string, stepsFn func(
 
 // emitDiagnostic renders err in f and exits with code.
 //
-// Plain text goes to stderr, where a human reads it. Structured formats go to
-// stdout, so an agent receives a parseable body on the stream it actually reads
-// — AXI reserves stderr for logs. The two are exclusive on purpose: a diagnostic
-// written to both streams is one event that a caller merging them counts twice,
-// and reports as two failures when only one happened.
+// Every format goes to stdout, the stream an agent actually reads — AXI
+// reserves stderr for logs. Text used to go to stderr, which left stdout empty
+// for a caller that asked for text and then got nothing to act on (epic 10 T3).
+// Nothing is also written to stderr: a diagnostic written to both streams is one
+// event that a caller merging them counts twice, and reports as two failures
+// when only one happened.
 //
 // The exit code is a parameter rather than a constant because the same rendering
 // serves two different situations. A malformed invocation and a failed operation
@@ -465,13 +466,9 @@ func emitDiagnostic(f Format, compact bool, err error, code goaxi.ExitCode, step
 		doc.WriteString(textSteps(steps))
 	}
 
-	sink := outWriter
-	if f == FormatText {
-		sink = errWriter
-	}
 	// Best effort: this is already the failure path, so a write error here has
 	// nowhere left to report itself except the exit code.
-	_, _ = sink.Write(doc.Bytes())
+	_, _ = outWriter.Write(doc.Bytes())
 	exitFunc(int(code))
 }
 

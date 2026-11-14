@@ -115,6 +115,13 @@ func TestFormatFromArgsScansRawArgv(t *testing.T) {
 		{"a subcommand's own --format falls back", []string{"compress-files", "--format", "zip"}, FormatTOON, false},
 		{"compress-files alias then an unknown flag", []string{"compress-files", "--format", "tgz", "--bogus"}, FormatTOON, false},
 		{"compress-files still honours an output format", []string{"compress-files", "--bogus", "--format", "json"}, FormatJSON, false},
+		// The alias is not an output format, so --json still decides, exactly
+		// as PersistentPreRunE resolves it once parsing succeeds. Reading "tgz"
+		// as a (rejected) format would answer in TOON instead.
+		{"compress-files alias leaves --json in charge", []string{"compress-files", "--json", "--format", "tgz", "--bogus"}, FormatJSON, false},
+		// cobra keeps the last --format, and PersistentPreRunE then treats an
+		// archive type as no output format at all.
+		{"compress-files alias listed last unsets the format", []string{"compress-files", "--format", "json", "--format", "zip", "--bogus"}, FormatTOON, false},
 		{"the alias is compress-files only", []string{"read-file", "--format", "zip"}, FormatTOON, false},
 		// A flag's VALUE that looks like a format request. --pattern is declared
 		// by search-code as taking a value, so the token after it is its value

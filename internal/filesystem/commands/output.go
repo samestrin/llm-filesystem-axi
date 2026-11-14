@@ -8,6 +8,7 @@ import (
 
 	goaxi "github.com/samestrin/go-axi"
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 )
 
 // Format is an output rendering mode.
@@ -74,14 +75,17 @@ func resolveFormat(formatFlag string, formatSet, jsonFlag, minFlag bool) (Format
 // being reported. resolveFormat already returns TOON alongside its error, so the
 // error is discardable here, and only here.
 //
-// The scan reads argv without knowing which flag owns which value, so an
-// argument whose VALUE happens to be --format, --json or --min is misread as the
-// flag itself (--pattern --json, say). compress-files accepts
-// --format zip|tar.gz|tgz as a deprecated alias for --archive-format, and that
-// value arrives here as a format name, which resolveFormat then rejects. In every case the blast
-// radius is which format a diagnostic renders in, never the format of a
-// successful result, so the cheap scan earns its keep.
-func formatFromArgs(_ *cobra.Command, args []string) (Format, bool) {
+// The scan walks root's command tree as it goes, so it knows which flags the
+// resolved command declares. A token is skipped as a value only after a flag
+// declared to take one: that is what keeps `--pattern --json` from being read as
+// a format request. An unknown flag takes no value. Cobra stops at it, so the
+// --format after it is never parsed, and this scan is the only thing that still
+// sees it — `read-file --bogus --format text` answers in text.
+//
+// compress-files accepts --format zip|tar.gz|tgz as a deprecated alias for
+// --archive-format; that value is not an output format, the same exception
+// PersistentPreRunE makes.
+func formatFromArgs(root *cobra.Command, args []string) (Format, bool) {
 	var (
 		formatVal string
 		formatSet bool
@@ -89,41 +93,108 @@ func formatFromArgs(_ *cobra.Command, args []string) (Format, bool) {
 		minFlag   bool
 	)
 
+	cmd := root
+	descending := true
+	// setFormat records one --format, last one winning. On compress-files an
+	// archive type unsets it, as PersistentPreRunE does with cobra's last value.
+	setFormat := func(v string) {
+		formatVal, formatSet = v, !(cmd.Name() == "compress-files" && isArchiveType(v))
+	}
+
 scan:
 	for i := 0; i < len(args); i++ {
-		switch a := args[i]; {
+		a := args[i]
+		switch {
 		case a == "--":
 			break scan
-		case a == "--json":
-			jsonFlag = true
-		case a == "--min":
-			minFlag = true
-		case strings.HasPrefix(a, "--format="):
-			formatVal, formatSet = strings.TrimPrefix(a, "--format="), true
-		case a == "--format":
-			if i+1 < len(args) {
-				formatVal, formatSet = args[i+1], true
+		case strings.HasPrefix(a, "--"):
+			name, val, joined := strings.Cut(a[2:], "=")
+			fl := lookupFlag(cmd, name, "")
+			switch {
+			case name == "format" && fl != nil:
+				if joined {
+					setFormat(val)
+				} else if i+1 < len(args) {
+					i++
+					setFormat(args[i])
+				}
+			case name == "json" && fl != nil:
+				jsonFlag = true
+			case name == "min" && fl != nil:
+				minFlag = true
+			case fl != nil && !joined && takesValue(fl):
 				i++
 			}
-		case a == "--full", a == "--help", a == "--version":
-			// Known root booleans. They consume no value, so the token after
-			// them belongs to someone else and must not be skipped below.
-		case strings.HasPrefix(a, "--") && !strings.Contains(a, "="):
-			// An unrecognised long flag may take a value, and this scan cannot
-			// tell a flag from a value. Skipping the next token is what stops
-			// `--pattern --min` being read as a format request.
-			//
-			// It errs toward ignoring a stray --min, which is the safe
-			// direction. A misread normally only changes how a diagnostic is
-			// FORMATTED — but text is the one format that also changes which
-			// STREAM it lands on, and a diagnostic silently moving to stderr is
-			// exactly the failure AC7 exists to remove.
-			i++
+		case strings.HasPrefix(a, "-") && len(a) > 1:
+			// Shorthands, possibly combined (-ab). The first one that takes a
+			// value swallows the rest of the token, or the next token if there
+			// is no rest; an unknown one ends the token, as it ends pflag's parse.
+			for j := 1; j < len(a); j++ {
+				fl := lookupFlag(cmd, "", a[j:j+1])
+				if fl == nil {
+					break
+				}
+				if takesValue(fl) {
+					if j == len(a)-1 {
+						i++
+					}
+					break
+				}
+			}
+		default:
+			// A positional names a subcommand only until the first one that
+			// does not, as in cobra's own resolution.
+			if !descending {
+				continue
+			}
+			if sub := findSubcommand(cmd, a); sub != nil {
+				cmd = sub
+			} else {
+				descending = false
+			}
 		}
 	}
 
 	f, compact, _ := resolveFormat(formatVal, formatSet, jsonFlag, minFlag)
 	return f, compact
+}
+
+// lookupFlag finds a flag by long name or by shorthand on cmd or on any
+// ancestor's persistent flags. It reads the declarations directly because
+// cobra merges inherited flags into cmd.Flags() only while parsing, and this
+// runs after a parse that may have failed before getting there.
+func lookupFlag(cmd *cobra.Command, name, shorthand string) *pflag.Flag {
+	find := func(fs *pflag.FlagSet) *pflag.Flag {
+		if name != "" {
+			return fs.Lookup(name)
+		}
+		return fs.ShorthandLookup(shorthand)
+	}
+	if fl := find(cmd.Flags()); fl != nil {
+		return fl
+	}
+	for c := cmd; c != nil; c = c.Parent() {
+		if fl := find(c.PersistentFlags()); fl != nil {
+			return fl
+		}
+	}
+	return nil
+}
+
+// takesValue reports whether a bare --flag consumes the next token, the rule
+// pflag applies: a flag with a NoOptDefVal (every bool) does not.
+func takesValue(fl *pflag.Flag) bool {
+	return fl.NoOptDefVal == ""
+}
+
+// findSubcommand returns cmd's subcommand named or aliased name, or nil.
+func findSubcommand(cmd *cobra.Command, name string) *cobra.Command {
+	for _, sub := range cmd.Commands() {
+		if sub.Name() == name || sub.HasAlias(name) {
+			return sub
+		}
+	}
+	return nil
 }
 
 // textSteps renders recovery guidance for the human format, to be appended to a
