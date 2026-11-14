@@ -16,7 +16,7 @@ The GIF is rendered from [`docs/demo/llm-filesystem.tape`](docs/demo/llm-filesys
 - Listings in full JSON spend most of their tokens on repeated field names. Output defaults to TOON with a minimal field set, which removes most of the tokens from a large directory listing (measured in [`docs/background.md`](docs/background.md)).
 - A typo and a broken tool need different responses. Usage errors exit `2` and tool failures exit `1`, and every non-zero exit prints a diagnostic, so an agent can tell whether a retry is worthwhile.
 - Deleting by mistake is hard to undo. `delete-file` and any destructive `batch-file-operations` entry refuse to run without `--confirm`.
-- Agents run in many environments. It ships as one static binary with no runtime and no server: an agent that can run a command can use it.
+- Agents run in many environments. It ships as static binaries with no runtime: an agent that can run a command can use the CLI, and a host that only speaks MCP can run the thin `llm-filesystem-mcp` server beside it.
 
 ## Install
 
@@ -26,11 +26,11 @@ The GIF is rendered from [`docs/demo/llm-filesystem.tape`](docs/demo/llm-filesys
 curl -fsSL https://raw.githubusercontent.com/samestrin/llm-filesystem-axi/main/install.sh | bash
 ```
 
-The installer downloads the release binary for your platform (Linux or macOS, amd64 or arm64) and `SHA256SUMS.txt`, verifies the binary against it, runs it with `--version`, and installs it to `~/.local/bin`. On a failed download, a checksum mismatch, or a binary that does not run on your machine it installs nothing and exits non-zero. Set `INSTALL_DIR` to install elsewhere, or `LLM_FILESYSTEM_VERSION` to pin a release tag.
+The installer downloads the release binaries for your platform (Linux or macOS, amd64 or arm64) — the `llm-filesystem` CLI and the `llm-filesystem-mcp` server — and `SHA256SUMS.txt`, verifies each binary against it, runs each with `--version`, and installs them to `~/.local/bin`. On a failed download, a checksum mismatch, or a binary that does not run on your machine it installs nothing and exits non-zero. A release that predates the MCP server (v1.0.3 and earlier) has no server asset: the installer says the server was not installed, installs the verified CLI alone, and exits `0`. Set `INSTALL_DIR` to install elsewhere, or `LLM_FILESYSTEM_VERSION` to pin a release tag.
 
 ### Release binary by hand
 
-Each release publishes `llm-filesystem-linux-amd64`, `llm-filesystem-linux-arm64`, `llm-filesystem-darwin-amd64`, `llm-filesystem-darwin-arm64`, `llm-filesystem-windows-amd64.exe` and `SHA256SUMS.txt`. Download your platform's binary and the checksum file, check the one line for your asset, then install it:
+Each release publishes `llm-filesystem-linux-amd64`, `llm-filesystem-linux-arm64`, `llm-filesystem-darwin-amd64`, `llm-filesystem-darwin-arm64`, `llm-filesystem-windows-amd64.exe` and `SHA256SUMS.txt`. Releases that ship the MCP server also publish the matching `llm-filesystem-mcp-<os>-<arch>` assets, listed in the same `SHA256SUMS.txt`; v1.0.3 and earlier have none. Download your platform's binary and the checksum file, check the one line for your asset, then install it:
 
 ```bash
 curl -fsSLO https://github.com/samestrin/llm-filesystem-axi/releases/download/v1.0.3/llm-filesystem-linux-amd64
@@ -38,6 +38,8 @@ curl -fsSLO https://github.com/samestrin/llm-filesystem-axi/releases/download/v1
 grep ' llm-filesystem-linux-amd64$' SHA256SUMS.txt | sha256sum -c -    # macOS: shasum -a 256 -c -
 mkdir -p ~/.local/bin && install -m 755 llm-filesystem-linux-amd64 ~/.local/bin/llm-filesystem
 ```
+
+The server installs the same way: download its asset for your platform, check its line in `SHA256SUMS.txt`, and install it beside the CLI as `llm-filesystem-mcp`.
 
 ### go install
 
@@ -49,13 +51,15 @@ go install github.com/samestrin/llm-filesystem-axi/cmd/llm-filesystem@v1.0.3
 
 This installs to `$(go env GOPATH)/bin`, and `--version` prints the tag you installed, without the `v` (`1.0.3` here). A `go install` adds no version stamp, so from `v1.0.3` on the binary falls back to the module version Go records. `v1.0.2` and earlier read only the stamp that the release builds and `make build` add, so a `go install` of one of them prints `1.0.0`; the code is still that release's code.
 
+From the first release that ships the server, `go install github.com/samestrin/llm-filesystem-axi/cmd/llm-filesystem-mcp@<tag>` installs it the same way and it reports the same version; v1.0.3 and earlier do not contain that package.
+
 ### From source
 
 ```bash
 git clone https://github.com/samestrin/llm-filesystem-axi.git
 cd llm-filesystem-axi
-make build                 # outputs to ./build/llm-filesystem
-make install               # copies it to /usr/local/bin (may require sudo)
+make build                 # outputs both binaries to ./build/
+make install               # copies the CLI to /usr/local/bin (may require sudo)
 ```
 
 ### Agent paths
@@ -84,7 +88,7 @@ That list is checked against the binary in both directions by tests, so a comman
 
 ### Upgrade
 
-Re-run the installer. It replaces the existing binary and prints the version installed and the one it replaced:
+Re-run the installer. It replaces the existing binaries and prints, for each, the version installed and the one it replaced:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/samestrin/llm-filesystem-axi/main/install.sh | bash
@@ -92,17 +96,19 @@ curl -fsSL https://raw.githubusercontent.com/samestrin/llm-filesystem-axi/main/i
 llm-filesystem --version
 ```
 
-If the installer warns that some path shadows the new install, an older `llm-filesystem` sits earlier on your `PATH` and still runs instead of the one just installed; a pre-1.0 copy rejects `--confirm` and fails every delete. Remove the older copy, or put `~/.local/bin` (or your `INSTALL_DIR`) earlier on your `PATH`. The installer also warns about a leftover binary from the removed MCP server, which is no longer part of this tool and is no longer updated; it names the path so you can remove it.
+If the installer warns that some path shadows the new install, an older copy sits earlier on your `PATH` and still runs instead of the one just installed; a pre-1.0 `llm-filesystem` rejects `--confirm` and fails every delete. The warning covers both binaries: an older `llm-filesystem-mcp` earlier on `PATH` shadows the server the installer just installed or upgraded. Remove the older copy, or put `~/.local/bin` (or your `INSTALL_DIR`) earlier on your `PATH`.
 
 With `go install`, run the same command again with `@latest` or a newer tag.
 
 ### Uninstall
 
-Remove the binary from where it was installed:
+Remove the binaries from where they were installed:
 
 ```bash
 rm ~/.local/bin/llm-filesystem                 # installer default; or "$INSTALL_DIR/llm-filesystem"
+rm ~/.local/bin/llm-filesystem-mcp             # installer default; or "$INSTALL_DIR/llm-filesystem-mcp"
 rm "$(go env GOPATH)/bin/llm-filesystem"       # go install
+rm "$(go env GOPATH)/bin/llm-filesystem-mcp"   # go install
 sudo rm /usr/local/bin/llm-filesystem          # make install
 ```
 
@@ -198,6 +204,53 @@ llm-filesystem setup --dry-run
 
 To restrict every command to specific directories, pass `--allowed-dirs`, for example `--allowed-dirs /Users/me/projects,/tmp`. A path outside them fails with exit `1`.
 
+### MCP server
+
+`llm-filesystem-mcp` is a thin MCP stdio server beside the CLI, for hosts that cannot run a command directly. Every tool is one CLI command: the tool runs the `llm-filesystem` binary and returns its TOON output, so the two cannot drift. Destructive tools act only when you pass `confirm: true`, the same gate as `--confirm` on the CLI. The CLI remains the primary surface; the server is the fallback.
+
+The installer puts the server beside the CLI. The server finds the CLI through `LLM_FILESYSTEM_BINARY`, then `PATH`, then its own directory, and each call has a 120-second timeout (`LLM_FILESYSTEM_MCP_TIMEOUT`). A failing command comes back as an MCP error carrying the CLI's own error and exit code, never as a success.
+
+**Claude Code** — add it from your project, or commit the `.mcp.json` below at the project root:
+
+```bash
+claude mcp add llm-filesystem -- llm-filesystem-mcp
+```
+
+```json
+{
+  "mcpServers": {
+    "llm-filesystem": {
+      "command": "llm-filesystem-mcp"
+    }
+  }
+}
+```
+
+**Codex** — in `~/.codex/config.toml`:
+
+```toml
+[mcp_servers.llm-filesystem]
+command = "llm-filesystem-mcp"
+```
+
+**OpenCode** — in `opencode.jsonc`:
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "servers": {
+      "llm-filesystem": {
+        "type": "local",
+        "command": ["llm-filesystem-mcp"]
+      }
+    }
+  }
+}
+```
+
+If the host does not have `~/.local/bin` on its `PATH`, use the server binary's full path in `command`, and set `LLM_FILESYSTEM_BINARY` if the CLI lives somewhere the server cannot find it.
+
 See [`docs/llm-filesystem-commands.md`](docs/llm-filesystem-commands.md) for the full command reference.
 
 ## Configuration
@@ -209,6 +262,8 @@ See [`docs/llm-filesystem-commands.md`](docs/llm-filesystem-commands.md) for the
 | `LLM_FILESYSTEM_VERSION` | `latest` | Installer only: the release tag to install, for example `v1.0.3`. |
 | `LLM_FILESYSTEM_DOWNLOAD_TIMEOUT` | `300` | Installer only: seconds before a download is abandoned. |
 | `LLM_FILESYSTEM_BASE_URL` | unset | Installer only: the URL the assets are fetched from, overriding the version. Used by the installer's tests. |
+| `LLM_FILESYSTEM_BINARY` | unset | MCP server only: full path to the `llm-filesystem` binary to run, overriding `PATH` and the server's own directory. A path with no executable there is an error, not a fallback. |
+| `LLM_FILESYSTEM_MCP_TIMEOUT` | `120s` | MCP server only: per-call timeout, a Go duration (`90s`, `2m`) or a whole number of seconds. On expiry the call is killed and the error says a write may be partial. |
 
 ## Output and exit codes
 

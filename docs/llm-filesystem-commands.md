@@ -8,7 +8,7 @@ Every count, flag and example in this file is checked against the binary. The co
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/samestrin/llm-filesystem-axi/main/install.sh | bash
-# downloads the release binary, verifies its SHA256 checksum, installs to ~/.local/bin (no sudo)
+# downloads the release binaries (CLI and MCP server), verifies their SHA256 checksums, installs to ~/.local/bin (no sudo)
 ```
 
 Or directly:
@@ -133,4 +133,12 @@ Errors are structured documents on **stdout** in the active format, each carryin
 
 ## MCP
 
-There is no MCP server. The MCP wrapper was removed: it shelled out to this same CLI, so every command change had to land twice, and the two drifted. AXI treats the command line as the agent interface, so an agent that can run a command uses the CLI directly. For Claude Code setup, see [`integrations/claude-code/`](../integrations/claude-code/).
+`llm-filesystem-mcp` is a thin MCP stdio server beside the CLI, for hosts that cannot run a command directly. The CLI remains the primary surface; the server is the fallback. Each tool call runs the `llm-filesystem` binary and returns what it printed — nothing is reimplemented, so a tool cannot drift from the command it runs.
+
+- **Tools** are generated from the CLI's command tree: one per operational command, named with the prefix llm_filesystem_ and the command name with dashes turned to underscores (read-file becomes llm_filesystem_read_file). Flags become parameters the same way (--line-start becomes line_start). `completion`, `help`, `setup` and the bare root get no tool. The output switches (`--format`, `--json`, `--min`, `--help`) are never parameters: the server always asks for TOON.
+- **Results** are the CLI's TOON output. A non-zero exit is an MCP error result (`isError: true`) carrying the CLI's own error and exit code — 1 failed, 2 usage (nothing was attempted) — never a success. Destructive commands act only when the caller passes `confirm: true`, the same gate as `--confirm` on the CLI.
+- **Binary lookup:** `LLM_FILESYSTEM_BINARY` (full path to the CLI), then `PATH`, then the directory of the running server. A failed lookup names every path tried and the variable.
+- **Timeout:** each call gets 120 seconds by default. `LLM_FILESYSTEM_MCP_TIMEOUT` sets it (a Go duration such as `90s` or `2m`, or a whole number of seconds). On expiry the child is killed and the error says a write may be partial.
+- **Version:** `llm-filesystem-mcp --version` prints the same version as the CLI and exits before reading stdin.
+
+The installer installs and upgrades the server beside the CLI; the README's Install and Usage sections show the client configuration for Claude Code, Codex and OpenCode. For Claude Code's hook and skill setup, see [`integrations/claude-code/`](../integrations/claude-code/).
