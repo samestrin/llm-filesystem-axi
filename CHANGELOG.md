@@ -47,6 +47,14 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Search totals are exact when `--max-results` cuts the list.**
+  `search-code` and `search-files` used to stop at the cap (default 1000) and
+  report it as `total_matches` or `total`, so 1,500 matches read as 1000 with
+  no marker. They now keep counting without storing the extra matches, and
+  report the exact `total_matches`, `total_files` or `total`, plus `shown`,
+  `truncated: true` and a help line naming `--max-results`. A search the cap
+  did not cut carries no marker and no hint.
+
 - **The README's stderr sentence and the release checklist's benchmark
   script name now match the code.** The README says errors go to stderr,
   with stdout empty, only once `--format text` has been parsed; a flag error

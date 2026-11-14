@@ -324,12 +324,13 @@ Deletes are gated. `delete-file` requires `--confirm`. So does any `batch-file-o
 
 A missing path is a failure, not an empty result. A search against a path that does not exist reports an error rather than zero matches, so a typo cannot read as "the code you are looking for is not here".
 
+Search totals are exact. `--max-results` (default 1000) limits what a search lists, not what it counts: past the cap, `total_matches` (or `total` for `search-files`) and `total_files` still count every match, and the result adds `shown`, `truncated: true` and a help line naming `--max-results`. A search the cap did not cut has neither.
+
 Destructive syncs can be previewed. `sync-directories --dry-run` reports what it would write, in every output format, and writes nothing. The preview reports the same counts the real run does: `dirs_created` is directories it creates, not directories it walks, so a directory already present in the destination is not counted.
 
 Known gaps against the [AXI](https://axi.md) principles, the same ones the catalog entry in [`docs/axi-catalog-entry.yaml`](docs/axi-catalog-entry.yaml) states:
 
 - Principle 7: `setup` registers Claude Code (a SessionStart hook in the project's .claude/settings.json plus the skill), Codex (a SessionStart hook in the project's .codex/hooks.json) and OpenCode (a plugin in the project's .opencode/plugins/ that adds the home view to the system context); there is no session-end capture.
-- Principles 3 and 4: search-code and search-files stop at --max-results (default 1000) and report that cap as total_matches or total, with no truncation marker or hint.
 - write-file, move-file and copy-file replace an existing destination without --confirm; delete-file requires it, and so does any batch-file-operations entry that destroys something: a delete, or a move or copy onto a path that already exists.
 
 ## Documentation

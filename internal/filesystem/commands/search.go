@@ -46,15 +46,19 @@ func searchFilesCmd() *cobra.Command {
 							"Search contents instead of names: llm-filesystem search-code --path " + result.Path + " --pattern <text>",
 						}
 					}
-					return []string{
+					var steps []string
+					if result.Truncated {
+						steps = append(steps, capHint(result.Shown, result.Total))
+					}
+					return append(steps,
 						"Read a match: llm-filesystem read-file --path <path>",
 						"Add --full for all fields (is_dir, mod_time).",
-					}
+					)
 				},
 				func() string {
 					var sb strings.Builder
-					sb.WriteString(fmt.Sprintf("Found %d files matching '%s' in %s\n\n",
-						result.Total, result.Pattern, result.Path))
+					sb.WriteString(fmt.Sprintf("Found %d files matching '%s' in %s%s\n\n",
+						result.Total, result.Pattern, result.Path, showing(result.Truncated, result.Shown)))
 					for _, m := range result.Matches {
 						typeIndicator := ""
 						if m.IsDir {
@@ -71,7 +75,7 @@ func searchFilesCmd() *cobra.Command {
 	cmd.Flags().StringVar(&pattern, "pattern", "", "Search pattern (required)")
 	cmd.Flags().BoolVar(&recursive, "recursive", true, "Search recursively")
 	cmd.Flags().BoolVar(&showHidden, "show-hidden", false, "Include hidden files")
-	cmd.Flags().IntVar(&maxResults, "max-results", 1000, "Maximum results to return")
+	cmd.Flags().IntVar(&maxResults, "max-results", 1000, "Maximum results to list; the total still counts every match")
 	cmd.MarkFlagRequired("path")
 	cmd.MarkFlagRequired("pattern")
 
@@ -126,7 +130,11 @@ func searchCodeCmd() *cobra.Command {
 							"Search file names instead of contents: llm-filesystem search-files --path " + result.Path + " --pattern <name>",
 						}
 					}
-					steps := []string{"Open a match: llm-filesystem read-file --path <file>"}
+					var steps []string
+					if result.Truncated {
+						steps = append(steps, capHint(result.Shown, result.TotalMatches))
+					}
+					steps = append(steps, "Open a match: llm-filesystem read-file --path <file>")
 					// This used to read "Add --full for surrounding context
 					// lines", which returns none: context exists only when
 					// --context asked for it, so following that line ran a
@@ -138,8 +146,8 @@ func searchCodeCmd() *cobra.Command {
 				},
 				func() string {
 					var sb strings.Builder
-					sb.WriteString(fmt.Sprintf("Found %d matches in %d files for '%s'\n\n",
-						result.TotalMatches, result.TotalFiles, result.Pattern))
+					sb.WriteString(fmt.Sprintf("Found %d matches in %d files for '%s'%s\n\n",
+						result.TotalMatches, result.TotalFiles, result.Pattern, showing(result.Truncated, result.Shown)))
 					for _, m := range result.Matches {
 						sb.WriteString(fmt.Sprintf("%s:%d: %s\n", m.File, m.Line, m.Content))
 						if len(m.Context) > 0 {
@@ -160,10 +168,26 @@ func searchCodeCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&regex, "regex", false, "Use regex pattern")
 	cmd.Flags().IntVar(&contextLines, "context", 0, "Lines of context around matches")
 	cmd.Flags().StringSliceVar(&fileTypes, "file-types", nil, "File extensions to include")
-	cmd.Flags().IntVar(&maxResults, "max-results", 1000, "Maximum results")
+	cmd.Flags().IntVar(&maxResults, "max-results", 1000, "Maximum results to list; the total still counts every match")
 	cmd.Flags().BoolVar(&showHidden, "show-hidden", false, "Include hidden files")
 	cmd.MarkFlagRequired("path")
 	cmd.MarkFlagRequired("pattern")
 
 	return cmd
+}
+
+// capHint is the help line for a search that --max-results cut. It is emitted
+// only when results were cut: the totals are exact either way (epic 10 T4), and
+// a hint on every search would teach an agent to ignore the one that matters.
+func capHint(shown, total int) string {
+	return fmt.Sprintf("Showing %d of %d: raise --max-results (e.g. --max-results %d) to list them all, or narrow --pattern or --path",
+		shown, total, total)
+}
+
+// showing is the text-format counterpart of shown and truncated.
+func showing(truncated bool, shown int) string {
+	if !truncated {
+		return ""
+	}
+	return fmt.Sprintf(" (showing %d)", shown)
 }
