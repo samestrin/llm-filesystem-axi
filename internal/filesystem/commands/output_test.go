@@ -5,6 +5,8 @@ import (
 	"errors"
 	"strings"
 	"testing"
+
+	"github.com/spf13/cobra"
 )
 
 func TestParseFormat(t *testing.T) {
@@ -147,6 +149,12 @@ func TestFormatFromArgsScansRawArgv(t *testing.T) {
 		{"unknown subcommand before --format", []string{"bogus-command", "--format", "json"}, FormatJSON, false},
 		{"last --format wins", []string{"--format", "json", "read-file", "--bogus", "--format", "text"}, FormatText, false},
 		{"last --format wins the other way", []string{"--format", "text", "read-file", "--format=json"}, FormatJSON, false},
+		// After a positional that names no subcommand, later positionals are
+		// arguments, not subcommands, as cobra resolves them. Descending into
+		// search-code here would make --pattern take --format as its value and
+		// read --json; descending into read-file would make --path swallow it.
+		{"no descent after an unknown subcommand", []string{"bogus-command", "search-code", "--pattern", "--format", "text", "--json"}, FormatText, false},
+		{"no descent into a later subcommand name", []string{"bogus-command", "read-file", "--path", "--format", "text"}, FormatText, false},
 	}
 
 	for _, tt := range tests {
@@ -157,6 +165,42 @@ func TestFormatFromArgsScansRawArgv(t *testing.T) {
 			}
 			if gotCompact != tt.wantCompact {
 				t.Errorf("compact = %v, want %v", gotCompact, tt.wantCompact)
+			}
+		})
+	}
+}
+
+// No command in the real tree declares a shorthand that takes a value, so the
+// scan's shorthand rule is pinned against a synthetic tree. Without it, the
+// value after `-p` would be read as a flag: `-p --json` would answer in JSON
+// for a caller that searched for the literal "--json".
+func TestFormatFromArgsShorthandValues(t *testing.T) {
+	newRoot := func() *cobra.Command {
+		root := &cobra.Command{Use: "root"}
+		root.PersistentFlags().String("format", "toon", "")
+		root.PersistentFlags().Bool("json", false, "")
+		root.PersistentFlags().Bool("min", false, "")
+		sub := &cobra.Command{Use: "sub", Run: func(*cobra.Command, []string) {}}
+		sub.Flags().StringP("pattern", "p", "", "")
+		sub.Flags().BoolP("all", "a", false, "")
+		root.AddCommand(sub)
+		return root
+	}
+	tests := []struct {
+		name string
+		args []string
+		want Format
+	}{
+		{"a value shorthand takes the next token", []string{"sub", "-p", "--json"}, FormatTOON},
+		{"combined bool then value shorthand takes the next token", []string{"sub", "-ap", "--json"}, FormatTOON},
+		{"a joined shorthand value takes nothing after it", []string{"sub", "-pX", "--json"}, FormatJSON},
+		{"a bool shorthand takes no value", []string{"sub", "-a", "--json"}, FormatJSON},
+		{"an unknown shorthand takes no value", []string{"sub", "-z", "--json"}, FormatJSON},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got, _ := formatFromArgs(newRoot(), tt.args); got != tt.want {
+				t.Errorf("format = %v, want %v", got, tt.want)
 			}
 		})
 	}
