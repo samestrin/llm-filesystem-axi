@@ -15,6 +15,7 @@ var (
 	setupSettingsRel = filepath.Join(".claude", "settings.json")
 	setupSkillRel    = filepath.Join(".claude", "skills", "llm-filesystem", "SKILL.md")
 	setupCodexRel    = filepath.Join(".codex", "hooks.json")
+	setupOpenCodeRel = filepath.Join(".opencode", "plugins", "llm-filesystem.js")
 )
 
 // setupProject makes an empty project directory, moves into it, and points HOME
@@ -209,7 +210,7 @@ func TestSetupReportsEachPathInEveryFormat(t *testing.T) {
 	if code != -1 {
 		t.Fatalf("toon dry run exit %d", code)
 	}
-	for _, rel := range []string{setupSettingsRel, setupSkillRel, setupCodexRel} {
+	for _, rel := range []string{setupSettingsRel, setupSkillRel, setupCodexRel, setupOpenCodeRel} {
 		if !lineHasBoth(stdout, rel, "would-write") {
 			t.Errorf("TOON does not report %s as would-write:\n%s", rel, stdout)
 		}
@@ -226,7 +227,7 @@ func TestSetupReportsEachPathInEveryFormat(t *testing.T) {
 	if code != -1 {
 		t.Fatalf("text exit %d", code)
 	}
-	for _, rel := range []string{setupSettingsRel, setupSkillRel, setupCodexRel} {
+	for _, rel := range []string{setupSettingsRel, setupSkillRel, setupCodexRel, setupOpenCodeRel} {
 		if !lineHasBoth(stdout, rel, "unchanged") {
 			t.Errorf("text does not report %s as unchanged:\n%s", rel, stdout)
 		}
@@ -358,7 +359,7 @@ func TestSetupDryRunWritesNothing(t *testing.T) {
 	if !doc.DryRun {
 		t.Error("dry_run is not set on a dry run")
 	}
-	for _, rel := range []string{setupSettingsRel, setupSkillRel, setupCodexRel} {
+	for _, rel := range []string{setupSettingsRel, setupSkillRel, setupCodexRel, setupOpenCodeRel} {
 		if got := statusOf(doc, rel); got != "would-write" {
 			t.Errorf("%s reported %q, want would-write", rel, got)
 		}
@@ -483,11 +484,14 @@ func TestSetupRefusesASymlinkLeadingOutOfTheProject(t *testing.T) {
 		link   string // relative to the project
 		target func(outside string) string
 	}{
-		".claude":                       {".claude", func(o string) string { return o }},
-		".claude/skills/llm-filesystem": {filepath.Join(".claude", "skills", "llm-filesystem"), func(o string) string { return o }},
-		".claude/settings.json":         {setupSettingsRel, func(o string) string { return filepath.Join(o, "settings.json") }},
-		".codex":                        {".codex", func(o string) string { return o }},
-		".codex/hooks.json":             {setupCodexRel, func(o string) string { return filepath.Join(o, "hooks.json") }},
+		".claude":                             {".claude", func(o string) string { return o }},
+		".claude/skills/llm-filesystem":       {filepath.Join(".claude", "skills", "llm-filesystem"), func(o string) string { return o }},
+		".claude/settings.json":               {setupSettingsRel, func(o string) string { return filepath.Join(o, "settings.json") }},
+		".codex":                              {".codex", func(o string) string { return o }},
+		".codex/hooks.json":                   {setupCodexRel, func(o string) string { return filepath.Join(o, "hooks.json") }},
+		".opencode":                           {".opencode", func(o string) string { return o }},
+		".opencode/plugins":                   {filepath.Join(".opencode", "plugins"), func(o string) string { return o }},
+		".opencode/plugins/llm-filesystem.js": {setupOpenCodeRel, func(o string) string { return filepath.Join(o, "llm-filesystem.js") }},
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -556,7 +560,7 @@ func TestSetupWritesEachFileByRename(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{filepath.Join(real, setupSettingsRel), filepath.Join(real, setupSkillRel), filepath.Join(real, setupCodexRel)}
+	want := []string{filepath.Join(real, setupSettingsRel), filepath.Join(real, setupSkillRel), filepath.Join(real, setupCodexRel), filepath.Join(real, setupOpenCodeRel)}
 	if len(moves) != len(want) {
 		t.Fatalf("renames = %v, want one per file", moves)
 	}
@@ -571,6 +575,7 @@ func TestSetupWritesEachFileByRename(t *testing.T) {
 	assertNothingWritten(t, filepath.Join(dir, ".claude"), "settings.json", "skills")
 	assertNothingWritten(t, filepath.Join(dir, ".claude", "skills", "llm-filesystem"), "SKILL.md")
 	assertNothingWritten(t, filepath.Join(dir, ".codex"), "hooks.json")
+	assertNothingWritten(t, filepath.Join(dir, ".opencode", "plugins"), "llm-filesystem.js")
 }
 
 // A failure on the second file must not hide that the first was written: the
@@ -682,8 +687,9 @@ func TestSetupRefusesToReplaceASymlinkedTargetFile(t *testing.T) {
 		targetRel string // relative to the project, inside it
 		content   string
 	}{
-		"SKILL.md":      {setupSkillRel, filepath.Join("own-skill.md"), "the user's own skill"},
-		"settings.json": {setupSettingsRel, filepath.Join("own-settings.json"), "{}"},
+		"SKILL.md":          {setupSkillRel, filepath.Join("own-skill.md"), "the user's own skill"},
+		"settings.json":     {setupSettingsRel, filepath.Join("own-settings.json"), "{}"},
+		"llm-filesystem.js": {setupOpenCodeRel, filepath.Join("own-plugin.js"), "export const Mine = async () => ({})\n"},
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
