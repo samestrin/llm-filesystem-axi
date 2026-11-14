@@ -72,6 +72,17 @@ func TestKnownGapStatementsAreTrue(t *testing.T) {
 			t.Error("the stderr rule claims errors go to stderr with --format text without the parsed-first qualifier")
 		}
 	}
+	// Epic 10 T1: setup registers Codex too
+	// (TestSetupWritesCodexHooksOnceRepairsAfterAMoveAndLeavesThemAlone), so a
+	// principle 7 gap saying "Claude Code only" is now false. Only the gap items
+	// are checked: the catalog's source observations describe a pinned older
+	// revision and stay true of it.
+	for _, gaps := range [][]string{readmeGapBullets(string(readme)), catalogExceptionItems(string(entry))} {
+		joined := strings.Join(gaps, "\n")
+		if strings.Contains(joined, "Claude Code only") || !strings.Contains(joined, ".codex/hooks.json") {
+			t.Error("the principle 7 gap must say setup also registers Codex in .codex/hooks.json")
+		}
+	}
 }
 
 // readmeGapBullets returns the bullet lines following the "Known gaps" lead-in

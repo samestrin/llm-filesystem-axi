@@ -8,6 +8,7 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -21,6 +22,10 @@ import (
 // the session's context, so it is the bare run: the home view. The owner chose
 // the bare run over a routing-only summary (epic 05, question 1).
 const setupHookCommand = "llm-filesystem"
+
+// setupExecutable is indirected so a test can decide where "this binary" lives;
+// under go test the real one is the test binary.
+var setupExecutable = os.Executable
 
 // renameFile is indirected so a test can fail the second of the two writes,
 // which no real filesystem does on demand.
@@ -62,18 +67,29 @@ func setupCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "setup",
-		Short: "Register llm-filesystem with Claude Code in this project",
+		Short: "Register llm-filesystem with Claude Code and Codex in this project",
 		Long: `Merge a SessionStart hook that runs llm-filesystem into .claude/settings.json,
-and write the Agent Skill to .claude/skills/llm-filesystem/SKILL.md.
+write the Agent Skill to .claude/skills/llm-filesystem/SKILL.md, and merge a
+SessionStart hook into .codex/hooks.json for Codex.
 
-Every other key and hook in settings.json is kept. A settings.json that is not
-a JSON object, or whose "hooks" or "hooks.SessionStart" has the wrong type, is
+The Codex hook runs llm-filesystem by name when PATH finds this same binary,
+and by its absolute path otherwise. A later run points an existing
+llm-filesystem hook in .codex/hooks.json at the binary's current location, so
+a moved or reinstalled binary is repaired rather than registered twice.
+
+Every other key and hook in either file is kept. A file that is not a JSON
+object, or whose "hooks" or "hooks.SessionStart" has the wrong type, is
 refused and left as it is.
 
-Only the working directory is written to. The user-wide ~/.claude is never
-touched: running setup in the home directory is refused, and so is a .claude
-symlink that leads out of the project. Both files are planned before either is
-written, and each is written to a temporary file and renamed into place.
+Only the working directory is written to. The user-wide ~/.claude and ~/.codex
+are never touched: running setup in the home directory is refused, and so is a
+.claude or .codex symlink that leads out of the project. Every file is planned
+before any is written, and each is written to a temporary file and renamed into
+place.
+
+Codex (checked on 0.166.0, where the hooks feature is on by default) reads
+.codex/hooks.json only in a project it trusts, and lists a new or changed hook
+as untrusted until you review it. Session-end capture is not set up.
 
 Safe to run again: a second run changes no bytes and says so. Never prompts.
 
@@ -155,13 +171,14 @@ func setupProjectDir(cwd string) (string, error) {
 	return dir, nil
 }
 
-// planSetup works out both files without writing either, so a settings file
-// that cannot be merged or a link that leads out of the project fails the run
-// before anything has changed.
+// planSetup works out every file without writing any, so a hooks file that
+// cannot be merged or a link that leads out of the project fails the run before
+// anything has changed.
 func planSetup(dir string) ([]setupPlan, error) {
 	settingsRel := filepath.Join(".claude", "settings.json")
 	skillRel := filepath.Join(".claude", "skills", "llm-filesystem", "SKILL.md")
-	for _, rel := range []string{settingsRel, skillRel} {
+	codexRel := filepath.Join(".codex", "hooks.json")
+	for _, rel := range []string{settingsRel, skillRel, codexRel} {
 		if err := checkInsideProject(dir, filepath.Join(dir, rel)); err != nil {
 			return nil, err
 		}
@@ -177,11 +194,21 @@ func planSetup(dir string) ([]setupPlan, error) {
 		}
 	}
 
-	settings, err := planSettings(filepath.Join(dir, settingsRel))
+	settings, err := planHooksFile(filepath.Join(dir, settingsRel), setupHookCommand, false)
 	if err != nil {
 		return nil, err
 	}
 	settings.rel = settingsRel
+
+	codexCommand, err := setupPortableCommand()
+	if err != nil {
+		return nil, err
+	}
+	codex, err := planHooksFile(filepath.Join(dir, codexRel), codexCommand, true)
+	if err != nil {
+		return nil, err
+	}
+	codex.rel = codexRel
 
 	skillPlan := setupPlan{rel: skillRel, content: []byte(skill.Content), mode: 0o644}
 	existing, err := os.ReadFile(filepath.Join(dir, skillRel))
@@ -195,7 +222,60 @@ func planSetup(dir string) ([]setupPlan, error) {
 		skillPlan.mode = fileMode(filepath.Join(dir, skillRel))
 	}
 
-	return []setupPlan{settings, skillPlan}, nil
+	return []setupPlan{settings, skillPlan, codex}, nil
+}
+
+// setupPortableCommand is the hook command for the running binary: its bare
+// name when PATH finds this same file, so a global install survives an upgrade
+// in place, and its absolute path otherwise, so the hook never runs a different
+// llm-filesystem that PATH happens to find first. The path is not resolved
+// through symlinks: a package manager's link outlives the versioned file it
+// points at.
+func setupPortableCommand() (string, error) {
+	exe, err := setupExecutable()
+	if err == nil {
+		exe, err = filepath.Abs(exe)
+	}
+	if err != nil {
+		return "", fmt.Errorf("cannot find this binary's own path for the hook command: %w", err)
+	}
+	if found, err := exec.LookPath(setupHookCommand); err == nil {
+		a, errA := os.Stat(found)
+		b, errB := os.Stat(exe)
+		if errA == nil && errB == nil && os.SameFile(a, b) {
+			return setupHookCommand, nil
+		}
+	}
+	return shellQuote(exe), nil
+}
+
+// shellQuote single-quotes a path the shell running the hook would otherwise
+// split or expand, such as one with a space in it.
+func shellQuote(s string) string {
+	unsafe := strings.IndexFunc(s, func(r rune) bool {
+		return !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || strings.ContainsRune("/._-+:,@%=", r))
+	})
+	if s != "" && unsafe < 0 {
+		return s
+	}
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
+// isSetupHookCommand reports whether a hook command is one setup wrote: the
+// bare name, or an absolute path to a file named llm-filesystem, possibly
+// single-quoted. Path repair rewrites only these, so a user's own hook that
+// merely mentions the tool is never touched.
+func isSetupHookCommand(cmd string) bool {
+	if cmd == setupHookCommand {
+		return true
+	}
+	if n := len(cmd); n >= 2 && cmd[0] == '\'' && cmd[n-1] == '\'' {
+		cmd = cmd[1 : n-1]
+		if strings.Contains(cmd, "'") {
+			return false
+		}
+	}
+	return filepath.IsAbs(cmd) && strings.TrimSuffix(filepath.Base(cmd), ".exe") == setupHookCommand
 }
 
 // applySetup writes the planned files in order. After a failure the rest are
@@ -306,12 +386,14 @@ func checkInsideProject(dir, target string) error {
 	return nil
 }
 
-// planSettings computes the merged settings without writing. Values are kept as
-// the raw JSON they were read as, so key order, number literals and string
-// escapes survive; only whitespace is normalised, and only when the file has to
-// change at all. When the hook is already registered the file is left byte for
-// byte alone.
-func planSettings(path string) (setupPlan, error) {
+// planHooksFile computes a merged hooks file (Claude Code's settings.json or
+// Codex's hooks.json, which share the hooks layout) without writing. Values are
+// kept as the raw JSON they were read as, so key order, number literals and
+// string escapes survive; only whitespace is normalised, and only when the file
+// has to change at all. When the hook is already registered the file is left
+// byte for byte alone. With repair, a hook setup wrote earlier that names a
+// different command is rewritten in place to name command.
+func planHooksFile(path, command string, repair bool) (setupPlan, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return setupPlan{}, fmt.Errorf("read %s: %w", path, err)
@@ -337,28 +419,21 @@ func planSettings(path string) (setupPlan, error) {
 			return setupPlan{}, fmt.Errorf(`%s: "hooks.SessionStart" is not a list; refusing to overwrite`, path)
 		}
 	}
-	if hasSessionStartCommand(groups, setupHookCommand) {
+	repaired := repair && repairSessionStart(groups, command)
+	registered := hasSessionStartCommand(groups, command)
+	if registered && !repaired {
 		return setupPlan{content: raw, mode: fileMode(path)}, nil
 	}
 
-	type hook struct {
-		Type    string `json:"type"`
-		Command string `json:"command"`
+	if !registered {
+		hook := jsonObject{}
+		hook.set("type", jsonString("command"))
+		hook.set("command", jsonString(command))
+		group := jsonObject{}
+		group.set("hooks", joinJSONList([]json.RawMessage{hook.encode()}))
+		groups = append(groups, group.encode())
 	}
-	group, _ := json.Marshal(map[string][]hook{"hooks": {{Type: "command", Command: setupHookCommand}}})
-	groups = append(groups, group)
-	// Joined by hand: json.Marshal would HTML-escape the user's existing hooks,
-	// turning a command such as "echo hi >&2" into "echo hi >&2".
-	var list bytes.Buffer
-	list.WriteByte('[')
-	for i, g := range groups {
-		if i > 0 {
-			list.WriteByte(',')
-		}
-		list.Write(g)
-	}
-	list.WriteByte(']')
-	hooks.set("SessionStart", list.Bytes())
+	hooks.set("SessionStart", joinJSONList(groups))
 	root.set("hooks", hooks.encode())
 
 	var out bytes.Buffer
@@ -372,6 +447,72 @@ func planSettings(path string) (setupPlan, error) {
 		mode = fileMode(path)
 	}
 	return setupPlan{content: out.Bytes(), mode: mode, changed: true}, nil
+}
+
+// repairSessionStart rewrites, in place, every SessionStart hook setup wrote
+// that names a command other than want, keeping the hook's other fields and
+// every other hook as they were. It reports whether anything changed.
+func repairSessionStart(groups []json.RawMessage, want string) bool {
+	repaired := false
+	for i, g := range groups {
+		group, err := parseJSONObject(g)
+		if err != nil {
+			continue
+		}
+		var hooks []json.RawMessage
+		if v, ok := group.get("hooks"); !ok || json.Unmarshal(v, &hooks) != nil {
+			continue
+		}
+		changed := false
+		for j, h := range hooks {
+			hook, err := parseJSONObject(h)
+			if err != nil {
+				continue
+			}
+			var cmd string
+			if v, ok := hook.get("command"); !ok || json.Unmarshal(v, &cmd) != nil {
+				continue
+			}
+			if cmd == want || !isSetupHookCommand(cmd) {
+				continue
+			}
+			hook.set("command", jsonString(want))
+			hooks[j] = hook.encode()
+			changed = true
+		}
+		if changed {
+			group.set("hooks", joinJSONList(hooks))
+			groups[i] = group.encode()
+			repaired = true
+		}
+	}
+	return repaired
+}
+
+// joinJSONList joins raw values into a JSON list by hand: json.Marshal would
+// HTML-escape the user's existing hooks, turning a command such as
+// "echo hi >&2" into "echo hi >&2".
+func joinJSONList(items []json.RawMessage) json.RawMessage {
+	var list bytes.Buffer
+	list.WriteByte('[')
+	for i, item := range items {
+		if i > 0 {
+			list.WriteByte(',')
+		}
+		list.Write(item)
+	}
+	list.WriteByte(']')
+	return list.Bytes()
+}
+
+// jsonString encodes s without HTML escaping, so a command keeps its
+// characters as written.
+func jsonString(s string) json.RawMessage {
+	var b bytes.Buffer
+	enc := json.NewEncoder(&b)
+	enc.SetEscapeHTML(false)
+	_ = enc.Encode(s)
+	return bytes.TrimSuffix(b.Bytes(), []byte("\n")) // Encode appends a newline
 }
 
 func hasSessionStartCommand(groups []json.RawMessage, command string) bool {
@@ -455,10 +596,7 @@ func (o jsonObject) encode() json.RawMessage {
 		if i > 0 {
 			b.WriteByte(',')
 		}
-		enc := json.NewEncoder(&b)
-		enc.SetEscapeHTML(false)
-		_ = enc.Encode(k)
-		b.Truncate(b.Len() - 1) // Encode appends a newline
+		b.Write(jsonString(k))
 		b.WriteByte(':')
 		b.Write(o.vals[k])
 	}
@@ -480,7 +618,8 @@ func setupSteps(res setupResult) []string {
 		return []string{"Write these files: llm-filesystem setup"}
 	case count[setupWritten] > 0:
 		return []string{
-			"Start a new Claude Code session in this directory to load the hook and the skill",
+			"Start a new Claude Code or Codex session in this directory to load the hooks and the skill",
+			"Codex runs the hook only in a project it trusts, once you review the new hook",
 			"See what the hook will print: llm-filesystem",
 		}
 	default:
