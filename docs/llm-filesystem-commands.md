@@ -129,7 +129,7 @@ A search path that does not exist, or that is a file rather than a directory, is
 | `1` | The tool failed — the operation was attempted and did not fully work (including a partial run, such as an archive command that skipped some entries) |
 | `2` | Usage error — unknown subcommand, unknown flag, missing required flag, invalid `--format`, or a refused confirmation |
 
-Errors are structured documents on **stdout** in the active format, each carrying a `help[]` block naming a concrete next command. `--format text` keeps its `Error: <msg>` shape on stderr.
+Errors are structured documents on **stdout** in the active format, each carrying a `help[]` block naming a concrete next command. `--format text` keeps its `Error: <msg>` shape, also on stdout; nothing is written to stderr. The format is read before any other flag is parsed, so `read-file --bogus --format text` still answers in text.
 
 ## MCP
 

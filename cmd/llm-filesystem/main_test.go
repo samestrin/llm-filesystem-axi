@@ -177,13 +177,12 @@ func TestToolFailureExitsOne(t *testing.T) {
 	}
 }
 
-// The README's Limits section and the catalog entry's exception text say
-// that with --format text, errors go to stderr — with a qualifier this test
-// pins. A flag parse failure is rendered through the format parsed SO FAR:
-// "--format text" placed AFTER the offending flag is never parsed, so the
-// diagnostic falls back to the default toon on stdout. Without the qualifier
-// the docs claim stdout is empty in a case where it carries 200+ bytes.
-func TestFormatTextStderrOnlyOnceFormatIsParsed(t *testing.T) {
+// Epic 10 T3, AXI principle 6, against the real binary: with --format text a
+// usage error goes to stdout and stderr stays empty, whichever side of the
+// unknown flag --format sits on. This test used to pin the gap instead: text
+// went to stderr once parsed, and `--bogus --format text` rendered in TOON on
+// stdout because the pre-scan lost the --format to the unknown flag.
+func TestFormatTextErrorsGoToStdoutInEitherOrder(t *testing.T) {
 	bin := requireBinary(t)
 
 	run := func(args ...string) (stdout, stderr string, code int) {
@@ -203,26 +202,20 @@ func TestFormatTextStderrOnlyOnceFormatIsParsed(t *testing.T) {
 		return outBuf.String(), errBuf.String(), exitErr.ExitCode()
 	}
 
-	stdout, stderr, code := run("read-file", "--format", "text", "--bogus")
-	if code != int(goaxi.ExitUsage) {
-		t.Errorf("--format text --bogus: exit = %d, want ExitUsage (%d)", code, goaxi.ExitUsage)
-	}
-	if stdout != "" {
-		t.Errorf("--format text --bogus: stdout = %q, want empty once --format text is parsed", stdout)
-	}
-	if stderr == "" {
-		t.Error("--format text --bogus: stderr is empty; the usage error must go there")
-	}
-
-	stdout, stderr, code = run("read-file", "--bogus", "--format", "text")
-	if code != int(goaxi.ExitUsage) {
-		t.Errorf("--bogus --format text: exit = %d, want ExitUsage (%d)", code, goaxi.ExitUsage)
-	}
-	if stdout == "" {
-		t.Error("--bogus --format text: stdout is empty; the unparsed --format must leave the toon default writing to stdout")
-	}
-	if stderr != "" {
-		t.Errorf("--bogus --format text: stderr = %q, want empty (toon diagnostics go to stdout)", stderr)
+	for _, args := range [][]string{
+		{"read-file", "--format", "text", "--bogus"},
+		{"read-file", "--bogus", "--format", "text"},
+	} {
+		stdout, stderr, code := run(args...)
+		if code != int(goaxi.ExitUsage) {
+			t.Errorf("%v: exit = %d, want ExitUsage (%d)", args, code, goaxi.ExitUsage)
+		}
+		if !strings.HasPrefix(stdout, "Error: ") || !strings.Contains(stdout, "unknown flag") {
+			t.Errorf("%v: stdout = %q, want the text error", args, stdout)
+		}
+		if stderr != "" {
+			t.Errorf("%v: stderr = %q, want empty", args, stderr)
+		}
 	}
 }
 

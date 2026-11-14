@@ -35,6 +35,16 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   did not write is refused and left alone. Nothing is written under
   `~/.config/opencode`.
 
+### Changed
+
+- **Errors go to stdout in every format, whatever the flag order.** With
+  `--format text`, usage and tool errors used to go to stderr and leave stdout
+  empty; they now print their `Error: <msg>` text on stdout, and nothing goes
+  to stderr. A flag error listed before `--format`, as in
+  `read-file --bogus --format text`, used to render in the default TOON; it
+  now renders in the format asked for. Exit codes are unchanged: 1 for a
+  failure, 2 for a usage error.
+
 ### Fixed
 
 - **The README's stderr sentence and the release checklist's benchmark

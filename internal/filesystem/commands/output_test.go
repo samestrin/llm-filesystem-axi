@@ -5,6 +5,8 @@ import (
 	"errors"
 	"strings"
 	"testing"
+
+	"github.com/spf13/cobra"
 )
 
 func TestParseFormat(t *testing.T) {
@@ -86,6 +88,11 @@ func TestResolveFormatInvalidFailsLoud(t *testing.T) {
 // whatever the previous invocation left there. Every form the root flags accept
 // has to be recognized here, or a diagnostic renders in a format the caller
 // never asked for.
+//
+// Epic 10 T3: the scan resolves the subcommand and skips a token only after a
+// flag that command declares as taking a value. It used to skip the token after
+// ANY unrecognised long flag, so `read-file --bogus --format text` lost its
+// --format to the unknown flag and the diagnostic rendered in TOON.
 func TestFormatFromArgsScansRawArgv(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -102,33 +109,98 @@ func TestFormatFromArgsScansRawArgv(t *testing.T) {
 		{"legacy --json --min is compact json", []string{"--json", "--min"}, FormatJSON, true},
 		{"explicit --format beats legacy --json", []string{"--json", "--format", "text"}, FormatText, false},
 		{"nothing after -- is a flag", []string{"--", "--format", "json"}, FormatTOON, false},
+		{"-- after the subcommand ends the scan too", []string{"read-file", "--", "--format", "json"}, FormatTOON, false},
 		{"trailing --format with no value", []string{"list-directory", "--format"}, FormatTOON, false},
 		// compress-files still accepts --format zip|tar.gz|tgz as a deprecated alias for
-		// --archive-format (epic 04 T3). A raw argv
-		// scan cannot tell that apart from the global flag, so it reads "zip",
-		// which resolveFormat rejects, which falls back to TOON. That is the
-		// right outcome for the only thing this function decides — how to render
-		// a diagnostic — and it is why the returned error is discarded here.
+		// --archive-format (epic 04 T3). PersistentPreRunE does not read an
+		// archive type as an output format, and neither does this scan.
 		{"a subcommand's own --format falls back", []string{"compress-files", "--format", "zip"}, FormatTOON, false},
-		// A flag's VALUE that looks like a format request. The scan cannot tell
-		// a flag from a value, and reading --min here selects text — which
-		// emitDiagnostic sends to STDERR, reinstating the very failure AC7
-		// removes. Searching for a literal string beginning "--min" is not
-		// exotic.
+		{"compress-files alias then an unknown flag", []string{"compress-files", "--format", "tgz", "--bogus"}, FormatTOON, false},
+		{"compress-files still honours an output format", []string{"compress-files", "--bogus", "--format", "json"}, FormatJSON, false},
+		// The alias is not an output format, so --json still decides, exactly
+		// as PersistentPreRunE resolves it once parsing succeeds. Reading "tgz"
+		// as a (rejected) format would answer in TOON instead.
+		{"compress-files alias leaves --json in charge", []string{"compress-files", "--json", "--format", "tgz", "--bogus"}, FormatJSON, false},
+		// cobra keeps the last --format, and PersistentPreRunE then treats an
+		// archive type as no output format at all.
+		{"compress-files alias listed last unsets the format", []string{"compress-files", "--format", "json", "--format", "zip", "--bogus"}, FormatTOON, false},
+		{"the alias is compress-files only", []string{"read-file", "--format", "zip"}, FormatTOON, false},
+		// A flag's VALUE that looks like a format request. --pattern is declared
+		// by search-code as taking a value, so the token after it is its value
+		// and never a flag. Reading --min here would select text for a caller
+		// that did not ask for it. Searching for a literal string beginning
+		// "--min" is not exotic.
 		{"a value that looks like --min", []string{"search-code", "--path", ".", "--pattern", "--min", "--bogus"}, FormatTOON, false},
 		{"a value that looks like --json", []string{"search-code", "--path", ".", "--pattern", "--json", "--bogus"}, FormatTOON, false},
+		{"a value that looks like --format", []string{"read-file", "--path", "--format", "json", "--bogus"}, FormatTOON, false},
+		{"a joined value takes nothing after it", []string{"search-code", "--pattern=x", "--json"}, FormatJSON, false},
+		{"a global value flag before the subcommand", []string{"--allowed-dirs", "--json", "read-file", "--bogus"}, FormatTOON, false},
 		// A known root boolean is still honoured when it really is the flag.
 		{"a real --min after a known bool", []string{"--full", "--min"}, FormatText, true},
+		{"a global bool after the subcommand takes no value", []string{"read-file", "--full", "--format", "json"}, FormatJSON, false},
+		{"a subcommand's own bool takes no value", []string{"list-directory", "--show-hidden", "--format", "json"}, FormatJSON, false},
+		// An unknown flag takes no value: cobra stops at it, so whatever follows
+		// is never parsed, and the scan must still see the format the caller
+		// asked for.
+		{"unknown flag before --format", []string{"read-file", "--bogus", "--format", "text"}, FormatText, false},
+		{"unknown flag before --format=", []string{"read-file", "--bogus", "--format=json"}, FormatJSON, false},
+		{"unknown flag before legacy --json", []string{"read-file", "--bogus", "--json"}, FormatJSON, false},
+		{"unknown shorthand before --format", []string{"read-file", "-q", "--format", "text"}, FormatText, false},
+		{"unknown subcommand before --format", []string{"bogus-command", "--format", "json"}, FormatJSON, false},
+		{"last --format wins", []string{"--format", "json", "read-file", "--bogus", "--format", "text"}, FormatText, false},
+		{"last --format wins the other way", []string{"--format", "text", "read-file", "--format=json"}, FormatJSON, false},
+		// After a positional that names no subcommand, later positionals are
+		// arguments, not subcommands, as cobra resolves them. Descending into
+		// search-code here would make --pattern take --format as its value and
+		// read --json; descending into read-file would make --path swallow it.
+		{"no descent after an unknown subcommand", []string{"bogus-command", "search-code", "--pattern", "--format", "text", "--json"}, FormatText, false},
+		{"no descent into a later subcommand name", []string{"bogus-command", "read-file", "--path", "--format", "text"}, FormatText, false},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			gotFmt, gotCompact := formatFromArgs(tt.args)
+			gotFmt, gotCompact := formatFromArgs(RootCmd(), tt.args)
 			if gotFmt != tt.wantFormat {
 				t.Errorf("format = %v, want %v", gotFmt, tt.wantFormat)
 			}
 			if gotCompact != tt.wantCompact {
 				t.Errorf("compact = %v, want %v", gotCompact, tt.wantCompact)
+			}
+		})
+	}
+}
+
+// No command in the real tree declares a shorthand that takes a value, so the
+// scan's shorthand rule is pinned against a synthetic tree. Without it, the
+// value after `-p` would be read as a flag: `-p --json` would answer in JSON
+// for a caller that searched for the literal "--json".
+func TestFormatFromArgsShorthandValues(t *testing.T) {
+	newRoot := func() *cobra.Command {
+		root := &cobra.Command{Use: "root"}
+		root.PersistentFlags().String("format", "toon", "")
+		root.PersistentFlags().Bool("json", false, "")
+		root.PersistentFlags().Bool("min", false, "")
+		sub := &cobra.Command{Use: "sub", Run: func(*cobra.Command, []string) {}}
+		sub.Flags().StringP("pattern", "p", "", "")
+		sub.Flags().BoolP("all", "a", false, "")
+		root.AddCommand(sub)
+		return root
+	}
+	tests := []struct {
+		name string
+		args []string
+		want Format
+	}{
+		{"a value shorthand takes the next token", []string{"sub", "-p", "--json"}, FormatTOON},
+		{"combined bool then value shorthand takes the next token", []string{"sub", "-ap", "--json"}, FormatTOON},
+		{"a joined shorthand value takes nothing after it", []string{"sub", "-pX", "--json"}, FormatJSON},
+		{"a bool shorthand takes no value", []string{"sub", "-a", "--json"}, FormatJSON},
+		{"an unknown shorthand takes no value", []string{"sub", "-z", "--json"}, FormatJSON},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got, _ := formatFromArgs(newRoot(), tt.args); got != tt.want {
+				t.Errorf("format = %v, want %v", got, tt.want)
 			}
 		})
 	}

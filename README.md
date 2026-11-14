@@ -291,7 +291,7 @@ llm-filesystem list-directory --path . --format json   # JSON for scripts
 | `1` | The tool failed: the operation was attempted and did not fully work. This includes a partial run: `compress-files`, `extract-archive` and `sync-directories` exit `1` when any input, archive entry or file was skipped, with the failures named in the output |
 | `2` | Usage error: unknown subcommand, unknown flag, missing required flag, invalid `--format`, or a destructive operation without `--confirm` |
 
-Errors are written to stdout as a structured document in the default TOON and in `--format json`. With `--format text` they go to stderr and stdout stays empty, but only once `--format` has been parsed: a flag error hit before it, such as `read-file --bogus --format text`, still renders in the default TOON on stdout.
+Errors are written to stdout in the active format, `--format text` included, and stderr stays empty. That holds whatever the flag order: in `read-file --bogus --format text` the unknown flag stops parsing before `--format`, and the error still renders as text.
 
 ## Performance
 
@@ -329,7 +329,6 @@ Destructive syncs can be previewed. `sync-directories --dry-run` reports what it
 Known gaps against the [AXI](https://axi.md) principles, the same ones the catalog entry in [`docs/axi-catalog-entry.yaml`](docs/axi-catalog-entry.yaml) states:
 
 - Principle 7: `setup` registers Claude Code (a SessionStart hook in the project's .claude/settings.json plus the skill), Codex (a SessionStart hook in the project's .codex/hooks.json) and OpenCode (a plugin in the project's .opencode/plugins/ that adds the home view to the system context); there is no session-end capture.
-- Principle 6: once --format text is parsed, usage and tool errors go to stderr and stdout is empty; a flag error listed before --format (as in `read-file --bogus --format text`) is hit before the format flag is parsed and renders in the default toon on stdout, which is also where the json format puts errors.
 - Principles 3 and 4: search-code and search-files stop at --max-results (default 1000) and report that cap as total_matches or total, with no truncation marker or hint.
 - write-file, move-file and copy-file replace an existing destination without --confirm; delete-file requires it, and so does any batch-file-operations entry that destroys something: a delete, or a move or copy onto a path that already exists.
 
