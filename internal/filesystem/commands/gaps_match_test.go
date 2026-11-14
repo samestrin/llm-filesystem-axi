@@ -48,9 +48,9 @@ func TestReadmeLimitsGapsMatchCatalogException(t *testing.T) {
 //     copy onto an EXISTING destination without --confirm
 //     (TestBatchOverwriteRequiresConfirm).
 //  2. "with --format text, usage and tool errors go to stderr and stdout is
-//     empty" — false for `read-file --bogus --format text`: the unknown flag
-//     is hit before --format is parsed, so the diagnostic renders as toon on
-//     stdout (TestFormatTextStderrOnlyOnceFormatIsParsed).
+//     empty" — false for `read-file --bogus --format text`, which rendered as
+//     toon on stdout. Epic 10 T3 then closed the gap outright: every format
+//     puts errors on stdout (TestErrorsGoToStdoutInTheActiveFormat).
 //
 // This test pins the qualifiers, so the drift guard above cannot be satisfied
 // by reintroducing either falsehood in both files at once.
@@ -68,9 +68,6 @@ func TestKnownGapStatementsAreTrue(t *testing.T) {
 			!strings.Contains(text, "move or copy onto an existing") {
 			t.Error("the confirm rule omits the batch move/copy overwrite gate (fileops.go:151-172)")
 		}
-		if !strings.Contains(text, "once --format text is parsed") {
-			t.Error("the stderr rule claims errors go to stderr with --format text without the parsed-first qualifier")
-		}
 	}
 	// Epic 10 T1: setup registers Codex too
 	// (TestSetupWritesCodexHooksOnceRepairsAfterAMoveAndLeavesThemAlone), so a
@@ -81,6 +78,12 @@ func TestKnownGapStatementsAreTrue(t *testing.T) {
 		joined := strings.Join(gaps, "\n")
 		if strings.Contains(joined, "Claude Code only") || !strings.Contains(joined, ".codex/hooks.json") {
 			t.Error("the principle 7 gap must say setup also registers Codex in .codex/hooks.json")
+		}
+		// Epic 10 T3: errors go to stdout in every format
+		// (TestErrorsGoToStdoutInTheActiveFormat), so a principle 6 gap is now
+		// false.
+		if strings.Contains(joined, "Principle 6") || strings.Contains(joined, "stderr") {
+			t.Error("a principle 6 gap remains, but errors now go to stdout in every format")
 		}
 		// Epic 10 T2: and OpenCode
 		// (TestSetupWritesTheOpenCodePluginOnceRepairsAfterAMoveAndLeavesItAlone).

@@ -552,7 +552,7 @@ func execute(args []string) {
 	// subcommand from a flag's value.
 	failed, err := cmd.ExecuteC()
 	if err != nil {
-		f, compact := formatFromArgs(args)
+		f, compact := formatFromArgs(cmd, args)
 		emitDiagnostic(f, compact, err, goaxi.ExitUsage, usageSteps(failed, err))
 	}
 }

@@ -259,9 +259,11 @@ func TestUsageErrorsCarryRecoveryGuidance(t *testing.T) {
 				args := append([]string{"--format", string(f)}, c.args...)
 				stdout, stderr, _ := runCLI(t, args...)
 
+				// Every format reaches stdout (epic 10 T3); text used to
+				// write to stderr.
 				body := stdout
-				if f == FormatText {
-					body = stderr
+				if stderr != "" {
+					t.Errorf("stderr = %q, want empty", stderr)
 				}
 
 				switch f {

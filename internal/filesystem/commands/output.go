@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	goaxi "github.com/samestrin/go-axi"
+	"github.com/spf13/cobra"
 )
 
 // Format is an output rendering mode.
@@ -80,7 +81,7 @@ func resolveFormat(formatFlag string, formatSet, jsonFlag, minFlag bool) (Format
 // value arrives here as a format name, which resolveFormat then rejects. In every case the blast
 // radius is which format a diagnostic renders in, never the format of a
 // successful result, so the cheap scan earns its keep.
-func formatFromArgs(args []string) (Format, bool) {
+func formatFromArgs(_ *cobra.Command, args []string) (Format, bool) {
 	var (
 		formatVal string
 		formatSet bool

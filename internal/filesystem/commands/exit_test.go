@@ -2,6 +2,7 @@ package commands
 
 import (
 	"encoding/json"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -113,12 +114,9 @@ func TestUsageErrorsAreStructuredWithExitUsage(t *testing.T) {
 					t.Errorf("exit = %d, want ExitUsage (%d)", code, goaxi.ExitUsage)
 				}
 
-				// Text keeps its pre-AXI home on stderr; the structured
-				// formats must reach stdout, where an agent reads.
+				// Every format, text included, reaches stdout (epic 10 T3).
+				// Text used to keep its pre-AXI home on stderr.
 				body, quiet := stdout, stderr
-				if f == FormatText {
-					body, quiet = stderr, stdout
-				}
 
 				if body == "" {
 					t.Fatal("a usage error must explain itself; this exited silently")
@@ -131,6 +129,57 @@ func TestUsageErrorsAreStructuredWithExitUsage(t *testing.T) {
 				}
 
 				assertStructuredError(t, f, body, c.want)
+			})
+		}
+	}
+}
+
+// Epic 10 T3, AXI principle 6: an error goes to stdout in the active format,
+// in every format and whatever the flag order. Two cases failed before:
+// --format text sent every diagnostic to stderr and left stdout empty, and an
+// unknown flag listed BEFORE --format hid the format from the pre-scan, so
+// `read-file --bogus --format text` rendered in TOON. The runtime case pins
+// that a tool failure takes the same stream as a usage error, with its own
+// exit code.
+func TestErrorsGoToStdoutInTheActiveFormat(t *testing.T) {
+	missing := filepath.Join(t.TempDir(), "not-here.txt")
+	cases := []struct {
+		name string
+		args func(f Format) []string
+		code goaxi.ExitCode
+		want string
+	}{
+		{"unknown flag before --format",
+			func(f Format) []string { return []string{"read-file", "--bogus", "--format", string(f)} },
+			goaxi.ExitUsage, "unknown flag"},
+		{"unknown flag after --format",
+			func(f Format) []string { return []string{"read-file", "--format", string(f), "--bogus"} },
+			goaxi.ExitUsage, "unknown flag"},
+		{"runtime error",
+			func(f Format) []string { return []string{"read-file", "--path", missing, "--format", string(f)} },
+			goaxi.ExitError, "not-here.txt"},
+	}
+
+	for _, c := range cases {
+		for _, f := range []Format{FormatTOON, FormatJSON, FormatText} {
+			t.Run(c.name+"/"+string(f), func(t *testing.T) {
+				stdout, stderr, code := runCLI(t, c.args(f)...)
+
+				if code != int(c.code) {
+					t.Errorf("exit = %d, want %d", code, c.code)
+				}
+				if stderr != "" {
+					t.Errorf("stderr = %q, want empty; the error belongs on stdout", stderr)
+				}
+				if !strings.Contains(strings.ToLower(stdout), c.want) {
+					t.Fatalf("stdout = %q, want the error mentioning %q", stdout, c.want)
+				}
+				// The body must be in the format asked for, not the TOON
+				// default a lost --format falls back to.
+				assertStructuredError(t, f, stdout, c.want)
+				if f != FormatTOON && strings.Contains(stdout, "error: true") {
+					t.Errorf("stdout = %q, rendered in TOON instead of %s", stdout, f)
+				}
 			})
 		}
 	}

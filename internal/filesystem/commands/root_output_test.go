@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	goaxi "github.com/samestrin/go-axi"
 )
 
 // captureOutput redirects the package output sinks for the duration of fn and
@@ -127,21 +129,24 @@ func TestOutputErrorExitsNonZeroAndRendersBody(t *testing.T) {
 	}
 }
 
-func TestOutputErrorTextGoesToStderr(t *testing.T) {
+// Epic 10 T3, AXI principle 6: a text error goes to stdout like every other
+// format. It used to go to stderr and leave stdout empty, so an agent reading
+// stdout saw nothing at all.
+func TestOutputErrorTextGoesToStdout(t *testing.T) {
 	withFormat(t, FormatText, false, false)
 
 	stdout, stderr, code := captureOutput(t, func() {
 		OutputError(errBoom{})
 	})
 
-	if stdout != "" {
-		t.Errorf("text errors must not pollute stdout, got %q", stdout)
+	if stderr != "" {
+		t.Errorf("text errors must not go to stderr, got %q", stderr)
 	}
-	if !strings.Contains(stderr, "boom") {
-		t.Errorf("stderr = %q, want it to mention boom", stderr)
+	if !strings.HasPrefix(stdout, "Error: ") || !strings.Contains(stdout, "boom") {
+		t.Errorf("stdout = %q, want the text error mentioning boom", stdout)
 	}
-	if code == 0 {
-		t.Error("a tool failure must exit non-zero")
+	if code != int(goaxi.ExitError) {
+		t.Errorf("exit = %d, want ExitError (%d)", code, goaxi.ExitError)
 	}
 }
 
