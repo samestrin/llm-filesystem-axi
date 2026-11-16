@@ -96,6 +96,17 @@ func TestKnownGapStatementsAreTrue(t *testing.T) {
 		if strings.Contains(joined, "no OpenCode plugin") || !strings.Contains(joined, ".opencode/plugins/") {
 			t.Error("the principle 7 gap must say setup also registers OpenCode with a plugin in .opencode/plugins/")
 		}
+		// Epic 10 T5: move-file and copy-file now refuse to replace an existing
+		// destination without --confirm (TestMoveAndCopyOverwriteRequireConfirm),
+		// so a gap saying they replace without it is now false. write-file keeps
+		// replacing (TestWriteFileStillReplacesWithoutConfirm), so that half of
+		// the old gap stays true and must remain named.
+		if strings.Contains(joined, "move-file and copy-file replace") {
+			t.Error("a move/copy overwrite gap remains, but both now require --confirm to replace an existing destination")
+		}
+		if !strings.Contains(joined, "write-file replaces an existing destination without --confirm") {
+			t.Error("the remaining overwrite gap must still name write-file, which keeps replacing without --confirm")
+		}
 	}
 }
 

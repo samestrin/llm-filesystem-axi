@@ -37,6 +37,15 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **`move-file` and `copy-file` refuse to replace an existing destination
+  without `--confirm`.** They used to overwrite silently and report success,
+  while `delete-file` and destructive `batch-file-operations` entries already
+  required confirmation for the same destruction. The refusal is a structured
+  usage error naming `--confirm`, with a next step showing the confirmed
+  command, exit 2, and nothing touched. A move or copy to a path that does not
+  exist yet needs no confirmation, and `write-file` keeps replacing. The MCP
+  tools take the same gate as `confirm: true`.
+
 - **Errors go to stdout in every format, whatever the flag order.** With
   `--format text`, usage and tool errors used to go to stderr and leave stdout
   empty; they now print their `Error: <msg>` text on stdout, and nothing goes
