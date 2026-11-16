@@ -150,3 +150,115 @@ func TestEditThroughASymlinkEditsTheTarget(t *testing.T) {
 		t.Errorf("target = %q, want the edit", got)
 	}
 }
+
+// filepath.Walk hands search-and-replace the symlink's own Lstat info, whose
+// mode is 0777. Passing that to the atomic write chmodded a 0600 target behind
+// the link to rwxrwxrwx — the mode-keeping fix itself leaking a secret. The
+// mode kept must be the target's.
+func TestSearchAndReplaceThroughASymlinkKeepsTheTargetMode(t *testing.T) {
+	dir := t.TempDir()
+	outside := t.TempDir()
+	target := filepath.Join(outside, "secret")
+	if err := os.WriteFile(target, []byte("alpha\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(target, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, filepath.Join(dir, "link")); err != nil {
+		t.Skip("symlinks unavailable:", err)
+	}
+
+	if _, err := SearchAndReplace(SearchReplaceOptions{Path: dir, Pattern: "alpha", Replacement: "ALPHA"}); err != nil {
+		t.Fatalf("SearchAndReplace: %v", err)
+	}
+	info, err := os.Stat(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Errorf("target mode = %v, want -rw-------", info.Mode().Perm())
+	}
+	if got, _ := os.ReadFile(target); string(got) != "ALPHA\n" {
+		t.Errorf("target = %q, want the edit", got)
+	}
+}
+
+// Every step of the atomic write can fail, and each failure must leave the
+// original bytes in place and no temp file behind. The sync step is covered
+// per command above; these cover the rest of the helper's branches.
+func TestWriteFileAtomicFailuresLeaveTheOriginal(t *testing.T) {
+	injected := errors.New("injected")
+	steps := []struct {
+		name   string
+		inject func() func()
+	}{
+		{"write", func() func() {
+			prev := writeTempFile
+			writeTempFile = func(*os.File, []byte) (int, error) { return 0, injected }
+			return func() { writeTempFile = prev }
+		}},
+		{"chmod", func() func() {
+			prev := chmodTempFile
+			chmodTempFile = func(*os.File, fs.FileMode) error { return injected }
+			return func() { chmodTempFile = prev }
+		}},
+		{"close", func() func() {
+			prev := closeTempFile
+			closeTempFile = func(*os.File) error { return injected }
+			return func() { closeTempFile = prev }
+		}},
+	}
+	for _, s := range steps {
+		t.Run(s.name, func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, "f")
+			if err := os.WriteFile(path, []byte("original"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(s.inject())
+
+			if err := replaceFile(path, []byte("new")); !errors.Is(err, injected) {
+				t.Errorf("err = %v, want the injected %s failure", err, s.name)
+			}
+			if got, _ := os.ReadFile(path); string(got) != "original" {
+				t.Errorf("a failed %s changed the original: %q", s.name, got)
+			}
+			if entries, _ := os.ReadDir(dir); len(entries) != 1 {
+				t.Errorf("a failed %s left a temp file: %v", s.name, entries)
+			}
+		})
+	}
+}
+
+// The temp file cannot be created when the directory does not exist; the
+// error is returned rather than swallowed.
+func TestWriteFileAtomicReportsAnUncreatableTempFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "missing-dir", "f")
+	if err := writeFileAtomic(path, []byte("x"), 0o644); err == nil {
+		t.Error("a write into a missing directory reported success")
+	}
+}
+
+// replaceFile keeps an existing file's mode, so a path that is not there is an
+// error, not a new 0000 file.
+func TestReplaceFileRefusesAMissingFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "absent")
+	if err := replaceFile(path, []byte("x")); err == nil {
+		t.Error("replaceFile created a file that did not exist")
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Errorf("replaceFile left %s behind: %v", path, err)
+	}
+}
+
+// A backup that cannot be taken is reported as no backup (""), not a path to a
+// file that does not exist: a missing source fails the stat, a directory the read.
+func TestCreateEditBackupReportsNoBackupWhenItCannotRead(t *testing.T) {
+	dir := t.TempDir()
+	for _, p := range []string{filepath.Join(dir, "absent"), dir} {
+		if got := createEditBackup(p); got != "" {
+			t.Errorf("createEditBackup(%s) = %q, want no backup", p, got)
+		}
+	}
+}

@@ -66,9 +66,14 @@ func replaceMatches(content, old, new string, replaceAll bool, edit int, field s
 	return strings.ReplaceAll(content, old, new), n, nil
 }
 
-// syncTempFile is a variable so a test can make a write fail after the temp
-// file exists, which no real test filesystem does.
-var syncTempFile = func(f *os.File) error { return f.Sync() }
+// The temp file's write, sync, chmod and close are variables so a test can make
+// each fail after the temp file exists, which no real test filesystem does.
+var (
+	writeTempFile = func(f *os.File, b []byte) (int, error) { return f.Write(b) }
+	syncTempFile  = func(f *os.File) error { return f.Sync() }
+	chmodTempFile = func(f *os.File, mode fs.FileMode) error { return f.Chmod(mode) }
+	closeTempFile = func(f *os.File) error { return f.Close() }
+)
 
 // writeFileAtomic replaces path with data, keeping mode.
 //
@@ -93,7 +98,7 @@ func writeFileAtomic(path string, data []byte, mode fs.FileMode) (err error) {
 			_ = os.Remove(tmpName)
 		}
 	}()
-	if _, err = tmp.Write(data); err != nil {
+	if _, err = writeTempFile(tmp, data); err != nil {
 		return err
 	}
 	if err = syncTempFile(tmp); err != nil {
@@ -101,10 +106,10 @@ func writeFileAtomic(path string, data []byte, mode fs.FileMode) (err error) {
 	}
 	// CreateTemp makes the file 0600; Chmod is not narrowed by umask, so the
 	// result has exactly the original's mode.
-	if err = tmp.Chmod(mode); err != nil {
+	if err = chmodTempFile(tmp, mode); err != nil {
 		return err
 	}
-	if err = tmp.Close(); err != nil {
+	if err = closeTempFile(tmp); err != nil {
 		return err
 	}
 	return os.Rename(tmpName, path)
@@ -362,11 +367,11 @@ func createEditBackup(path string) string {
 	timestamp := time.Now().Format("20060102_150405")
 	backupPath := fmt.Sprintf("%s.bak.%s", path, timestamp)
 
-	content, err := os.ReadFile(path)
+	info, err := os.Stat(path)
 	if err != nil {
 		return ""
 	}
-	info, err := os.Stat(path)
+	content, err := os.ReadFile(path)
 	if err != nil {
 		return ""
 	}
@@ -557,7 +562,10 @@ func SearchAndReplace(opts SearchReplaceOptions) (*SearchReplaceResult, error) {
 		totalChanges += changes
 
 		if !opts.DryRun {
-			if err := writeFileAtomic(filePath, []byte(newContent), fileMode(info)); err != nil {
+			// replaceFile stats through a symlink. Walk's info is the link's
+			// own Lstat (mode 0777), and keeping that mode chmodded the
+			// target behind the link to rwxrwxrwx.
+			if err := replaceFile(filePath, []byte(newContent)); err != nil {
 				return nil
 			}
 		}
