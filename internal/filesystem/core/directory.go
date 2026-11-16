@@ -83,7 +83,8 @@ func ListDirectory(opts ListDirectoryOptions) (*ListDirectoryResult, error) {
 		return nil, fmt.Errorf("failed to read directory: %w", err)
 	}
 
-	var entries []DirectoryEntry
+	// Empty, not nil: an empty directory lists as items[0]: / [], not null.
+	entries := []DirectoryEntry{}
 	for _, de := range dirEntries {
 		name := de.Name()
 
