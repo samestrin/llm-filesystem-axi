@@ -418,8 +418,15 @@ func addToTar(tarWriter *tar.Writer, filePath, name string) error {
 type ExtractArchiveOptions struct {
 	Archive     string
 	Destination string
+	MaxBytes    int64
+	MaxEntries  int
 	AllowedDirs []string
 }
+
+const (
+	DefaultExtractMaxBytes   int64 = 1
+	DefaultExtractMaxEntries       = 1
+)
 
 // ExtractResult represents extraction result.
 //
@@ -435,6 +442,7 @@ type ExtractResult struct {
 	Overwritten    int      `json:"overwritten"`
 	Failed         int      `json:"failed"`
 	Failures       []string `json:"failures,omitempty"`
+	Truncated      bool     `json:"truncated,omitempty"`
 	Success        bool     `json:"success"`
 }
 
