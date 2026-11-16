@@ -29,6 +29,16 @@ func setupProject(t *testing.T) (dir, home string) {
 	return dir, home
 }
 
+// onPATH makes this binary one that PATH finds, so setup registers the hook by
+// its bare name. Without it the running binary is the test binary, which PATH
+// never finds, and the hook would name its absolute path.
+func onPATH(t *testing.T) {
+	t.Helper()
+	bin := t.TempDir()
+	t.Setenv("PATH", bin)
+	fakeBinary(t, bin)
+}
+
 type setupDoc struct {
 	Dir    string `json:"dir"`
 	DryRun bool   `json:"dry_run"`
@@ -129,6 +139,7 @@ func TestSetupWritesHookAndSkillInAnEmptyProject(t *testing.T) {
 		t.Fatal(err)
 	}
 	dir, home := setupProject(t)
+	onPATH(t)
 
 	doc, code := runSetupJSON(t)
 	if code != -1 {
@@ -258,6 +269,7 @@ func lineHasBoth(out, a, b string) bool {
 // the key order is kept so the diff a user sees is only the addition.
 func TestSetupKeepsEveryExistingSettingsKey(t *testing.T) {
 	dir, _ := setupProject(t)
+	onPATH(t)
 	existing := `{
   "model": "opus",
   "permissions": {"allow": ["Bash(ls:*)"], "deny": []},
@@ -327,9 +339,11 @@ func writeFile(t *testing.T, path, content string) {
 
 // A settings file that already runs llm-filesystem at session start is left
 // byte for byte as the user wrote it, formatting included; only the missing
-// skill is written.
+// skill is written. The hook is the bare name, which is current only while PATH
+// finds this binary; otherwise it is repaired (setup_claude_hook_test.go).
 func TestSetupLeavesARegisteredHookAlone(t *testing.T) {
 	dir, _ := setupProject(t)
+	onPATH(t)
 	existing := `{"hooks":{"SessionStart":[{"matcher":"startup","hooks":[{"type":"command","command":"llm-filesystem"}]}]}}`
 	writeFile(t, filepath.Join(dir, setupSettingsRel), existing)
 
