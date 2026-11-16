@@ -37,6 +37,15 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **The docs state the behaviour epic 10 shipped, and the one remaining gap
+  carries its reason.** The audit page gains an epic 10 re-check listing the
+  four closed gaps with their fixes and guarding tests; the README, the
+  command reference, the agent routing guide and the Claude Code skill now
+  state the `move-file`/`copy-file` overwrite gate and the exact search totals
+  past `--max-results`; the session-end gap in the README and the catalog
+  entry says why it stays (this CLI keeps no session history), and `setup
+  --help` says the same. New tests pin each of those claims.
+
 - **`move-file` and `copy-file` refuse to replace an existing destination
   without `--confirm`.** They used to overwrite silently and report success,
   while `delete-file` and destructive `batch-file-operations` entries already

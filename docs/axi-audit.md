@@ -4,6 +4,7 @@
 - **Method:** by hand. `axi-axi` is not installed on the build host. Each principle was checked against the text on https://axi.md, by running `build/llm-filesystem` in a scratch temp directory and reading the code the output comes from (line numbers are at `v1.0.0`).
 - **Status:** the audit above is a snapshot of `v1.0.0`. Re-checked against `v1.0.2`: every gap it found (6a, 6b and the principle 7 and 8 gaps) is closed in a release — the fixes shipped in `v1.0.1`, and `v1.0.2` adds no new gap. The verdict column keeps the `v1.0.0` result; the `Closed by` column says what fixed it.
 - **MCP server (added after the audited releases):** epic 09 shipped `llm-filesystem-mcp`, a thin MCP stdio server beside the CLI. Every tool is one CLI command: the server runs the `llm-filesystem` binary and returns its output, and a failing command comes back as an MCP error carrying the CLI's own error and exit code, never as a success. The verdicts above are about the CLI and carry over to the server's results, because every tool result carries the CLI's own output. The server is stdio only, with no network listener, and the installer ships it beside the CLI.
+- **Re-checked after epic 10 (2026-11-16, on `main` at `983ea2d`):** the owner's 2026-11-13 review found four gaps the v1.0.x passes above had not named. All four are closed by epic 10 T1-T5; the section "Epic 10 re-check" below lists each with its fix and guarding test. One gap remains, with its reason stated: there is no session-end capture, because this CLI keeps no session history.
 
 | # | Principle (axi.md) | Verdict | Evidence | Closed by |
 |---|---|---|---|---|
@@ -29,3 +30,19 @@
 - **6b. `create-directory` on an existing directory reports `created: true`.** Probed: a second `create-directory --path <same dir>` prints `created: true` / `Directory created successfully` and exits 0, though nothing was created. The mutation itself is idempotent (`os.MkdirAll`, `internal/filesystem/core/write.go:337-338`), but the report claims work that did not happen — the same failure class as 6a. Still present on `main` at the time of the audit; neither epic 04 nor 05 had a task for it, so it was filed as tech debt (TD #39). Fixed after the audit (PR #38): `CreateDirectory` checks for the directory before `MkdirAll`, and a repeat run now reports `created: false` / `exists: true` with `Directory already exists: <path>`. Like 6a, the fix is **not** in the audited v1.0.0 binary; it shipped in v1.0.1.
 
 Idempotency of the remaining mutations was spot-checked, not exhaustively probed: `delete-file` without `--confirm` changes nothing (probed).
+
+## Epic 10 re-check (2026-11-16)
+
+Re-checked on `main` at `983ea2d`, after epic 10 T1-T5 merged and before the v1.1.0 tag. The owner's 2026-11-13 review, read against the principles on axi.md, found four gaps the passes above had not named: the principle 3/4 pass missed that a capped search reported the cap as its total, the principle 6 pass missed the `--format text` stderr behaviour, the principle 7 row was closed by epic 05's `setup`, which registered Claude Code only, and the safety spot-check missed that move and copy replaced destinations silently. All four are closed. Each closure is guarded by a test in `internal/filesystem/commands/`:
+
+| Gap | Principle | Closed by | Guarding test |
+|---|---|---|---|
+| `setup` registered Claude Code only | 7 | T1 (`#65`): Codex, a SessionStart hook in the project's `.codex/hooks.json`. T2 (`#68`): OpenCode, a plugin in `.opencode/plugins/llm-filesystem.js` | `TestSetupWritesCodexHooksOnceRepairsAfterAMoveAndLeavesThemAlone`, `TestSetupWritesTheOpenCodePluginOnceRepairsAfterAMoveAndLeavesItAlone` |
+| With `--format text`, usage and tool errors went to stderr; a flag error before `--format` rendered in TOON | 6 | T3 (`#69`): errors go to stdout in the active format, whatever the flag order | `TestErrorsGoToStdoutInTheActiveFormat` |
+| Searches stopped at `--max-results` and reported the cap as `total_matches` / `total`, with no marker | 3, 4 | T4 (`#70`): exact totals past the cap, plus `shown`, `truncated: true` and a `--max-results` hint | `TestSearchCappedShowsExactTotalMarkerAndHint` |
+| `move-file` and `copy-file` silently replaced an existing destination | the repo's own safety rule (`delete-file` needs `--confirm`) | T5 (`#71`): both refuse without `--confirm`, exit 2, nothing touched | `TestMoveAndCopyOverwriteRequireConfirm` |
+
+What remains, each with its reason or its test:
+
+- **No session-end capture** (principle 7). Reason: this CLI keeps no session history, so a session-end hook would have nothing to capture; keeping history is out of scope for a filesystem tool. Stated identically in the README's Limits and the catalog entry's `exception`, and guarded by `TestSessionEndGapStatesItsReason` and `TestReadmeLimitsGapsMatchCatalogException`.
+- **`write-file` replaces an existing destination without `--confirm`.** Epic 10 T5 kept this behaviour while gating delete, move/copy onto an existing path, and destructive batch entries. Stated in the README's Limits and the catalog `exception`; the behaviour is pinned by `TestWriteFileStillReplacesWithoutConfirm`.

@@ -111,10 +111,12 @@ everything, which on a large file means holding a multiple of it in memory.
 
 ## Safety
 
-`delete-file` requires `--confirm`, and so does any `batch-file-operations`
+`delete-file` requires `--confirm`, and so do `move-file` and `copy-file`
+when the destination already exists, and any `batch-file-operations`
 entry that destroys something. Without it nothing is touched and the command
 exits `2` — which always means nothing happened, so fix the command rather than
-retrying it.
+retrying it. A move or copy to a new path needs no confirmation, and
+`write-file` keeps replacing without it.
 
 Pass `--allowed-dirs /path/a,/path/b` to restrict the tool to specific
 directories.
