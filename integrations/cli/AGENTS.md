@@ -55,12 +55,14 @@ Every command takes `--help`. Run `llm-filesystem` with no arguments to see the 
 | `search-files` | Find files by name or glob |
 | `search-code` | Search file contents by pattern, with optional context lines |
 
+Search totals are exact: `--max-results` caps the list, not the count. A capped search adds `shown`, `truncated: true` and a next-step hint naming `--max-results` (the `help[]` block in TOON, `next_steps` in JSON); an uncapped one carries none of those.
+
 **Moving and deleting**
 
 | Command | Use it for |
 |---|---|
-| `copy-file` | Copy a file or directory |
-| `move-file` | Move or rename |
+| `copy-file` | Copy a file or directory; replacing an existing destination needs `--confirm` |
+| `move-file` | Move or rename; replacing an existing destination needs `--confirm` |
 | `delete-file` | Delete — requires `--confirm` |
 | `batch-file-operations` | Several copy/move/delete in one call |
 
@@ -85,7 +87,7 @@ Every command takes `--help`. Run `llm-filesystem` with no arguments to see the 
 
 **Large reads truncate. They do not fail.** A file over the size budget comes back as a leading *prefix*, with `truncated`, `total_size` and `next_offset`, at exit 0. Resume with `--start-offset <next_offset>`. Do not treat a truncated read as the whole file, and do not avoid the tool because a file is large — reading in windows is bounded whatever the size.
 
-**Destructive operations need `--confirm`.** `delete-file` requires it, and so does any `batch-file-operations` entry that destroys something: a delete, or a move or copy onto a path that already exists. Without it nothing is touched and the command exits `2`.
+**Destructive operations need `--confirm`.** `delete-file` requires it, and so do `move-file` and `copy-file` when the destination already exists, and any `batch-file-operations` entry that destroys something: a delete, or a move or copy onto a path that already exists. Without it nothing is touched and the command exits `2`.
 
 ## Reading the output
 

@@ -9,4 +9,4 @@ curl -fsSL https://raw.githubusercontent.com/samestrin/llm-filesystem-axi/main/i
 curl -fsSL https://raw.githubusercontent.com/samestrin/llm-filesystem-axi/main/integrations/cli/AGENTS.md >> ~/.claude/CLAUDE.md  # every project
 ```
 
-In short: native `Read`/`Write`/`Edit` for a single file, `llm-filesystem` for batch and filesystem-specialized work, large reads truncate rather than fail, and deletes need `--confirm`.
+In short: native `Read`/`Write`/`Edit` for a single file, `llm-filesystem` for batch and filesystem-specialized work, large reads truncate rather than fail, and destructive operations need `--confirm`.

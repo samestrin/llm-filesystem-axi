@@ -128,7 +128,7 @@ Codex (checked on 0.166.0, where the hooks feature is on by default) reads
 .codex/hooks.json only in a project it trusts, and lists a new or changed hook
 as untrusted until you review it. OpenCode (checked on 1.19.5) runs the
 plugin's home view once when it loads the plugin. Session-end capture is not
-set up.
+set up: this CLI keeps no session history, so there is nothing to capture.
 
 Safe to run again: a second run changes no bytes and says so. Never prompts.
 

@@ -15,7 +15,7 @@ The GIF is rendered from [`docs/demo/llm-filesystem.tape`](docs/demo/llm-filesys
 - An agent that reads a large file needs to know what it missed. A read over the size budget returns the leading content plus `truncated`, `total_size` and `next_offset`, and exits `0`, so the agent can continue from the exact offset instead of getting a refusal.
 - Listings in full JSON spend most of their tokens on repeated field names. Output defaults to TOON with a minimal field set, which removes most of the tokens from a large directory listing (measured in [`docs/background.md`](docs/background.md)).
 - A typo and a broken tool need different responses. Usage errors exit `2` and tool failures exit `1`, and every non-zero exit prints a diagnostic, so an agent can tell whether a retry is worthwhile.
-- Deleting by mistake is hard to undo. `delete-file` and any destructive `batch-file-operations` entry refuse to run without `--confirm`.
+- Deleting by mistake is hard to undo. `delete-file`, a `move-file` or `copy-file` onto an existing destination, and any destructive `batch-file-operations` entry refuse to run without `--confirm`.
 - Agents run in many environments. It ships as static binaries with no runtime: an agent that can run a command can use the CLI, and a host that only speaks MCP can run the thin `llm-filesystem-mcp` server beside it.
 
 ## Install
@@ -78,7 +78,7 @@ To install only the skill with the skills CLI:
 npx skills add samestrin/llm-filesystem-axi --skill llm-filesystem
 ```
 
-For any other agent, append the routing guidance to your project's `AGENTS.md` or `CLAUDE.md`. It lists all 29 commands grouped by task, says when to reach for them instead of built-in single-file tools, and covers the two behaviours that surprise agents: large reads truncate rather than fail, and deletes need `--confirm`.
+For any other agent, append the routing guidance to your project's `AGENTS.md` or `CLAUDE.md`. It lists all 29 commands grouped by task, says when to reach for them instead of built-in single-file tools, and covers the two behaviours that surprise agents: large reads truncate rather than fail, and destructive operations need `--confirm`.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/samestrin/llm-filesystem-axi/main/integrations/cli/AGENTS.md >> ./AGENTS.md
@@ -330,7 +330,7 @@ Destructive syncs can be previewed. `sync-directories --dry-run` reports what it
 
 Known gaps against the [AXI](https://axi.md) principles, the same ones the catalog entry in [`docs/axi-catalog-entry.yaml`](docs/axi-catalog-entry.yaml) states:
 
-- Principle 7: `setup` registers Claude Code (a SessionStart hook in the project's .claude/settings.json plus the skill), Codex (a SessionStart hook in the project's .codex/hooks.json) and OpenCode (a plugin in the project's .opencode/plugins/ that adds the home view to the system context); there is no session-end capture.
+- Principle 7: `setup` registers Claude Code (a SessionStart hook in the project's .claude/settings.json plus the skill), Codex (a SessionStart hook in the project's .codex/hooks.json) and OpenCode (a plugin in the project's .opencode/plugins/ that adds the home view to the system context); there is no session-end capture, because this CLI keeps no session history.
 - write-file replaces an existing destination without --confirm; delete-file requires it, and so do move-file and copy-file when the destination already exists, and any batch-file-operations entry that destroys something: a delete, or a move or copy onto a path that already exists.
 
 ## Documentation

@@ -87,6 +87,8 @@ A search with no matches says so explicitly and suggests how to widen it, rather
 
 A search path that does not exist, or that is a file rather than a directory, is a **failure** — not an empty result. "I searched and found nothing" and "that directory is not there" are different answers, and an agent has to be able to tell them apart.
 
+Search totals are exact. `--max-results` (default 1000) caps what a search lists, not what it counts: past the cap, `total_matches` and `total_files` (or `total` for `search-files`) still count every match (`total_files` counts the files that matched), and the result adds `shown`, `truncated: true` and a help line naming `--max-results`. A search the cap did not cut carries no marker and no hint.
+
 ### File Operations
 
 | Command | Description | Example |
@@ -96,7 +98,7 @@ A search path that does not exist, or that is a file rather than a directory, is
 | `delete-file` | Delete file/directory | `llm-filesystem delete-file --path /tmp/old --recursive --confirm` |
 | `batch-file-operations` | Batch operations | `llm-filesystem batch-file-operations --operations '[...]' --confirm` |
 
-`delete-file` **requires `--confirm`**. `batch-file-operations` requires it for any operation that destroys something: a `delete`, or a `move`/`copy` whose destination already exists — `os.Rename` and `os.Create` both replace silently, so gating only `delete` would just move the hole one operation across. Without confirmation nothing is touched and the command exits `2`. An operation that only creates something new needs no confirmation.
+`delete-file` **requires `--confirm`**. So do `move-file` and `copy-file` when the destination already exists — replacing a destination is destruction too, and the refusal is a structured usage error naming `--confirm`, exit `2`, with nothing touched. A move or copy to a path that does not exist yet needs no confirmation, and `write-file` keeps replacing without it. `batch-file-operations` requires confirmation for any operation that destroys something: a `delete`, or a `move`/`copy` whose destination already exists — `os.Rename` and `os.Create` both replace silently, so gating only `delete` would just move the hole one operation across. Without confirmation nothing is touched and the command exits `2`. An operation that only creates something new needs no confirmation.
 
 ### Advanced Operations
 
