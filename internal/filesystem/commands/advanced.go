@@ -213,15 +213,40 @@ func resolveArchiveType(output, archiveFormat, globalFormat string) (string, err
 
 func extractArchiveCmd() *cobra.Command {
 	var archive, destination string
+	var maxBytes int64
+	var maxEntries int
 
 	cmd := &cobra.Command{
 		Use:   "extract-archive",
 		Short: "Extract an archive",
-		Long:  "Extracts a zip or tar.gz archive to a destination",
+		Long: fmt.Sprintf("Extracts a zip or tar.gz archive to a destination. Against decompression bombs, "+
+			"extraction stops at %d bytes written in total (--max-bytes) or %d entries (--max-entries); "+
+			"the entry that crosses a cap fails, its partial file is removed, the result carries truncated: true, "+
+			"and the run exits 1. Pass -1 to lift a cap.",
+			core.DefaultExtractMaxBytes, core.DefaultExtractMaxEntries),
 		Run: func(cmd *cobra.Command, args []string) {
+			// 0 is neither a cap nor "no limit", and core reads it as "use the
+			// default", so an explicit 0 would silently mean 1 GiB. Below -1 is
+			// undocumented and silently meant "no limit". Both are refused
+			// before anything is written.
+			for _, f := range []struct {
+				name string
+				bad  bool
+			}{{"max-bytes", maxBytes == 0 || maxBytes < -1}, {"max-entries", maxEntries == 0 || maxEntries < -1}} {
+				if f.bad && cmd.Flags().Changed(f.name) {
+					emitDiagnostic(activeFmt, activeCompact,
+						fmt.Errorf("--%s must be a positive cap, or -1 for no limit", f.name),
+						goaxi.ExitUsage,
+						[]string{"Check the flags and what they mean: llm-filesystem extract-archive --help"})
+					return
+				}
+			}
+
 			result, err := core.ExtractArchive(core.ExtractArchiveOptions{
 				Archive:     archive,
 				Destination: destination,
+				MaxBytes:    maxBytes,
+				MaxEntries:  maxEntries,
 				AllowedDirs: GetAllowedDirs(),
 			})
 			if err != nil {
@@ -238,7 +263,12 @@ func extractArchiveCmd() *cobra.Command {
 					if more := result.Failed - len(result.Failures); more > 0 {
 						step += fmt.Sprintf("; and %d more", more)
 					}
-					return []string{step}
+					steps := []string{step}
+					if result.Truncated {
+						steps = append(steps, "Stopped at a cap; entries after it were not read. "+
+							"If the archive is trusted, raise the cap named above: --max-bytes N or --max-entries N (-1 for no limit)")
+					}
+					return steps
 				},
 				func() string {
 					return fmt.Sprintf("Extracted %s to %s\n%d files extracted, %d overwritten, %d failed",
@@ -248,7 +278,7 @@ func extractArchiveCmd() *cobra.Command {
 
 			// The result is printed first so the caller learns which entries
 			// were dropped and why; the exit code then says the run was partial
-			// (owner decision, epic 04 Q2). sync-directories still exits 0 here.
+			// (owner decision, epic 04 Q2), as compress-files and sync-directories do.
 			if result.Failed > 0 {
 				exitFunc(int(goaxi.ExitError))
 				return
@@ -258,6 +288,8 @@ func extractArchiveCmd() *cobra.Command {
 
 	cmd.Flags().StringVar(&archive, "archive", "", "Archive file path (required)")
 	cmd.Flags().StringVar(&destination, "dest", "", "Destination directory (required)")
+	cmd.Flags().Int64Var(&maxBytes, "max-bytes", core.DefaultExtractMaxBytes, "Stop once this many bytes are written in total (-1: no limit)")
+	cmd.Flags().IntVar(&maxEntries, "max-entries", core.DefaultExtractMaxEntries, "Stop once the archive holds more than this many entries (-1: no limit)")
 	cmd.MarkFlagRequired("archive")
 	cmd.MarkFlagRequired("dest")
 

@@ -810,3 +810,26 @@ func TestExtractLinesBasic(t *testing.T) {
 		}
 	})
 }
+
+// The other half of debt c30b86bc: with every path present, total_size is the
+// size of the whole request and failed is 0. Together with the missing-path
+// case above, failed is what tells a caller which of the two it is reading.
+func TestReadMultipleFilesTotalSizeWhenEveryPathExists(t *testing.T) {
+	tmpDir := t.TempDir()
+	a := filepath.Join(tmpDir, "a.txt")
+	b := filepath.Join(tmpDir, "b.txt")
+	if err := os.WriteFile(a, []byte(strings.Repeat("x", 90000)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(b, []byte(strings.Repeat("y", 10000)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := ReadMultipleFiles(ReadMultipleFilesOptions{Paths: []string{a, b}, AllowedDirs: []string{tmpDir}})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res.TotalSize != 100000 || res.Failed != 0 {
+		t.Errorf("total_size = %d failed = %d, want 100000 and 0", res.TotalSize, res.Failed)
+	}
+}

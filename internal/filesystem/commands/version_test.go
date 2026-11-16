@@ -156,3 +156,28 @@ func TestUnstampedVersionKeepsDefaultWithoutModuleVersion(t *testing.T) {
 		})
 	}
 }
+
+// -V is a shorthand alias for --version. Its flag needed a long name, and the
+// hidden "version-alias" was accepted on the command line as an undocumented
+// third spelling (debt 99969966). Only -v, -V and --version print the version;
+// every spelling of the alias's long name is an unknown flag.
+func TestVersionAliasIsShorthandOnly(t *testing.T) {
+	withVersion(t, "v1.0.2")
+
+	for _, args := range [][]string{
+		{"--version-alias"},
+		{"--version-alias=true"},
+	} {
+		stdout, _, code := runCLI(t, args...)
+		if code != int(goaxi.ExitUsage) {
+			t.Errorf("%v: exit = %d, want ExitUsage (%d)", args, code, goaxi.ExitUsage)
+		}
+		if strings.Contains(stdout, "1.0.2") {
+			t.Errorf("%v printed the version: %q", args, stdout)
+		}
+	}
+
+	if stdout, _, _ := runCLI(t, "-V"); stdout != "1.0.2\n" {
+		t.Errorf("-V stdout = %q, want the version", stdout)
+	}
+}

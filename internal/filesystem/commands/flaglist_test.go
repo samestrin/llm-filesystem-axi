@@ -155,7 +155,7 @@ func TestUnknownFlagAtRootMatchesRootHelp(t *testing.T) {
 		t.Errorf("listed flags = %q, want root --help's %q", got, want)
 	}
 	for _, f := range got {
-		if strings.Contains(f, "axi") || strings.Contains(f, "version-alias") {
+		if strings.Contains(f, "axi") || strings.Contains(f, versionShorthandOnly) {
 			t.Errorf("listed a hidden flag: %q", f)
 		}
 	}

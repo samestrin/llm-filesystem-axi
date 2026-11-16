@@ -27,6 +27,11 @@ is now a hard error naming the edit ordinal, not a silent success with
 `changes: 0`. A run where no edit matches is likewise an error, and leaves
 the file untouched.
 
+Every edit's old string must match **exactly once** (on the batch commands,
+in the content the earlier edits leave). One that matches more often is
+refused with its match count and the file is untouched: add surrounding lines
+until it is unique, or pass `--replace-all` to change every occurrence.
+
 **Replace several blocks in one file** — keys are `old_string` / `new_string`:
 
 ```bash
