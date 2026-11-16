@@ -30,6 +30,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **`VISION.md` states the project's scope and non-goals.** It gives proposed
+  changes one place to check what belongs in `llm-filesystem-axi`.
+
 - **`extract-archive --max-bytes` and `--max-entries`.** Extraction stops at
   1 GiB written in total or 100,000 entries by default; pass a larger value,
   or `-1` for no limit.
