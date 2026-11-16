@@ -12,7 +12,7 @@ A command that skipped, overwrote or refused part of its work says so, with what
 An edit that matched nothing and an archive entry that was skipped are reported, never folded into a plain success.
 A missing search path is an error, not "no matches".
 An empty result and a failed command are never reported the same way.
-A destructive action requires `--confirm`, and a dry run says it is one.
+Deleting requires `--confirm`, and so does replacing an existing destination except through `write-file` and `compress-files`, which report the replacement; a dry run says it is one.
 A truncated read says how to resume.
 A test asserts the effect on disk, not the exit code.
 
