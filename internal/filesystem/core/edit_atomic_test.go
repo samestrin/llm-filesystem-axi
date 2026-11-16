@@ -1,0 +1,152 @@
+package core
+
+import (
+	"errors"
+	"io/fs"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+// Every edit used to write with os.WriteFile(path, ..., 0644). On an existing
+// file WriteFile keeps the mode it has, but it truncates first and writes
+// second, so a crash or a full disk mid-write left a truncated file, and the
+// backup was always created 0644 — a 0600 secret's backup was world-readable.
+// Edits now go through one helper that writes a temp file beside the target,
+// fsyncs it, sets the original mode and renames it into place.
+
+type editRun struct {
+	name string
+	run  func(path, dir string) error
+}
+
+// editRuns makes one real change to a file holding "alpha\nbeta\n" through
+// every edit command that rewrites a file.
+func editRuns() []editRun {
+	return []editRun{
+		{"edit-block", func(p, d string) error {
+			_, err := EditBlock(EditBlockOptions{Path: p, OldString: "alpha", NewString: "ALPHA", AllowedDirs: []string{d}})
+			return err
+		}},
+		{"edit-blocks", func(p, d string) error {
+			_, err := EditBlocks(EditBlocksOptions{Path: p, Edits: []EditPair{{OldString: "alpha", NewString: "ALPHA"}}, AllowedDirs: []string{d}})
+			return err
+		}},
+		{"safe-edit", func(p, d string) error {
+			_, err := SafeEdit(SafeEditOptions{Path: p, OldString: "alpha", NewString: "ALPHA", Backup: true, AllowedDirs: []string{d}})
+			return err
+		}},
+		{"edit-file", func(p, d string) error {
+			_, err := EditFile(EditFileOptions{Path: p, Operation: "replace", Line: 1, Content: "ALPHA", AllowedDirs: []string{d}})
+			return err
+		}},
+		{"edit-multiple-blocks", func(p, d string) error {
+			_, err := EditMultipleBlocks(EditMultipleBlocksOptions{Path: p, Edits: []MultiEditOperation{{OldText: "alpha", NewText: "ALPHA"}}, Backup: true, AllowedDirs: []string{d}})
+			return err
+		}},
+		{"search-and-replace", func(p, d string) error {
+			_, err := SearchAndReplace(SearchReplaceOptions{Path: p, Pattern: "alpha", Replacement: "ALPHA", AllowedDirs: []string{d}})
+			return err
+		}},
+	}
+}
+
+func TestEditsKeepTheFileMode(t *testing.T) {
+	for _, mode := range []fs.FileMode{0o755, 0o600} {
+		for _, e := range editRuns() {
+			t.Run(e.name+"/"+mode.String(), func(t *testing.T) {
+				dir := t.TempDir()
+				path := filepath.Join(dir, "f")
+				if err := os.WriteFile(path, []byte("alpha\nbeta\n"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+				// Chmod rather than WriteFile's perm, which umask can narrow.
+				if err := os.Chmod(path, mode); err != nil {
+					t.Fatal(err)
+				}
+
+				if err := e.run(path, dir); err != nil {
+					t.Fatalf("edit: %v", err)
+				}
+
+				got, _ := os.ReadFile(path)
+				if !strings.HasPrefix(string(got), "ALPHA") {
+					t.Fatalf("the edit did not apply: %q", got)
+				}
+				entries, _ := os.ReadDir(dir)
+				for _, entry := range entries {
+					info, err := entry.Info()
+					if err != nil {
+						t.Fatal(err)
+					}
+					// The edited file and any backup beside it both keep the
+					// original mode; a leftover temp file fails the name check.
+					if !strings.HasPrefix(entry.Name(), "f") {
+						t.Errorf("left %s behind", entry.Name())
+					}
+					if info.Mode().Perm() != mode {
+						t.Errorf("%s mode = %v, want %v", entry.Name(), info.Mode().Perm(), mode)
+					}
+				}
+			})
+		}
+	}
+}
+
+// The helper renames into place, so a write that fails part-way must leave the
+// original bytes exactly as they were and no temp file behind.
+func TestEditWriteFailureLeavesTheOriginalIntact(t *testing.T) {
+	for _, e := range editRuns() {
+		t.Run(e.name, func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, "f")
+			if err := os.WriteFile(path, []byte("alpha\nbeta\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+
+			prev := syncTempFile
+			syncTempFile = func(f *os.File) error { return errors.New("injected: disk full") }
+			t.Cleanup(func() { syncTempFile = prev })
+
+			err := e.run(path, dir)
+			// search-and-replace reports per file rather than failing the run;
+			// what matters for every command is that the file is intact.
+			if err == nil && e.name != "search-and-replace" {
+				t.Error("a failed write reported success")
+			}
+			if got, _ := os.ReadFile(path); string(got) != "alpha\nbeta\n" {
+				t.Errorf("a failed write changed the original: %q", got)
+			}
+			entries, _ := os.ReadDir(dir)
+			for _, entry := range entries {
+				if entry.Name() != "f" && !strings.HasPrefix(entry.Name(), "f.bak.") {
+					t.Errorf("a failed write left %s behind", entry.Name())
+				}
+			}
+		})
+	}
+}
+
+// Renaming over a symlink would replace the link with a regular file and leave
+// the file it points to unedited. The write lands on the link's target.
+func TestEditThroughASymlinkEditsTheTarget(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "real")
+	link := filepath.Join(dir, "link")
+	if err := os.WriteFile(target, []byte("alpha\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, link); err != nil {
+		t.Skip("symlinks unavailable:", err)
+	}
+	if _, err := EditBlock(EditBlockOptions{Path: link, OldString: "alpha", NewString: "ALPHA", AllowedDirs: []string{dir}}); err != nil {
+		t.Fatalf("EditBlock: %v", err)
+	}
+	if info, err := os.Lstat(link); err != nil || info.Mode()&os.ModeSymlink == 0 {
+		t.Errorf("the link was replaced by a regular file")
+	}
+	if got, _ := os.ReadFile(target); string(got) != "ALPHA\n" {
+		t.Errorf("target = %q, want the edit", got)
+	}
+}

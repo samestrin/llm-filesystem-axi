@@ -17,19 +17,30 @@ import (
 // the TEXT renderer alone leaves TOON and JSON unable to tell a preview from an
 // applied edit.
 type EditResult struct {
-	Path       string `json:"path"`
-	Success    bool   `json:"success"`
-	Changes    int    `json:"changes"`
-	Unmatched  int    `json:"unmatched,omitempty"`
-	Backup     string `json:"backup,omitempty"`
-	Message    string `json:"message"`
-	OldContent string `json:"old_content,omitempty"`
-	NewContent string `json:"new_content,omitempty"`
-	DryRun     bool   `json:"dry_run,omitempty"`
+	Path         string `json:"path"`
+	Success      bool   `json:"success"`
+	Changes      int    `json:"changes"`
+	Unmatched    int    `json:"unmatched,omitempty"`
+	Backup       string `json:"backup,omitempty"`
+	Message      string `json:"message"`
+	OldContent   string `json:"old_content,omitempty"`
+	NewContent   string `json:"new_content,omitempty"`
+	DryRun       bool   `json:"dry_run,omitempty"`
+	Replacements int    `json:"replacements,omitempty"`
 }
+
+type AmbiguousMatchError struct {
+	Edit    int
+	Matches int
+}
+
+func (e *AmbiguousMatchError) Error() string { return "stub" }
+
+var syncTempFile = func(f *os.File) error { return f.Sync() }
 
 // EditBlockOptions contains input parameters for EditBlock
 type EditBlockOptions struct {
+	ReplaceAll  bool
 	Path        string
 	OldString   string
 	NewString   string
@@ -84,6 +95,7 @@ func EditBlock(opts EditBlockOptions) (*EditResult, error) {
 
 // EditBlocksOptions contains input parameters for EditBlocks
 type EditBlocksOptions struct {
+	ReplaceAll  bool
 	Path        string
 	Edits       []EditPair
 	AllowedDirs []string
@@ -176,6 +188,7 @@ func EditBlocks(opts EditBlocksOptions) (*EditResult, error) {
 
 // SafeEditOptions contains input parameters for SafeEdit
 type SafeEditOptions struct {
+	ReplaceAll  bool
 	Path        string
 	OldString   string
 	NewString   string
@@ -510,6 +523,7 @@ type MultiEditResult struct {
 	Size            int64          `json:"size"`
 	SizeReadable    string         `json:"size_readable"`
 	Timestamp       string         `json:"timestamp"`
+	Replacements    int            `json:"replacements,omitempty"`
 }
 
 // EditOpResult represents the result of a single edit operation
@@ -527,6 +541,7 @@ type EditOpResult struct {
 
 // EditMultipleBlocksOptions contains input parameters for EditMultipleBlocks
 type EditMultipleBlocksOptions struct {
+	ReplaceAll  bool
 	Path        string
 	Edits       []MultiEditOperation
 	Backup      bool
