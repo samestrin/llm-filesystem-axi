@@ -226,13 +226,14 @@ func extractArchiveCmd() *cobra.Command {
 			core.DefaultExtractMaxBytes, core.DefaultExtractMaxEntries),
 		Run: func(cmd *cobra.Command, args []string) {
 			// 0 is neither a cap nor "no limit", and core reads it as "use the
-			// default", so an explicit 0 would silently mean 1 GiB. Refused
+			// default", so an explicit 0 would silently mean 1 GiB. Below -1 is
+			// undocumented and silently meant "no limit". Both are refused
 			// before anything is written.
 			for _, f := range []struct {
 				name string
-				zero bool
-			}{{"max-bytes", maxBytes == 0}, {"max-entries", maxEntries == 0}} {
-				if f.zero && cmd.Flags().Changed(f.name) {
+				bad  bool
+			}{{"max-bytes", maxBytes == 0 || maxBytes < -1}, {"max-entries", maxEntries == 0 || maxEntries < -1}} {
+				if f.bad && cmd.Flags().Changed(f.name) {
 					emitDiagnostic(activeFmt, activeCompact,
 						fmt.Errorf("--%s must be a positive cap, or -1 for no limit", f.name),
 						goaxi.ExitUsage,

@@ -352,8 +352,10 @@ type ReadMultipleFilesOptions struct {
 //
 // Truncated means at least one file was cut or not read at all. TotalSize is
 // the combined on-disk size of the requested files that EXIST — not of
-// everything requested: a missing or unreadable path adds nothing to it and is
-// counted in Failed instead, so compare against Failed before treating it as
+// everything requested: a path that cannot be stat'd (missing, or not
+// permitted) adds nothing to it and is counted in Failed instead. A file that
+// stats but then fails to read still adds its on-disk size, and is also counted
+// in Failed, so compare against Failed before treating it as
 // the size of the whole request (debt c30b86bc). Both are omitempty, so their
 // absence means every requested file came back whole.
 // Skipped counts files that were named but never opened because the budget was

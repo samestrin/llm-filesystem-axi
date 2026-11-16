@@ -39,16 +39,19 @@ func TestExtractArchiveCapFlags(t *testing.T) {
 		})
 	}
 
-	// 0 is neither a cap nor "no limit"; it is refused before anything is
+	// 0 is neither a cap nor "no limit", and below -1 is not documented: -2
+	// used to mean "no limit" silently. Both are refused before anything is
 	// written, as a usage error.
 	for _, flag := range []string{"--max-bytes", "--max-entries"} {
-		dest := t.TempDir()
-		_, _, code := runCLI(t, "extract-archive", "--archive", archive, "--dest", dest, flag, "0")
-		if code != 2 {
-			t.Errorf("%s 0 exited %d, want 2", flag, code)
-		}
-		if entries, _ := os.ReadDir(dest); len(entries) != 0 {
-			t.Errorf("%s 0 still extracted %d entries", flag, len(entries))
+		for _, v := range []string{"0", "-2"} {
+			dest := t.TempDir()
+			_, _, code := runCLI(t, "extract-archive", "--archive", archive, "--dest", dest, flag, v)
+			if code != 2 {
+				t.Errorf("%s %s exited %d, want 2", flag, v, code)
+			}
+			if entries, _ := os.ReadDir(dest); len(entries) != 0 {
+				t.Errorf("%s %s still extracted %d entries", flag, v, len(entries))
+			}
 		}
 	}
 }

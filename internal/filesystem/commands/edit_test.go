@@ -171,3 +171,28 @@ func TestAmbiguousEditIsRefusedWithRecovery(t *testing.T) {
 		})
 	}
 }
+
+// outputEditError routes every error that is not an ambiguous match through the
+// ordinary tool-failure path. A not-found edit must still exit 1 with the
+// generic --help pointer and no --replace-all advice, which does not apply.
+func TestEditNotFoundTakesTheOrdinaryErrorPath(t *testing.T) {
+	cases := map[string][]string{
+		"edit-block":           {"--old", "absent", "--new", "x"},
+		"safe-edit":            {"--old", "absent", "--new", "x"},
+		"edit-blocks":          {"--edits", `[{"old_string":"absent","new_string":"x"}]`},
+		"edit-multiple-blocks": {"--edits", `[{"old_text":"absent","new_text":"x"}]`},
+	}
+	for name, rest := range cases {
+		t.Run(name, func(t *testing.T) {
+			_, file := editFixture(t)
+			stdout, _, code := runCLI(t, append([]string{name, "--path", file}, rest...)...)
+			if code != 1 {
+				t.Errorf("exit = %d, want 1: %q", code, stdout)
+			}
+			if !strings.Contains(stdout, name+" --help") || strings.Contains(stdout, "--replace-all") {
+				t.Errorf("want the generic --help pointer and no --replace-all advice: %q", stdout)
+			}
+			assertFileContent(t, file, "foo foo\n")
+		})
+	}
+}
