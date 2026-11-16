@@ -22,3 +22,6 @@ coverage.html
 .atcr/
 
 .planning/
+
+# Agent-local Claude Code settings: machine paths and tool grants, never shared.
+.claude/settings.local.json

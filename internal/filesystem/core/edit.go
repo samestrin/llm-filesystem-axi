@@ -2,6 +2,7 @@ package core
 
 import (
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -17,19 +18,120 @@ import (
 // the TEXT renderer alone leaves TOON and JSON unable to tell a preview from an
 // applied edit.
 type EditResult struct {
-	Path       string `json:"path"`
-	Success    bool   `json:"success"`
-	Changes    int    `json:"changes"`
-	Unmatched  int    `json:"unmatched,omitempty"`
-	Backup     string `json:"backup,omitempty"`
-	Message    string `json:"message"`
-	OldContent string `json:"old_content,omitempty"`
-	NewContent string `json:"new_content,omitempty"`
-	DryRun     bool   `json:"dry_run,omitempty"`
+	Path         string `json:"path"`
+	Success      bool   `json:"success"`
+	Changes      int    `json:"changes"`
+	Unmatched    int    `json:"unmatched,omitempty"`
+	Backup       string `json:"backup,omitempty"`
+	Message      string `json:"message"`
+	OldContent   string `json:"old_content,omitempty"`
+	NewContent   string `json:"new_content,omitempty"`
+	DryRun       bool   `json:"dry_run,omitempty"`
+	Replacements int    `json:"replacements,omitempty"`
+}
+
+// AmbiguousMatchError refuses an edit whose old string occurs more than once.
+// The edits used to run strings.Replace(..., 1) after strings.Contains, so the
+// FIRST occurrence changed silently and the edit reported success; which one
+// the caller meant is unknowable, to the caller and to the tool alike.
+//
+// Edit is the 1-based position of the edit in a multi-edit batch, or 0 for a
+// single edit. Field names the input the caller must lengthen.
+type AmbiguousMatchError struct {
+	Edit    int
+	Field   string
+	Matches int
+}
+
+func (e *AmbiguousMatchError) Error() string {
+	msg := fmt.Sprintf("%s matches %d times; it must match exactly once", e.Field, e.Matches)
+	if e.Edit > 0 {
+		msg = fmt.Sprintf("edit %d: %s", e.Edit, msg)
+	}
+	return msg
+}
+
+// replaceMatches replaces old in content: exactly one occurrence, or every
+// occurrence under replaceAll. It returns the number replaced, 0 when old does
+// not occur, and an *AmbiguousMatchError when it occurs more than once without
+// replaceAll.
+func replaceMatches(content, old, new string, replaceAll bool, edit int, field string) (string, int, error) {
+	n := strings.Count(content, old)
+	switch {
+	case n == 0:
+		return content, 0, nil
+	case n > 1 && !replaceAll:
+		return content, 0, &AmbiguousMatchError{Edit: edit, Field: field, Matches: n}
+	}
+	return strings.ReplaceAll(content, old, new), n, nil
+}
+
+// The temp file's write, sync, chmod and close are variables so a test can make
+// each fail after the temp file exists, which no real test filesystem does.
+var (
+	writeTempFile = func(f *os.File, b []byte) (int, error) { return f.Write(b) }
+	syncTempFile  = func(f *os.File) error { return f.Sync() }
+	chmodTempFile = func(f *os.File, mode fs.FileMode) error { return f.Chmod(mode) }
+	closeTempFile = func(f *os.File) error { return f.Close() }
+)
+
+// writeFileAtomic replaces path with data, keeping mode.
+//
+// Every edit used os.WriteFile, which truncates first and writes second: a
+// crash or a full disk part-way left a truncated file where the original was.
+// This writes a temp file beside the target, fsyncs it, sets the mode and
+// renames it into place, so a reader sees the old bytes or the new ones and
+// never a mix. A symlink is resolved first: renaming over the link itself
+// would replace it with a regular file and leave its target unedited.
+func writeFileAtomic(path string, data []byte, mode fs.FileMode) (err error) {
+	if resolved, rerr := filepath.EvalSymlinks(path); rerr == nil {
+		path = resolved
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".llmfs-edit-*")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	defer func() {
+		if err != nil {
+			_ = tmp.Close()
+			_ = os.Remove(tmpName)
+		}
+	}()
+	if _, err = writeTempFile(tmp, data); err != nil {
+		return err
+	}
+	if err = syncTempFile(tmp); err != nil {
+		return err
+	}
+	// CreateTemp makes the file 0600; Chmod is not narrowed by umask, so the
+	// result has exactly the original's mode.
+	if err = chmodTempFile(tmp, mode); err != nil {
+		return err
+	}
+	if err = closeTempFile(tmp); err != nil {
+		return err
+	}
+	return os.Rename(tmpName, path)
+}
+
+// replaceFile rewrites an existing file atomically, keeping its mode.
+func replaceFile(path string, data []byte) error {
+	info, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+	return writeFileAtomic(path, data, fileMode(info))
+}
+
+// fileMode is the part of a file's mode a rewrite must carry over.
+func fileMode(info fs.FileInfo) fs.FileMode {
+	return info.Mode() & (fs.ModePerm | fs.ModeSetuid | fs.ModeSetgid | fs.ModeSticky)
 }
 
 // EditBlockOptions contains input parameters for EditBlock
 type EditBlockOptions struct {
+	ReplaceAll  bool
 	Path        string
 	OldString   string
 	NewString   string
@@ -61,29 +163,30 @@ func EditBlock(opts EditBlockOptions) (*EditResult, error) {
 		return nil, fmt.Errorf("failed to read file: %w", err)
 	}
 
-	// Check if old_string exists
-	if !strings.Contains(string(content), opts.OldString) {
+	newContent, n, err := replaceMatches(string(content), opts.OldString, opts.NewString, opts.ReplaceAll, 0, "old_string")
+	if err != nil {
+		return nil, err
+	}
+	if n == 0 {
 		return nil, fmt.Errorf("old_string not found in file")
 	}
 
-	// Replace content
-	newContent := strings.Replace(string(content), opts.OldString, opts.NewString, 1)
-
-	// Write file
-	if err := os.WriteFile(normalizedPath, []byte(newContent), 0644); err != nil {
+	if err := replaceFile(normalizedPath, []byte(newContent)); err != nil {
 		return nil, fmt.Errorf("failed to write file: %w", err)
 	}
 
 	return &EditResult{
-		Path:    normalizedPath,
-		Success: true,
-		Changes: 1,
-		Message: "Edit completed successfully",
+		Path:         normalizedPath,
+		Success:      true,
+		Changes:      1,
+		Replacements: n,
+		Message:      "Edit completed successfully",
 	}, nil
 }
 
 // EditBlocksOptions contains input parameters for EditBlocks
 type EditBlocksOptions struct {
+	ReplaceAll  bool
 	Path        string
 	Edits       []EditPair
 	AllowedDirs []string
@@ -124,6 +227,7 @@ func EditBlocks(opts EditBlocksOptions) (*EditResult, error) {
 	contentStr := string(content)
 	changes := 0
 	unmatched := 0
+	replacements := 0
 
 	// EditBlock, the singular form, refuses both of these outright. This one
 	// used to `continue` past them and then report "Applied 0 edits
@@ -138,13 +242,20 @@ func EditBlocks(opts EditBlocksOptions) (*EditResult, error) {
 			return nil, fmt.Errorf("edit %d: old_string is required", i+1)
 		}
 
-		if !strings.Contains(contentStr, edit.OldString) {
+		// Checked against the content as the earlier edits left it, and one
+		// ambiguous edit refuses the batch before anything is written.
+		next, n, err := replaceMatches(contentStr, edit.OldString, edit.NewString, opts.ReplaceAll, i+1, "old_string")
+		if err != nil {
+			return nil, err
+		}
+		if n == 0 {
 			unmatched++
 			continue
 		}
 
-		contentStr = strings.Replace(contentStr, edit.OldString, edit.NewString, 1)
+		contentStr = next
 		changes++
+		replacements += n
 	}
 
 	if changes == 0 {
@@ -153,7 +264,7 @@ func EditBlocks(opts EditBlocksOptions) (*EditResult, error) {
 
 	// Only write when something changed. The previous version rewrote the file
 	// even on a zero-change run, bumping its mtime for no reason.
-	if err := os.WriteFile(normalizedPath, []byte(contentStr), 0644); err != nil {
+	if err := replaceFile(normalizedPath, []byte(contentStr)); err != nil {
 		return nil, fmt.Errorf("failed to write file: %w", err)
 	}
 
@@ -166,16 +277,18 @@ func EditBlocks(opts EditBlocksOptions) (*EditResult, error) {
 	}
 
 	return &EditResult{
-		Path:      normalizedPath,
-		Success:   true,
-		Changes:   changes,
-		Unmatched: unmatched,
-		Message:   message,
+		Path:         normalizedPath,
+		Success:      true,
+		Changes:      changes,
+		Unmatched:    unmatched,
+		Replacements: replacements,
+		Message:      message,
 	}, nil
 }
 
 // SafeEditOptions contains input parameters for SafeEdit
 type SafeEditOptions struct {
+	ReplaceAll  bool
 	Path        string
 	OldString   string
 	NewString   string
@@ -211,20 +324,24 @@ func SafeEdit(opts SafeEditOptions) (*EditResult, error) {
 
 	contentStr := string(content)
 
-	// Check if old_string exists
-	if !strings.Contains(contentStr, opts.OldString) {
+	// Refused before the dry-run return too: a preview of a first-match edit
+	// previews an edit the tool must not make.
+	newContent, n, err := replaceMatches(contentStr, opts.OldString, opts.NewString, opts.ReplaceAll, 0, "old_string")
+	if err != nil {
+		return nil, err
+	}
+	if n == 0 {
 		return nil, fmt.Errorf("old_string not found in file")
 	}
 
-	newContent := strings.Replace(contentStr, opts.OldString, opts.NewString, 1)
-
 	result := &EditResult{
-		Path:       normalizedPath,
-		Success:    true,
-		Changes:    1,
-		OldContent: contentStr,
-		NewContent: newContent,
-		DryRun:     opts.DryRun,
+		Path:         normalizedPath,
+		Success:      true,
+		Changes:      1,
+		Replacements: n,
+		OldContent:   contentStr,
+		NewContent:   newContent,
+		DryRun:       opts.DryRun,
 	}
 
 	if opts.DryRun {
@@ -238,8 +355,7 @@ func SafeEdit(opts SafeEditOptions) (*EditResult, error) {
 		result.Backup = backupPath
 	}
 
-	// Write file
-	if err := os.WriteFile(normalizedPath, []byte(newContent), 0644); err != nil {
+	if err := replaceFile(normalizedPath, []byte(newContent)); err != nil {
 		return nil, fmt.Errorf("failed to write file: %w", err)
 	}
 
@@ -251,12 +367,17 @@ func createEditBackup(path string) string {
 	timestamp := time.Now().Format("20060102_150405")
 	backupPath := fmt.Sprintf("%s.bak.%s", path, timestamp)
 
+	info, err := os.Stat(path)
+	if err != nil {
+		return ""
+	}
 	content, err := os.ReadFile(path)
 	if err != nil {
 		return ""
 	}
 
-	if err := os.WriteFile(backupPath, content, 0644); err != nil {
+	// The original's mode, not 0644: a 0600 secret's backup was world-readable.
+	if err := writeFileAtomic(backupPath, content, fileMode(info)); err != nil {
 		return ""
 	}
 
@@ -328,8 +449,7 @@ func EditFile(opts EditFileOptions) (*EditResult, error) {
 
 	newContent := strings.Join(lines, "\n")
 
-	// Write file
-	if err := os.WriteFile(normalizedPath, []byte(newContent), 0644); err != nil {
+	if err := replaceFile(normalizedPath, []byte(newContent)); err != nil {
 		return nil, fmt.Errorf("failed to write file: %w", err)
 	}
 
@@ -442,7 +562,10 @@ func SearchAndReplace(opts SearchReplaceOptions) (*SearchReplaceResult, error) {
 		totalChanges += changes
 
 		if !opts.DryRun {
-			if err := os.WriteFile(filePath, []byte(newContent), info.Mode()); err != nil {
+			// replaceFile stats through a symlink. Walk's info is the link's
+			// own Lstat (mode 0777), and keeping that mode chmodded the
+			// target behind the link to rwxrwxrwx.
+			if err := replaceFile(filePath, []byte(newContent)); err != nil {
 				return nil
 			}
 		}
@@ -510,6 +633,7 @@ type MultiEditResult struct {
 	Size            int64          `json:"size"`
 	SizeReadable    string         `json:"size_readable"`
 	Timestamp       string         `json:"timestamp"`
+	Replacements    int            `json:"replacements,omitempty"`
 }
 
 // EditOpResult represents the result of a single edit operation
@@ -527,6 +651,7 @@ type EditOpResult struct {
 
 // EditMultipleBlocksOptions contains input parameters for EditMultipleBlocks
 type EditMultipleBlocksOptions struct {
+	ReplaceAll  bool
 	Path        string
 	Edits       []MultiEditOperation
 	Backup      bool
@@ -564,6 +689,7 @@ func EditMultipleBlocks(opts EditMultipleBlocksOptions) (*MultiEditResult, error
 	originalLines := len(strings.Split(contentStr, "\n"))
 	totalChanges := 0
 	successfulEdits := 0
+	replacements := 0
 	editResults := make([]EditOpResult, 0, len(opts.Edits))
 
 	// Process each edit
@@ -584,14 +710,19 @@ func EditMultipleBlocks(opts EditMultipleBlocksOptions) (*MultiEditResult, error
 			if edit.OldText == "" {
 				return nil, fmt.Errorf("edit %d: old_text is required for replace mode", i+1)
 			}
-			if strings.Contains(contentStr, edit.OldText) {
-				contentStr = strings.Replace(contentStr, edit.OldText, edit.NewText, 1)
+			next, n, err := replaceMatches(contentStr, edit.OldText, edit.NewText, opts.ReplaceAll, i+1, "old_text")
+			if err != nil {
+				return nil, err
+			}
+			if n > 0 {
+				contentStr = next
 				opResult.Status = "success"
 				opResult.ChangesMade = 1
 				opResult.OldText = truncatePreview(edit.OldText, 50)
 				opResult.NewText = truncatePreview(edit.NewText, 50)
 				totalChanges++
 				successfulEdits++
+				replacements += n
 			} else {
 				opResult.Status = "not_found"
 				opResult.ChangesMade = 0
@@ -685,8 +816,7 @@ func EditMultipleBlocks(opts EditMultipleBlocksOptions) (*MultiEditResult, error
 		}
 	}
 
-	// Write file
-	if err := os.WriteFile(normalizedPath, []byte(contentStr), 0644); err != nil {
+	if err := replaceFile(normalizedPath, []byte(contentStr)); err != nil {
 		return nil, fmt.Errorf("failed to write file: %w", err)
 	}
 
@@ -721,6 +851,7 @@ func EditMultipleBlocks(opts EditMultipleBlocksOptions) (*MultiEditResult, error
 		Size:            finalSize,
 		SizeReadable:    formatBytes(finalSize),
 		Timestamp:       time.Now().UTC().Format(time.RFC3339),
+		Replacements:    replacements,
 	}, nil
 }
 

@@ -328,6 +328,10 @@ Search totals are exact. `--max-results` (default 1000) limits what a search lis
 
 Destructive syncs can be previewed. `sync-directories --dry-run` reports what it would write, in every output format, and writes nothing. The preview reports the same counts the real run does: `dirs_created` is directories it creates, not directories it walks, so a directory already present in the destination is not counted.
 
+Edits match exactly once. `edit-block`, `safe-edit`, `edit-blocks` and `edit-multiple-blocks` refuse an old string that occurs more than once, exit `1` with the match count, and leave the file untouched; `--replace-all` replaces every occurrence and reports `replacements`. Every edit writes through a temp file renamed into place, so the file keeps its mode (and a backup takes the original's mode) and a failed write leaves the original intact.
+
+Archive extraction is capped against decompression bombs. `extract-archive` stops at 1 GiB written in total (`--max-bytes`) or 100,000 entries (`--max-entries`); the entry that crosses a cap fails and its partial file is removed, the result carries `truncated: true`, and the command exits `1`. Pass a larger value, or `-1` for no limit, for an archive you trust.
+
 Known gaps against the [AXI](https://axi.md) principles, the same ones the catalog entry in [`docs/axi-catalog-entry.yaml`](docs/axi-catalog-entry.yaml) states:
 
 - Principle 7: `setup` registers Claude Code (a SessionStart hook in the project's .claude/settings.json plus the skill), Codex (a SessionStart hook in the project's .codex/hooks.json) and OpenCode (a plugin in the project's .opencode/plugins/ that adds the home view to the system context); there is no session-end capture, because this CLI keeps no session history.

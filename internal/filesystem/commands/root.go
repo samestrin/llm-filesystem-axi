@@ -182,10 +182,15 @@ Output defaults to token-efficient TOON; use --format json for machine parsing.`
 	// Cobra still does the printing, because the flag is named "version"; -V
 	// shares its variable so either spelling sets it. Root-local, not
 	// persistent, so `read-file -V` stays an unknown-flag error.
+	//
+	// pflag gives every flag a long name, and -V's was once "version-alias",
+	// which the command line accepted as an undocumented third spelling (debt
+	// 99969966). Its long name now contains "=": pflag splits --name=value at
+	// the first "=", so no argument can ever name it, and -V is shorthand-only.
 	var showVersion bool
 	rootCmd.Flags().BoolVarP(&showVersion, "version", "v", false, "Print the version and exit")
-	rootCmd.Flags().BoolVarP(&showVersion, "version-alias", "V", false, "Print the version and exit")
-	_ = rootCmd.Flags().MarkHidden("version-alias")
+	rootCmd.Flags().BoolVarP(&showVersion, versionShorthandOnly, "V", false, "Print the version and exit")
+	_ = rootCmd.Flags().MarkHidden(versionShorthandOnly)
 	rootCmd.SetVersionTemplate("{{.Version}}\n")
 
 	// --axi is a no-op alias for the TOON default, accepted so a habit from the
@@ -553,6 +558,9 @@ func execute(args []string) {
 		emitDiagnostic(f, compact, err, goaxi.ExitUsage, usageSteps(failed, err))
 	}
 }
+
+// versionShorthandOnly is -V's long name, unreachable from argv by design.
+const versionShorthandOnly = "V=shorthand-only"
 
 // flagError marks an error as cobra's flag-parse failure. The root's
 // FlagErrorFunc wraps every one, and subcommands inherit that func, so this is
