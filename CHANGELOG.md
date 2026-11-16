@@ -65,6 +65,25 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **`setup` PATH-verifies the Claude Code hook.** It wrote the bare command
+  `llm-filesystem` into `.claude/settings.json` even when `PATH` did not find
+  this binary, so the hook ran nothing or a different copy. It now names the
+  binary the way the Codex hook does: by name only when `PATH` finds this same
+  binary, by its absolute path otherwise. A later run repairs an existing
+  llm-filesystem hook after the binary moves instead of adding a second one.
+
+- **`delete-file` on a path that is already gone exits 0.** It used to print
+  `error: true` / `path does not exist` and exit 1. The state asked for
+  already holds, so it now reports `deleted: false`, `existed: false` and a
+  message, and exits 0; a real delete reports `deleted: true`,
+  `existed: true`. A missing parent directory, or a path outside
+  `--allowed-dirs`, is still an error. A `batch-file-operations` delete entry
+  follows the same rule. A dangling symlink is deleted, not reported missing.
+
+- **An empty directory lists as an empty list.** `list-directory` printed
+  `items: null`; it now prints `items[0]:` in TOON and `"items": []` in JSON,
+  beside `total: 0`.
+
 - **Search totals are exact when `--max-results` cuts the list.**
   `search-code` and `search-files` used to stop at the cap (default 1000) and
   report it as `total_matches` or `total`, so 1,500 matches read as 1000 with
