@@ -312,6 +312,125 @@ func TestMoveAndCopyOverwriteRequireConfirm(t *testing.T) {
 	}
 }
 
+// Review finding on PR #71 (HIGH): the gate stat-ed the raw --dest string,
+// but core.MoveFile/CopyFile run it through core.NormalizePath, which expands
+// a leading ~ and filepath.Clean's away trailing slashes. A destination
+// spelled '~/victim.txt' or 'victim.txt/' therefore missed the existence
+// check and was replaced silently with exit 0 — the exact destruction this
+// gate exists to prevent. The gate must stat the same path core will write
+// to, and print the confirmed command with that same normalized path so the
+// suggested next step is runnable as printed.
+func TestMoveAndCopyOverwriteGateNormalizesDestination(t *testing.T) {
+	const precious = "IRREPLACEABLE"
+
+	setup := func(t *testing.T) (src, victim string) {
+		t.Helper()
+		home := t.TempDir()
+		t.Setenv("HOME", home)
+		src = filepath.Join(home, "src.txt")
+		victim = filepath.Join(home, "victim.txt")
+		if err := os.WriteFile(src, []byte("replacement"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(victim, []byte(precious), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return src, victim
+	}
+
+	assertRefused := func(t *testing.T, src, victim, stdout, stderr string, code int) {
+		t.Helper()
+		if code != int(goaxi.ExitUsage) {
+			t.Errorf("exit = %d, want ExitUsage (%d) for an unconfirmed overwrite", code, goaxi.ExitUsage)
+		}
+		got, err := os.ReadFile(victim)
+		if err != nil {
+			t.Fatalf("the destination was removed entirely: %v", err)
+		}
+		if string(got) != precious {
+			t.Errorf("destination = %q, want it untouched (%q)", got, precious)
+		}
+		gotSrc, err := os.ReadFile(src)
+		if err != nil || string(gotSrc) != "replacement" {
+			t.Errorf("source = %q (err %v), want it untouched", gotSrc, err)
+		}
+		if !strings.Contains(stdout, "--confirm") {
+			t.Errorf("stdout = %q, want the diagnostic to name --confirm", stdout)
+		}
+		// The suggested command must carry the normalized destination, not
+		// the raw spelling: '~/victim.txt' re-run with --confirm works, but
+		// a suggestion that keeps a broken spelling is not a next step.
+		if !strings.Contains(stdout, victim) {
+			t.Errorf("stdout = %q, want the suggested command to use the normalized path %q", stdout, victim)
+		}
+		if !strings.Contains(stdout, "error: true") {
+			t.Errorf("stdout = %q, want a structured TOON error (the default format)", stdout)
+		}
+		if stderr != "" {
+			t.Errorf("stderr = %q, want empty; the error belongs on stdout", stderr)
+		}
+	}
+
+	for _, cmd := range []string{"move-file", "copy-file"} {
+		t.Run(cmd+" tilde destination refuses", func(t *testing.T) {
+			src, victim := setup(t)
+			stdout, stderr, code := runCLI(t, cmd, "--source", src, "--dest", "~/victim.txt")
+			assertRefused(t, src, victim, stdout, stderr, code)
+		})
+
+		// os.Stat on 'victim.txt/' fails with ENOTDIR, but filepath.Clean
+		// strips the slash and core overwrites the existing file.
+		t.Run(cmd+" trailing-slash destination refuses", func(t *testing.T) {
+			src, victim := setup(t)
+			stdout, stderr, code := runCLI(t, cmd, "--source", src, "--dest", victim+"/")
+			assertRefused(t, src, victim, stdout, stderr, code)
+		})
+
+		// The gate must not become a wall for normalized spellings either:
+		// a confirmed overwrite still runs, with core doing the expansion.
+		t.Run(cmd+" confirmed tilde destination replaces", func(t *testing.T) {
+			src, victim := setup(t)
+			_, _, code := runCLI(t, cmd, "--source", src, "--dest", "~/victim.txt", "--confirm")
+			if code == int(goaxi.ExitUsage) {
+				t.Fatal("a confirmed overwrite was rejected as a usage error")
+			}
+			got, err := os.ReadFile(victim)
+			if err != nil || string(got) != "replacement" {
+				t.Errorf("destination = %q (err %v), want the replacement", got, err)
+			}
+		})
+	}
+
+	// When normalization itself fails (here: ~ with no HOME), the gate must
+	// defer to core's error path — not crash, not invent a refusal, and not
+	// let anything run. core reports the failure and the victim stays intact.
+	t.Run("normalization failure defers to core", func(t *testing.T) {
+		dir := t.TempDir()
+		t.Setenv("HOME", "")
+		src := filepath.Join(dir, "src.txt")
+		victim := filepath.Join(dir, "victim.txt")
+		if err := os.WriteFile(src, []byte("replacement"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(victim, []byte(precious), 0o600); err != nil {
+			t.Fatal(err)
+		}
+
+		_, _, code := runCLI(t, "copy-file", "--source", src, "--dest", "~/victim.txt")
+
+		if code == 0 {
+			t.Error("exit 0 although the destination could not be normalized")
+		}
+		if code == int(goaxi.ExitUsage) {
+			t.Error("the gate refused on a path it could not normalize; core must report that error")
+		}
+		got, err := os.ReadFile(victim)
+		if err != nil || string(got) != precious {
+			t.Errorf("destination = %q (err %v), want it untouched", got, err)
+		}
+	})
+}
+
 // Epic 10 T5: the gate is scoped to move-file and copy-file. write-file keeps
 // replacing an existing destination without --confirm — it is the tool an
 // agent reaches for to rewrite a file it owns, and gating it would break every
