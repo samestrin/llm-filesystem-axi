@@ -86,6 +86,18 @@ func TestDeleteFileStillFailsForAMissingParentOrOutsideAllowedDirs(t *testing.T)
 		}
 	})
 
+	// A parent that is a file is not a directory the path is missing from.
+	t.Run("parent is a file", func(t *testing.T) {
+		f := newTempFile(t)
+		stdout, _, code := runCLI(t, "delete-file", "--path", filepath.Join(f, "x"), "--confirm", "--format", "json")
+		if code != 1 || !strings.Contains(stdout, `"error"`) {
+			t.Errorf("exit %d, want 1 with an error\n%s", code, stdout)
+		}
+		if _, err := os.Stat(f); err != nil {
+			t.Errorf("the parent file was touched: %v", err)
+		}
+	})
+
 	// A dangling symlink exists: it is deleted, not reported as missing.
 	t.Run("dangling symlink is deleted", func(t *testing.T) {
 		dir := t.TempDir()
