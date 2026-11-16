@@ -17,14 +17,45 @@ func addFileOpsCommands(rootCmd *cobra.Command) {
 	rootCmd.AddCommand(batchFileOperationsCmd())
 }
 
+// refuseUnconfirmedOverwrite gates move-file and copy-file the same way the
+// batch gate does: os.Rename and os.Create both replace an existing
+// destination silently, so the operation is destructive exactly when the
+// destination already exists. A fresh destination overwrites nothing and
+// needs no confirming.
+//
+// The refusal is a usage error, not a tool failure: nothing was attempted,
+// so nothing failed. Exit 1 would tell the agent the tool tried and broke,
+// and the rational response to that is retrying the identical command.
+// Exit 2 says "fix the invocation" — here, add --confirm.
+//
+// Only inspecting the flag's VALUE closes the --confirm=false hole: a
+// provided flag satisfies cobra's required check even when it says false.
+func refuseUnconfirmedOverwrite(command, source, destination string, confirm bool) bool {
+	if confirm {
+		return false
+	}
+	if _, statErr := os.Stat(destination); statErr != nil {
+		return false
+	}
+	emitDiagnostic(activeFmt, activeCompact,
+		fmt.Errorf("%s would overwrite an existing destination, which requires --confirm", command),
+		goaxi.ExitUsage,
+		[]string{"Confirm the overwrite: llm-filesystem " + command + " --source " + source + " --dest " + destination + " --confirm"})
+	return true
+}
+
 func copyFileCmd() *cobra.Command {
 	var source, destination string
+	var confirm bool
 
 	cmd := &cobra.Command{
 		Use:   "copy-file",
 		Short: "Copy a file or directory",
-		Long:  "Copies a file or directory to a new location",
+		Long:  "Copies a file or directory to a new location. Replacing an existing destination requires --confirm.",
 		Run: func(cmd *cobra.Command, args []string) {
+			if refuseUnconfirmedOverwrite("copy-file", source, destination, confirm) {
+				return
+			}
 			result, err := core.CopyFile(core.CopyFileOptions{
 				Source:      source,
 				Destination: destination,
@@ -42,6 +73,7 @@ func copyFileCmd() *cobra.Command {
 
 	cmd.Flags().StringVar(&source, "source", "", "Source path (required)")
 	cmd.Flags().StringVar(&destination, "dest", "", "Destination path (required)")
+	cmd.Flags().BoolVar(&confirm, "confirm", false, "Confirm replacing an existing destination")
 	cmd.MarkFlagRequired("source")
 	cmd.MarkFlagRequired("dest")
 
@@ -50,12 +82,16 @@ func copyFileCmd() *cobra.Command {
 
 func moveFileCmd() *cobra.Command {
 	var source, destination string
+	var confirm bool
 
 	cmd := &cobra.Command{
 		Use:   "move-file",
 		Short: "Move or rename a file or directory",
-		Long:  "Moves or renames a file or directory",
+		Long:  "Moves or renames a file or directory. Replacing an existing destination requires --confirm.",
 		Run: func(cmd *cobra.Command, args []string) {
+			if refuseUnconfirmedOverwrite("move-file", source, destination, confirm) {
+				return
+			}
 			result, err := core.MoveFile(core.MoveFileOptions{
 				Source:      source,
 				Destination: destination,
@@ -73,6 +109,7 @@ func moveFileCmd() *cobra.Command {
 
 	cmd.Flags().StringVar(&source, "source", "", "Source path (required)")
 	cmd.Flags().StringVar(&destination, "dest", "", "Destination path (required)")
+	cmd.Flags().BoolVar(&confirm, "confirm", false, "Confirm replacing an existing destination")
 	cmd.MarkFlagRequired("source")
 	cmd.MarkFlagRequired("dest")
 
