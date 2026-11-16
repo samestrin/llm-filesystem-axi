@@ -72,6 +72,20 @@ func TestSessionEndGapStatesItsReason(t *testing.T) {
 	}
 }
 
+// Defends the CHANGELOG's "New tests pin each of those claims": the setup
+// help's session-end sentence is the one non-doc line T6 changed, and without
+// this guard it could rot back to the bare "Session-end capture is not set up"
+// with the whole suite still green (Reviewer finding on PR #72, Medium).
+// Reads the help text off the command itself, so it pins what --help prints.
+func TestSetupHelpStatesSessionEndReason(t *testing.T) {
+	// The Long text is hard-wrapped in the source; --help renders it as
+	// prose, so match on the whitespace-normalised text.
+	long := strings.Join(strings.Fields(setupCmd().Long), " ")
+	if !strings.Contains(long, "Session-end capture is not set up") || !strings.Contains(long, "keeps no session history") {
+		t.Error("setup --help must state the session-end gap with its reason (this CLI keeps no session history)")
+	}
+}
+
 // Proves the reason guard can fail: the gap without its reason, and a list
 // that dropped the gap entirely, must both be flagged; the reasoned gap passes.
 func TestSessionEndReasonGuardFlagsMissingReason(t *testing.T) {
