@@ -1,8 +1,10 @@
 package core
 
 import (
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 )
@@ -15,6 +17,10 @@ type FileOpResult struct {
 	Success     bool   `json:"success"`
 	Operation   string `json:"operation"`
 	Message     string `json:"message"`
+	// Deleted and Existed are set by a delete only, so a delete of a path that
+	// was already gone (a success, not an error) cannot be read as a deletion.
+	Deleted *bool `json:"deleted,omitempty"`
+	Existed *bool `json:"existed,omitempty"`
 }
 
 // CopyFileOptions contains input parameters for CopyFile
@@ -257,12 +263,32 @@ func DeleteFile(opts DeleteFileOptions) (*FileOpResult, error) {
 		return nil, err
 	}
 
-	// Check if exists
-	info, err := os.Stat(normalizedPath)
+	// Lstat, not Stat: a dangling symlink exists and is deleted, rather than
+	// being reported as already gone.
+	info, err := os.Lstat(normalizedPath)
+	if errors.Is(err, fs.ErrNotExist) {
+		// The state asked for already holds, so this is a no-op success. A
+		// missing parent is not: the path is more likely a typo than a file
+		// deleted earlier, and acknowledging it would hide that.
+		parent, perr := os.Stat(filepath.Dir(normalizedPath))
+		if perr != nil || !parent.IsDir() {
+			return nil, fmt.Errorf("path does not exist, and neither does its parent directory: %w", err)
+		}
+		no := false
+		return &FileOpResult{
+			Path:      normalizedPath,
+			Success:   true,
+			Operation: "delete",
+			Message:   "Path does not exist; nothing to delete",
+			Deleted:   &no,
+			Existed:   &no,
+		}, nil
+	}
 	if err != nil {
-		return nil, fmt.Errorf("path does not exist: %w", err)
+		return nil, fmt.Errorf("cannot stat path: %w", err)
 	}
 
+	yes := true
 	if info.IsDir() {
 		if opts.Recursive {
 			if err := os.RemoveAll(normalizedPath); err != nil {
@@ -284,6 +310,8 @@ func DeleteFile(opts DeleteFileOptions) (*FileOpResult, error) {
 		Success:   true,
 		Operation: "delete",
 		Message:   "Delete completed successfully",
+		Deleted:   &yes,
+		Existed:   &yes,
 	}, nil
 }
 

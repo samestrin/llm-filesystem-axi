@@ -1,0 +1,4 @@
+llm-filesystem-axi
+
+This project began as a Go port of fast-filesystem-mcp by efforthye, licensed under the Apache License 2.0.
+https://github.com/efforthye/fast-filesystem-mcp

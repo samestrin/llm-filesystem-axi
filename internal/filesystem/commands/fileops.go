@@ -132,7 +132,7 @@ func deleteFileCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "delete-file",
 		Short: "Delete a file or directory",
-		Long:  "Deletes a file or directory, optionally recursively. Requires --confirm.",
+		Long:  "Deletes a file or directory, optionally recursively. Requires --confirm.\n\nA path that is already gone is a no-op: it exits 0 with deleted: false and\nexisted: false. A missing parent directory, or a path outside --allowed-dirs,\nis still an error.",
 		Run: func(cmd *cobra.Command, args []string) {
 			// MarkFlagRequired below is satisfied by --confirm=false, because
 			// the flag WAS provided. Only inspecting the value closes that hole.
@@ -159,6 +159,9 @@ func deleteFileCmd() *cobra.Command {
 				return
 			}
 			OutputResult(result, func() string {
+				if result.Deleted != nil && !*result.Deleted {
+					return fmt.Sprintf("Nothing to delete: %s does not exist", result.Path)
+				}
 				return fmt.Sprintf("Deleted %s", result.Path)
 			})
 		},

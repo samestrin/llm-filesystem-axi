@@ -18,9 +18,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// setupHookCommand is what Claude Code runs at session start. Its stdout joins
-// the session's context, so it is the bare run: the home view. The owner chose
-// the bare run over a routing-only summary (epic 05, question 1).
+// setupHookCommand is the binary's name. Every hook runs it bare, which prints
+// the home view into the session's context; the owner chose the bare run over a
+// routing-only summary (epic 05, question 1). The name is what a hook runs when
+// PATH finds this binary; otherwise the hook names its absolute path.
 const setupHookCommand = "llm-filesystem"
 
 // openCodePluginMarker opens every plugin file setup writes. A file at the
@@ -107,11 +108,11 @@ SessionStart hook into .codex/hooks.json for Codex, and write an OpenCode
 plugin to .opencode/plugins/llm-filesystem.js that adds the home view to
 OpenCode's system context (it adds no tool).
 
-The Codex hook and the OpenCode plugin run llm-filesystem by name when PATH
-finds this same binary, and by its absolute path otherwise. A later run points
-an existing llm-filesystem hook in .codex/hooks.json, and the plugin, at the
-binary's current location, so a moved or reinstalled binary is repaired rather
-than registered twice.
+The Claude Code hook, the Codex hook and the OpenCode plugin run llm-filesystem
+by name when PATH finds this same binary, and by its absolute path otherwise. A
+later run points an existing llm-filesystem hook in .claude/settings.json or
+.codex/hooks.json, and the plugin, at the binary's current location, so a moved
+or reinstalled binary is repaired rather than registered twice.
 
 Every other key and hook in either JSON file is kept. A file that is not a JSON
 object, or whose "hooks" or "hooks.SessionStart" has the wrong type, is
@@ -234,16 +235,17 @@ func planSetup(dir string) ([]setupPlan, error) {
 		}
 	}
 
-	settings, err := planHooksFile(filepath.Join(dir, settingsRel), setupHookCommand, false)
+	command, err := setupPortableCommand()
+	if err != nil {
+		return nil, err
+	}
+	// Claude Code and Codex both run a hook command through a shell.
+	settings, err := planHooksFile(filepath.Join(dir, settingsRel), shellQuote(command), true)
 	if err != nil {
 		return nil, err
 	}
 	settings.rel = settingsRel
 
-	command, err := setupPortableCommand()
-	if err != nil {
-		return nil, err
-	}
 	codex, err := planHooksFile(filepath.Join(dir, codexRel), shellQuote(command), true)
 	if err != nil {
 		return nil, err

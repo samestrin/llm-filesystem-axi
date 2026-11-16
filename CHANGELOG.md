@@ -8,6 +8,15 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **The README is titled `llm-filesystem-axi`, after the repository,** and
+  keeps `llm-filesystem` wherever it means the command. A new Origin section
+  says where the project came from, and a `NOTICE` file credits
+  fast-filesystem-mcp by efforthye (Apache-2.0).
+
+- **The README's one-line description names AXI.** It now says the output
+  is [AXI](https://axi.md)-compliant, and the GitHub repository description
+  says the same in plain text.
+
 - **Edits refuse an old string that matches more than once.** `edit-block`,
   `safe-edit`, `edit-blocks` and `edit-multiple-blocks` used to change the
   first occurrence silently and report success. They now exit 1 with
@@ -26,6 +35,25 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   or `-1` for no limit.
 
 ### Fixed
+
+- **`setup` PATH-verifies the Claude Code hook.** It wrote the bare command
+  `llm-filesystem` into `.claude/settings.json` even when `PATH` did not find
+  this binary, so the hook ran nothing or a different copy. It now names the
+  binary the way the Codex hook does: by name only when `PATH` finds this same
+  binary, by its absolute path otherwise. A later run repairs an existing
+  llm-filesystem hook after the binary moves instead of adding a second one.
+
+- **`delete-file` on a path that is already gone exits 0.** It used to print
+  `error: true` / `path does not exist` and exit 1. The state asked for
+  already holds, so it now reports `deleted: false`, `existed: false` and a
+  message, and exits 0; a real delete reports `deleted: true`,
+  `existed: true`. A missing parent directory, or a path outside
+  `--allowed-dirs`, is still an error. A `batch-file-operations` delete entry
+  follows the same rule. A dangling symlink is deleted, not reported missing.
+
+- **An empty directory lists as an empty list.** `list-directory` printed
+  `items: null`; it now prints `items[0]:` in TOON and `"items": []` in JSON,
+  beside `total: 0`.
 
 - **`extract-archive` had no decompression-bomb limit.** Each entry was
   copied with an unbounded `io.Copy`. The entry that crosses a cap now fails,

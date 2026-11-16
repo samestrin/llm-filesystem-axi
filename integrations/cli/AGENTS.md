@@ -87,7 +87,7 @@ Search totals are exact: `--max-results` caps the list, not the count. A capped 
 
 **Large reads truncate. They do not fail.** A file over the size budget comes back as a leading *prefix*, with `truncated`, `total_size` and `next_offset`, at exit 0. Resume with `--start-offset <next_offset>`. Do not treat a truncated read as the whole file, and do not avoid the tool because a file is large — reading in windows is bounded whatever the size.
 
-**Destructive operations need `--confirm`.** `delete-file` requires it, and so do `move-file` and `copy-file` when the destination already exists, and any `batch-file-operations` entry that destroys something: a delete, or a move or copy onto a path that already exists. Without it nothing is touched and the command exits `2`.
+**Destructive operations need `--confirm`.** `delete-file` requires it, and so do `move-file` and `copy-file` when the destination already exists, and any `batch-file-operations` entry that destroys something: a delete, or a move or copy onto a path that already exists. Without it nothing is touched and the command exits `2`. Deleting a path that is already gone exits `0` with `deleted: false`; a missing parent directory is still an error.
 
 ## Reading the output
 
