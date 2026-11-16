@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -47,9 +48,12 @@ func TestEditDryRunIsVisibleInMachineFormats(t *testing.T) {
 		{
 			name: "safe-edit",
 			args: func(_, file string) []string {
-				return []string{"safe-edit", "--path", file, "--old", "foo", "--new", "bar", "--backup=false"}
+				// The whole line, because "foo" alone matches twice and an
+				// ambiguous safe-edit is now refused (it used to change the
+				// first "foo" silently, which this case once encoded).
+				return []string{"safe-edit", "--path", file, "--old", "foo foo", "--new", "bar", "--backup=false"}
 			},
-			applied: "bar foo\n",
+			applied: "bar\n",
 		},
 		{
 			name: "search-and-replace",
@@ -111,6 +115,59 @@ func TestEditDryRunIsVisibleInMachineFormats(t *testing.T) {
 				t.Errorf("a real JSON run reported dry_run: %q", stdout)
 			}
 			assertFileContent(t, file, c.applied)
+		})
+	}
+}
+
+// An old string matching more than once used to change the first occurrence
+// and exit 0. Each string edit now refuses at exit 1 with the count, and its
+// help names both ways out: --replace-all, or a longer old string. The file is
+// checked, not just the exit code.
+func TestAmbiguousEditIsRefusedWithRecovery(t *testing.T) {
+	cases := []struct {
+		name string
+		args func(file string) []string
+	}{
+		{"edit-block", func(f string) []string {
+			return []string{"edit-block", "--path", f, "--old", "foo", "--new", "bar"}
+		}},
+		{"safe-edit", func(f string) []string {
+			return []string{"safe-edit", "--path", f, "--old", "foo", "--new", "bar"}
+		}},
+		{"edit-blocks", func(f string) []string {
+			return []string{"edit-blocks", "--path", f, "--edits", `[{"old_string":"foo","new_string":"bar"}]`}
+		}},
+		{"edit-multiple-blocks", func(f string) []string {
+			return []string{"edit-multiple-blocks", "--path", f, "--edits", `[{"old_text":"foo","new_text":"bar"}]`}
+		}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			dir, file := editFixture(t)
+
+			stdout, _, code := runCLI(t, c.args(file)...)
+			if code != 1 {
+				t.Errorf("exit = %d, want 1", code)
+			}
+			if !strings.Contains(stdout, "matches 2 times") {
+				t.Errorf("the refusal does not name the match count: %q", stdout)
+			}
+			if !strings.Contains(stdout, "--replace-all") || !strings.Contains(stdout, "longer") {
+				t.Errorf("help does not offer --replace-all and a longer old string: %q", stdout)
+			}
+			assertFileContent(t, file, "foo foo\n")
+			if entries, _ := os.ReadDir(dir); len(entries) != 1 {
+				t.Errorf("a refused edit left files behind: %v", entries)
+			}
+
+			stdout, _, code = runCLI(t, append(c.args(file), "--replace-all")...)
+			if code != -1 {
+				t.Errorf("--replace-all exit = %d: %q", code, stdout)
+			}
+			if !hasTOONField(stdout, "replacements") || !strings.Contains(stdout, "replacements: 2") {
+				t.Errorf("--replace-all does not report replacements: 2: %q", stdout)
+			}
+			assertFileContent(t, file, "bar bar\n")
 		})
 	}
 }
