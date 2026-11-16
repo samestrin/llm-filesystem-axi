@@ -6,6 +6,38 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- **The README is titled `llm-filesystem-axi`, after the repository,** and
+  keeps `llm-filesystem` wherever it means the command. A new Origin section
+  says where the project came from, and a `NOTICE` file credits
+  fast-filesystem-mcp by efforthye (Apache-2.0).
+
+- **The README's one-line description names AXI.** It now says the output
+  is [AXI](https://axi.md)-compliant, and the GitHub repository description
+  says the same in plain text.
+
+### Fixed
+
+- **`setup` PATH-verifies the Claude Code hook.** It wrote the bare command
+  `llm-filesystem` into `.claude/settings.json` even when `PATH` did not find
+  this binary, so the hook ran nothing or a different copy. It now names the
+  binary the way the Codex hook does: by name only when `PATH` finds this same
+  binary, by its absolute path otherwise. A later run repairs an existing
+  llm-filesystem hook after the binary moves instead of adding a second one.
+
+- **`delete-file` on a path that is already gone exits 0.** It used to print
+  `error: true` / `path does not exist` and exit 1. The state asked for
+  already holds, so it now reports `deleted: false`, `existed: false` and a
+  message, and exits 0; a real delete reports `deleted: true`,
+  `existed: true`. A missing parent directory, or a path outside
+  `--allowed-dirs`, is still an error. A `batch-file-operations` delete entry
+  follows the same rule. A dangling symlink is deleted, not reported missing.
+
+- **An empty directory lists as an empty list.** `list-directory` printed
+  `items: null`; it now prints `items[0]:` in TOON and `"items": []` in JSON,
+  beside `total: 0`.
+
 ## [1.1.0] - 2026-11-16
 
 ### Added
@@ -39,15 +71,6 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
-- **The README is titled `llm-filesystem-axi`, after the repository,** and
-  keeps `llm-filesystem` wherever it means the command. A new Origin section
-  says where the project came from, and a `NOTICE` file credits
-  fast-filesystem-mcp by efforthye (Apache-2.0).
-
-- **The README's one-line description names AXI.** It now says the output
-  is [AXI](https://axi.md)-compliant, and the GitHub repository description
-  says the same in plain text.
-
 - **The docs state the behaviour epic 10 shipped, and the one remaining gap
   carries its reason.** The audit page gains an epic 10 re-check listing the
   four closed gaps with their fixes and guarding tests; the README, the
@@ -75,25 +98,6 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   failure, 2 for a usage error.
 
 ### Fixed
-
-- **`setup` PATH-verifies the Claude Code hook.** It wrote the bare command
-  `llm-filesystem` into `.claude/settings.json` even when `PATH` did not find
-  this binary, so the hook ran nothing or a different copy. It now names the
-  binary the way the Codex hook does: by name only when `PATH` finds this same
-  binary, by its absolute path otherwise. A later run repairs an existing
-  llm-filesystem hook after the binary moves instead of adding a second one.
-
-- **`delete-file` on a path that is already gone exits 0.** It used to print
-  `error: true` / `path does not exist` and exit 1. The state asked for
-  already holds, so it now reports `deleted: false`, `existed: false` and a
-  message, and exits 0; a real delete reports `deleted: true`,
-  `existed: true`. A missing parent directory, or a path outside
-  `--allowed-dirs`, is still an error. A `batch-file-operations` delete entry
-  follows the same rule. A dangling symlink is deleted, not reported missing.
-
-- **An empty directory lists as an empty list.** `list-directory` printed
-  `items: null`; it now prints `items[0]:` in TOON and `"items": []` in JSON,
-  beside `total: 0`.
 
 - **Search totals are exact when `--max-results` cuts the list.**
   `search-code` and `search-files` used to stop at the cap (default 1000) and
