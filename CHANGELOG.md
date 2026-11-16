@@ -37,6 +37,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **The README's one-line description names AXI.** It now says the output
+  is [AXI](https://axi.md)-compliant, and the GitHub repository description
+  says the same in plain text.
+
 - **The docs state the behaviour epic 10 shipped, and the one remaining gap
   carries its reason.** The audit page gains an epic 10 re-check listing the
   four closed gaps with their fixes and guarding tests; the README, the

@@ -1,6 +1,6 @@
 # llm-filesystem
 
-`llm-filesystem` is a single Go binary that gives an AI agent, or you, commands to read, write, edit, search and manage local files, with output built for agents to parse.
+`llm-filesystem` is a single Go binary that gives an AI agent, or you, commands to read, write, edit, search and manage local files, with [AXI](https://axi.md)-compliant output built for agents to parse.
 
 <a href="https://github.com/samestrin/llm-filesystem-axi/actions/workflows/test.yml"><img src="https://github.com/samestrin/llm-filesystem-axi/actions/workflows/test.yml/badge.svg" alt="CI"></a> <a href="https://github.com/samestrin/llm-filesystem-axi/releases/latest"><img src="https://img.shields.io/github/v/release/samestrin/llm-filesystem-axi" alt="Latest release"></a> <a href="LICENSE"><img src="https://img.shields.io/github/license/samestrin/llm-filesystem-axi" alt="License"></a>
 
