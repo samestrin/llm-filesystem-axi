@@ -320,7 +320,7 @@ Raw results: [`results-coldstart.json`](benchmarks/results-coldstart.json), [`re
 
 Big reads truncate rather than refuse. A file over the size budget (70,000 characters by default) returns its leading content plus `truncated`, `total_size` and `next_offset`, and exits `0`. `next_offset` is the exact `--start-offset` that resumes the read; `--full` or `--max-size -1` returns the whole file.
 
-Deletes are gated. `delete-file` requires `--confirm`. So does any `batch-file-operations` entry that destroys something: a delete, or a move or copy onto a path that already exists. Without confirmation nothing is touched and the command exits `2`.
+Deletes and overwrites are gated. `delete-file` requires `--confirm`. So do `move-file` and `copy-file` when the destination already exists, and any `batch-file-operations` entry that destroys something: a delete, or a move or copy onto a path that already exists. Without confirmation nothing is touched and the command exits `2`. `write-file` still replaces an existing destination without confirmation.
 
 A missing path is a failure, not an empty result. A search against a path that does not exist reports an error rather than zero matches, so a typo cannot read as "the code you are looking for is not here".
 
@@ -331,7 +331,7 @@ Destructive syncs can be previewed. `sync-directories --dry-run` reports what it
 Known gaps against the [AXI](https://axi.md) principles, the same ones the catalog entry in [`docs/axi-catalog-entry.yaml`](docs/axi-catalog-entry.yaml) states:
 
 - Principle 7: `setup` registers Claude Code (a SessionStart hook in the project's .claude/settings.json plus the skill), Codex (a SessionStart hook in the project's .codex/hooks.json) and OpenCode (a plugin in the project's .opencode/plugins/ that adds the home view to the system context); there is no session-end capture.
-- write-file, move-file and copy-file replace an existing destination without --confirm; delete-file requires it, and so does any batch-file-operations entry that destroys something: a delete, or a move or copy onto a path that already exists.
+- write-file replaces an existing destination without --confirm; delete-file requires it, and so do move-file and copy-file when the destination already exists, and any batch-file-operations entry that destroys something: a delete, or a move or copy onto a path that already exists.
 
 ## Documentation
 
