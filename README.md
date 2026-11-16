@@ -351,6 +351,8 @@ Support is best-effort. Report bugs or request features by opening an issue at [
 
 ## Development
 
+Before proposing or adding a command, read [`VISION.md`](VISION.md): it defines this tool's scope and which work belongs to a sibling tool.
+
 ```bash
 make build         # the binary into ./build/; the end-to-end tests need it
 make test          # go test ./...
