@@ -1,6 +1,7 @@
 package core
 
 import (
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -102,5 +103,20 @@ func TestExtractArchiveDefaultsAndNoLimit(t *testing.T) {
 	res, err := ExtractArchive(ExtractArchiveOptions{Archive: archive, Destination: t.TempDir(), MaxBytes: -1, MaxEntries: -1})
 	if err != nil || !res.Success {
 		t.Fatalf("-1 should lift both caps: %v %+v", err, res)
+	}
+}
+
+// The cap check adds one byte to what is left; at the int64 maximum that
+// overflowed to a negative limit, which reads nothing, and the entry was
+// written empty and counted as extracted.
+func TestExtractArchiveMaxInt64CapStillWritesTheEntry(t *testing.T) {
+	archive := buildZip(t, []archiveEntry{{name: "a.txt", body: "hello"}})
+	dest := t.TempDir()
+	res, err := ExtractArchive(ExtractArchiveOptions{Archive: archive, Destination: dest, MaxBytes: math.MaxInt64})
+	if err != nil || !res.Success {
+		t.Fatalf("%v %+v", err, res)
+	}
+	if got, _ := os.ReadFile(filepath.Join(dest, "a.txt")); string(got) != "hello" {
+		t.Errorf("a.txt = %q, want hello", got)
 	}
 }

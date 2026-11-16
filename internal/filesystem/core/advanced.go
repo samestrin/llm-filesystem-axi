@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"math"
 	"os"
 	"path/filepath"
 	"sort"
@@ -418,14 +419,19 @@ func addToTar(tarWriter *tar.Writer, filePath, name string) error {
 type ExtractArchiveOptions struct {
 	Archive     string
 	Destination string
-	MaxBytes    int64
-	MaxEntries  int
+	MaxBytes    int64 // total bytes written; 0 = DefaultExtractMaxBytes, <0 = no limit
+	MaxEntries  int   // entries read; 0 = DefaultExtractMaxEntries, <0 = no limit
 	AllowedDirs []string
 }
 
+// The decompression-bomb caps. Each entry used to be copied with an unbounded
+// io.Copy, so a small archive that inflates to terabytes filled the disk, and
+// one holding millions of entries exhausted inodes, with nothing to stop it.
+// The defaults are generous for source trees and datasets; --max-bytes and
+// --max-entries raise them.
 const (
-	DefaultExtractMaxBytes   int64 = 1
-	DefaultExtractMaxEntries       = 1
+	DefaultExtractMaxBytes   int64 = 1 << 30 // 1 GiB
+	DefaultExtractMaxEntries int   = 100000
 )
 
 // ExtractResult represents extraction result.
@@ -442,8 +448,10 @@ type ExtractResult struct {
 	Overwritten    int      `json:"overwritten"`
 	Failed         int      `json:"failed"`
 	Failures       []string `json:"failures,omitempty"`
-	Truncated      bool     `json:"truncated,omitempty"`
-	Success        bool     `json:"success"`
+	// Truncated means a cap stopped the run: the entry that crossed it failed
+	// and the entries after it were not read, so they are in no count.
+	Truncated bool `json:"truncated,omitempty"`
+	Success   bool `json:"success"`
 }
 
 // extractTally counts what an extraction did and did not do.
@@ -452,6 +460,31 @@ type extractTally struct {
 	overwritten int
 	failed      int
 	failures    []string
+
+	// The extract caps; a negative cap is no limit. Compression leaves them
+	// zero and never calls admit or the byte check.
+	maxBytes   int64
+	maxEntries int
+	bytes      int64
+	entries    int
+	stopped    bool
+}
+
+// admit counts one archive entry against the entry cap. It returns false once
+// the run has stopped, and stops it at the entry that would pass the cap,
+// which fails. Every entry counts, directories included: a bomb of empty
+// directories exhausts inodes as surely as one of files.
+func (t *extractTally) admit(entry string) bool {
+	if t.stopped {
+		return false
+	}
+	t.entries++
+	if t.maxEntries >= 0 && t.entries > t.maxEntries {
+		t.fail(entry, fmt.Errorf("refused: more than %d entries (--max-entries); extraction stopped here", t.maxEntries))
+		t.stopped = true
+		return false
+	}
+	return true
 }
 
 func (t *extractTally) fail(entry string, err error) {
@@ -498,7 +531,13 @@ func ExtractArchive(opts ExtractArchiveOptions) (*ExtractResult, error) {
 		return nil, fmt.Errorf("failed to resolve destination directory: %w", err)
 	}
 
-	var tally extractTally
+	tally := extractTally{maxBytes: opts.MaxBytes, maxEntries: opts.MaxEntries}
+	if tally.maxBytes == 0 {
+		tally.maxBytes = DefaultExtractMaxBytes
+	}
+	if tally.maxEntries == 0 {
+		tally.maxEntries = DefaultExtractMaxEntries
+	}
 
 	// Detect format
 	if strings.HasSuffix(normalizedArchive, ".zip") {
@@ -520,6 +559,7 @@ func ExtractArchive(opts ExtractArchiveOptions) (*ExtractResult, error) {
 		Overwritten:    tally.overwritten,
 		Failed:         tally.failed,
 		Failures:       tally.failures,
+		Truncated:      tally.stopped,
 		Success:        tally.failed == 0,
 	}, nil
 }
@@ -624,9 +664,29 @@ func writeEntry(path, entry, realDest string, r io.Reader, tally *extractTally) 
 		tally.overwritten++
 	}
 
-	if _, err := io.Copy(out, r); err != nil {
+	// One byte past what is left shows the entry would cross the byte cap
+	// without inflating any more of it than that.
+	src := r
+	if tally.maxBytes >= 0 {
+		left := tally.maxBytes - tally.bytes
+		if left < math.MaxInt64 {
+			left++
+		}
+		src = io.LimitReader(r, left)
+	}
+	n, err := io.Copy(out, src)
+	tally.bytes += n
+	if err != nil {
 		_ = out.Close()
 		tally.fail(entry, fmt.Errorf("copy: %w", err))
+		return
+	}
+	if tally.maxBytes >= 0 && tally.bytes > tally.maxBytes {
+		_ = out.Close()
+		// A partial file is not the entry; leaving it would look extracted.
+		_ = os.Remove(path)
+		tally.fail(entry, fmt.Errorf("refused: more than %d bytes in total (--max-bytes); extraction stopped here", tally.maxBytes))
+		tally.stopped = true
 		return
 	}
 	if err := out.Close(); err != nil {
@@ -644,6 +704,9 @@ func extractZip(archive, destination, realDest string, tally *extractTally) erro
 	defer reader.Close()
 
 	for _, file := range reader.File {
+		if !tally.admit(file.Name) {
+			break
+		}
 		// Prevent zip slip vulnerability
 		path, isDest, err := entryTarget(destination, realDest, file.Name)
 		if err != nil {
@@ -726,6 +789,9 @@ func extractTarGz(archive, destination, realDest string, tally *extractTally) er
 		// `git archive` writes one into every tarball.
 		if header.Typeflag == tar.TypeXGlobalHeader {
 			continue
+		}
+		if !tally.admit(header.Name) {
+			break
 		}
 
 		// Prevent tar slip vulnerability
