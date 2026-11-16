@@ -34,13 +34,22 @@ func refuseUnconfirmedOverwrite(command, source, destination string, confirm boo
 	if confirm {
 		return false
 	}
-	if _, statErr := os.Stat(destination); statErr != nil {
+	// Stat the path core will actually write to: core.MoveFile/CopyFile run
+	// the destination through core.NormalizePath (~ expansion, filepath.Clean),
+	// so a raw stat misses '~/victim.txt' and 'victim.txt/' and lets the
+	// overwrite through silently. If normalization fails, defer to core to
+	// report that error rather than inventing a refusal here.
+	dst, err := core.NormalizePath(destination)
+	if err != nil {
+		return false
+	}
+	if _, statErr := os.Stat(dst); statErr != nil {
 		return false
 	}
 	emitDiagnostic(activeFmt, activeCompact,
 		fmt.Errorf("%s would overwrite an existing destination, which requires --confirm", command),
 		goaxi.ExitUsage,
-		[]string{"Confirm the overwrite: llm-filesystem " + command + " --source " + source + " --dest " + destination + " --confirm"})
+		[]string{"Confirm the overwrite: llm-filesystem " + command + " --source " + source + " --dest " + dst + " --confirm"})
 	return true
 }
 
