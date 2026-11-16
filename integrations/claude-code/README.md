@@ -14,7 +14,7 @@ Run in your project:
 llm-filesystem setup
 ```
 
-This merges a SessionStart hook that runs `llm-filesystem` into `.claude/settings.json` (keeping every other key and hook), and writes the on-demand skill to `.claude/skills/llm-filesystem/SKILL.md`, so Claude can load worked examples only when it needs them rather than paying for them every session. The same run also registers Codex (a SessionStart hook in `.codex/hooks.json`) and OpenCode (a plugin in `.opencode/plugins/llm-filesystem.js`); the main README's Agent paths section has the detail. It is idempotent, never prompts, writes only under the working directory, and supports `--dry-run` to preview:
+This merges a SessionStart hook that runs `llm-filesystem` (by its absolute path when `PATH` does not find this binary) into `.claude/settings.json` (keeping every other key and hook), and writes the on-demand skill to `.claude/skills/llm-filesystem/SKILL.md`, so Claude can load worked examples only when it needs them rather than paying for them every session. The same run also registers Codex (a SessionStart hook in `.codex/hooks.json`) and OpenCode (a plugin in `.opencode/plugins/llm-filesystem.js`); the main README's Agent paths section has the detail. It is idempotent, never prompts, writes only under the working directory, and supports `--dry-run` to preview:
 
 ```bash
 llm-filesystem setup --dry-run

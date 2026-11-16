@@ -70,7 +70,7 @@ With Claude Code, Codex or OpenCode, run one command in your project:
 llm-filesystem setup
 ```
 
-It merges a SessionStart hook into `.claude/settings.json` (keeping every other key and hook), writes the Agent Skill to `.claude/skills/llm-filesystem/SKILL.md`, merges a SessionStart hook into `.codex/hooks.json` for Codex, and writes a plugin to `.opencode/plugins/llm-filesystem.js` that adds the home view to OpenCode's system context. The Codex hook and the OpenCode plugin name the binary by its absolute path unless `PATH` finds this same binary, and a later run repairs the path if the binary has moved. Codex runs a project's hooks only once you trust the project and review the hook. It is idempotent, never prompts, and supports `--dry-run`. See [`integrations/claude-code/`](integrations/claude-code/).
+It merges a SessionStart hook into `.claude/settings.json` (keeping every other key and hook), writes the Agent Skill to `.claude/skills/llm-filesystem/SKILL.md`, merges a SessionStart hook into `.codex/hooks.json` for Codex, and writes a plugin to `.opencode/plugins/llm-filesystem.js` that adds the home view to OpenCode's system context. Both hooks and the OpenCode plugin name the binary by its absolute path unless `PATH` finds this same binary, and a later run repairs the path if the binary has moved. Codex runs a project's hooks only once you trust the project and review the hook. It is idempotent, never prompts, and supports `--dry-run`. See [`integrations/claude-code/`](integrations/claude-code/).
 
 To install only the skill with the skills CLI:
 
@@ -112,7 +112,7 @@ rm "$(go env GOPATH)/bin/llm-filesystem-mcp"   # go install
 sudo rm /usr/local/bin/llm-filesystem          # make install
 ```
 
-`setup` has no undo command. To remove what it wrote in a project, delete `.claude/skills/llm-filesystem/` and remove the SessionStart hook whose command is `llm-filesystem` from `.claude/settings.json`, and the one whose command is `llm-filesystem` or a path ending in `llm-filesystem` from `.codex/hooks.json`, and delete `.opencode/plugins/llm-filesystem.js`.
+`setup` has no undo command. To remove what it wrote in a project, delete `.claude/skills/llm-filesystem/` and remove the SessionStart hook whose command is `llm-filesystem` or a path ending in `llm-filesystem` from `.claude/settings.json` and from `.codex/hooks.json`, and delete `.opencode/plugins/llm-filesystem.js`.
 
 ## Quick start
 
