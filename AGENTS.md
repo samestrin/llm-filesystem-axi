@@ -1,6 +1,6 @@
 # Working on llm-filesystem
 
-House rules for an agent making changes **to this repository**.
+House rules for an agent making changes **to this repository**. [`VISION.md`](VISION.md) is the scope rule for new commands; this file says how to change them.
 
 > Not to be confused with `integrations/cli/AGENTS.md`. That is a shipped artefact telling an agent how to *use* the tool. This file is about *building* it.
 
