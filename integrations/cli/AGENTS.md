@@ -55,7 +55,7 @@ Every command takes `--help`. Run `llm-filesystem` with no arguments to see the 
 | `search-files` | Find files by name or glob |
 | `search-code` | Search file contents by pattern, with optional context lines |
 
-Search totals are exact: `--max-results` caps the list, not the count. A capped search adds `shown`, `truncated: true` and a `help[]` line naming `--max-results`; an uncapped one carries none of those.
+Search totals are exact: `--max-results` caps the list, not the count. A capped search adds `shown`, `truncated: true` and a next-step hint naming `--max-results` (the `help[]` block in TOON, `next_steps` in JSON); an uncapped one carries none of those.
 
 **Moving and deleting**
 
