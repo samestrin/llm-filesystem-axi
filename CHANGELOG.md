@@ -6,6 +6,44 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- **Edits refuse an old string that matches more than once.** `edit-block`,
+  `safe-edit`, `edit-blocks` and `edit-multiple-blocks` used to change the
+  first occurrence silently and report success. They now exit 1 with
+  `old_string matches N times` (for the batch commands, `edit K:` names the
+  edit, checked against the content the earlier edits leave), change nothing,
+  and their help names `--replace-all` or a longer old string. The new
+  `--replace-all` flag replaces every occurrence and reports `replacements`.
+  **Migration:** a call that relied on first-match replacement now fails;
+  lengthen the old string with surrounding lines until it is unique, or pass
+  `--replace-all` if every occurrence should change.
+
+### Added
+
+- **`extract-archive --max-bytes` and `--max-entries`.** Extraction stops at
+  1 GiB written in total or 100,000 entries by default; pass a larger value,
+  or `-1` for no limit.
+
+### Fixed
+
+- **`extract-archive` had no decompression-bomb limit.** Each entry was
+  copied with an unbounded `io.Copy`. The entry that crosses a cap now fails,
+  is counted in `failed`, and its partial file is removed; the run stops,
+  reports `truncated: true`, and exits 1.
+- **Edits are atomic and keep backups' modes.** Every edit command wrote with
+  a truncate-then-write, so a crash or full disk mid-write could leave a
+  truncated file; they now write a temp file beside the target, fsync it,
+  give it the original mode and rename it into place. A symlinked path is
+  edited at its target, as before. `safe-edit` and `edit-multiple-blocks`
+  backups used to be created `0644` whatever the original was, so a `0600`
+  file's backup was world-readable; they now take the original's mode.
+- **`-V` is shorthand-only.** Its hidden long name `--version-alias` was
+  accepted as an undocumented third spelling of `--version`; it is now an
+  unknown flag (exit 2).
+- **`read-multiple-files` documents what `total_size` counts:** the files
+  that exist. A missing path adds nothing and is counted in `failed`.
+
 ## [1.1.0] - 2026-11-16
 
 ### Added
