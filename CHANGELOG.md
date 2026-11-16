@@ -8,6 +8,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **`VISION.md` now states the tool's role in the AXI family.** It names
+  the file and archive operations and sibling boundaries, records the truth
+  and edit-safety guarantees already present in the CLI, and rules out a
+  daemon and file watcher.
+
 - **The README is titled `llm-filesystem-axi`, after the repository,** and
   keeps `llm-filesystem` wherever it means the command. A new Origin section
   says where the project came from, and a `NOTICE` file credits

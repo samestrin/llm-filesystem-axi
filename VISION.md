@@ -1,22 +1,26 @@
 # Vision
 
-`llm-filesystem-axi` exists so that an agent can read, write, edit, search and manage files quickly and safely, without wasting its context or guessing what happened.
+`llm-filesystem-axi` exists so that an agent has safe, truthful hands on local files without wasting its context or guessing what happened.
 It serves agents first, and the people who run them second.
-It turns the file operations an agent performs constantly into one small binary with token-dense, truthful output.
-It owns exactly one thing: working with files on the local filesystem.
+It reads, writes and edits files, searches them by name and content, and manages files and archives through one small binary with token-dense AXI output.
+It owns exactly one thing: safe, truthful local file operations.
 
 ## Nothing reports success when it did not succeed
 
 This rule sits above every other rule here.
-A command that skipped, overwrote or refused part of its work says so, with what and why.
-An edit that matched nothing, an archive entry that was skipped, and a missing input are reported, never folded into a plain success.
+A command that skipped, overwrote or refused part of its work says so, with what and why, in structured errors.
+An edit that matched nothing and an archive entry that was skipped are reported, never folded into a plain success.
+A missing search path is an error, not "no matches".
 An empty result and a failed command are never reported the same way.
+Deleting requires `--confirm`, and so do `move-file` and `copy-file` onto an existing destination and any destructive `batch-file-operations` entry; a dry run says it is one.
+A truncated read says how to resume.
 A test asserts the effect on disk, not the exit code.
 
 ## Safe by default
 
 Writes stay inside the paths the caller names; an archive entry that escapes its target directory is refused and reported.
 Existing files are not overwritten silently; an overwrite is either refused or reported.
+An edit never changes a match it was not sure of, and its write never leaves a half-written file or changes the file's mode.
 Destructive commands state exactly what they changed.
 
 ## The CLI is the product
@@ -36,7 +40,8 @@ Startup time and output size are measured, because an agent pays for both on eve
 ## Scope
 
 It is not a file manager UI, a search index, a sync tool or a version control system.
-Semantic search belongs to `llm-semantic-axi`, deterministic project facts to `llm-data-axi`, and web or model work to `llm-extract-axi`.
+Code symbols, rename and references belong to `llm-semantic-axi`, project facts and config to `llm-data-axi`, and the network and models to `llm-extract-axi`.
+There is no daemon and no file watcher.
 Install and upgrade are one command, verified by checksum, on Linux and macOS; Windows is best effort.
 Plans and debt live in a private planning repo.
 
