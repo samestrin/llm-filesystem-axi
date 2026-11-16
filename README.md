@@ -1,4 +1,4 @@
-# llm-filesystem
+# llm-filesystem-axi
 
 `llm-filesystem` is a single Go binary that gives an AI agent, or you, commands to read, write, edit, search and manage local files, with [AXI](https://axi.md)-compliant output built for agents to parse.
 
@@ -358,6 +358,12 @@ make hooks         # enable the pre-commit hook (gofmt + go vet)
 ## Changelog
 
 See [`CHANGELOG.md`](CHANGELOG.md).
+
+## Origin
+
+llm-filesystem began as a port of [fast-filesystem-mcp](https://github.com/efforthye/fast-filesystem-mcp) by efforthye. I first ported it to Go to make the MCP server faster (see [Performance](#performance)). Then I moved from MCP to AXI: an agent calls the CLI directly and reads compact TOON output, which costs fewer tokens than MCP tool schemas and results. The MCP server stays as an optional fallback.
+
+fast-filesystem-mcp is licensed under the Apache License 2.0; see [`NOTICE`](NOTICE).
 
 ## License
 

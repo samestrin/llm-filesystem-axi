@@ -37,6 +37,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **The README is titled `llm-filesystem-axi`, after the repository,** and
+  keeps `llm-filesystem` wherever it means the command. A new Origin section
+  says where the project came from, and a `NOTICE` file credits
+  fast-filesystem-mcp by efforthye (Apache-2.0).
+
 - **The README's one-line description names AXI.** It now says the output
   is [AXI](https://axi.md)-compliant, and the GitHub repository description
   says the same in plain text.

@@ -29,6 +29,9 @@ var readmeSections = []string{
 	"Documentation",
 	"Development",
 	"Changelog",
+	// Origin: owner decision 2026-11-16 (EST-6608), near the end, before
+	// License, crediting fast-filesystem-mcp beside the NOTICE file.
+	"Origin",
 	"License",
 }
 
