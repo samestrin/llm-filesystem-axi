@@ -115,7 +115,8 @@ func FindLargeFiles(opts FindLargeFilesOptions) (*FindLargeFilesResult, error) {
 		limit = 100
 	}
 
-	var files []LargeFileInfo
+	// Empty, not nil: nothing large renders as files[0]: / [], not null.
+	files := []LargeFileInfo{}
 
 	err = filepath.Walk(normalizedPath, func(path string, info os.FileInfo, err error) error {
 		if err != nil || info.IsDir() {

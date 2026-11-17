@@ -75,7 +75,8 @@ func SearchFiles(opts SearchFilesOptions) (*SearchFilesResult, error) {
 		maxResults = 1000
 	}
 
-	var matches []FileSearchResult
+	// Empty, not nil: no match renders as matches[0]: / [], not null.
+	matches := []FileSearchResult{}
 	total := 0
 
 	walkFn := func(filePath string, info os.FileInfo, err error) error {
@@ -237,7 +238,8 @@ func SearchCode(opts SearchCodeOptions) (*SearchCodeResult, error) {
 		}
 	}
 
-	var matches []CodeMatch
+	// Empty, not nil: no match renders as matches[0]: / [], not null.
+	matches := []CodeMatch{}
 	totalMatches, totalFiles := 0, 0
 
 	walkFn := func(filePath string, info os.FileInfo, err error) error {
