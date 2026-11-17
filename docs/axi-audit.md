@@ -1,10 +1,33 @@
 # AXI audit: `llm-filesystem` against the ten principles on axi.md
 
-- **Audited:** 2026-11-03, on a `make build` of tag `v1.0.0` at `c3b0170`.
-- **Method:** by hand. `axi-axi` is not installed on the build host. Each principle was checked against the text on https://axi.md, by running `build/llm-filesystem` in a scratch temp directory and reading the code the output comes from (line numbers are at `v1.0.0`).
-- **Status:** the audit above is a snapshot of `v1.0.0`. Re-checked against `v1.0.2`: every gap it found (6a, 6b and the principle 7 and 8 gaps) is closed in a release — the fixes shipped in `v1.0.1`, and `v1.0.2` adds no new gap. The verdict column keeps the `v1.0.0` result; the `Closed by` column says what fixed it.
-- **MCP server (added after the audited releases):** epic 09 shipped `llm-filesystem-mcp`, a thin MCP stdio server beside the CLI. Every tool is one CLI command: the server runs the `llm-filesystem` binary and returns its output, and a failing command comes back as an MCP error carrying the CLI's own error and exit code, never as a success. The verdicts above are about the CLI and carry over to the server's results, because every tool result carries the CLI's own output. The server is stdio only, with no network listener, and the installer ships it beside the CLI.
-- **Re-checked after epic 10 (2026-11-16, on `main` at `983ea2d`):** the owner's 2026-11-13 review found four gaps the v1.0.x passes above had not named. All four are closed by epic 10 T1-T5; the section "Epic 10 re-check" below lists each with its fix and guarding test. One principle gap remains, with its reason stated: there is no session-end capture, because this CLI keeps no session history. `write-file` also still replaces an existing destination without `--confirm`; both are listed under "What remains" below.
+- **Audited:** 2026-11-17, on a `make build` of tag `v1.1.0` at `9e8d84f` (EST-6622). Line numbers are at that commit.
+- **Method:** by hand. `axi-axi` is not installed on the build host. Each principle was checked against the text on https://axi.md, by running `build/llm-filesystem` in a scratch directory and reading the code the output comes from.
+- **MCP server:** `llm-filesystem-mcp`, a thin MCP stdio server, ships beside the CLI (epic 09, first released in `v1.1.0`). Every tool is one CLI command: the server runs the `llm-filesystem` binary and returns its output, and a failing command comes back as an MCP error carrying the CLI's own error and exit code, never as a success. The verdicts below are about the CLI and carry over to the server, because every tool result is the CLI's own output. Probed: `tools/list` returns 28 tools, and llm_filesystem_read_file on a missing path returns `isError: true` with the CLI's TOON error and `exit_code: 1`.
+- **Result:** nine principles met; principle 7 met with one stated exception. Two exceptions remain, each listed under "What remains" with its reason.
+
+| # | Principle (axi.md) | Verdict at `v1.1.0` | Evidence |
+|---|---|---|---|
+| 1 | Token-efficient output (TOON) | **Met** | `--format` defaults to `toon` (`internal/filesystem/commands/root.go:167-168`); every probed command emits TOON. |
+| 2 | Minimal default schemas (3-4 fields per item) | **Met** | `list-directory` emits `items[N]{name,size_readable,type}`, three fields (`internal/filesystem/commands/directory.go:41`); `--full` and `--fields` widen it. |
+| 3 | Content truncation with a size hint and `--full` | **Met** | Probed: a 99,001-byte file reads as `size: 70000`, `total_size: 99001`, `truncated: true`, `next_offset: 70000`, with `help[]` offering `--start-offset 70000` and `--full` (`internal/filesystem/core/read.go:15`, `internal/filesystem/commands/read.go:69-89`). The 70,000-character limit is well above axi.md's suggested 500-1500 because that guidance is for large side fields, while `read-file`'s content is the payload the caller asked for: cutting it to 1,500 characters would force a paging round trip on almost every source file. |
+| 4 | Pre-computed aggregates, always a total | **Met** | `list-directory` prints `total`; searches print exact totals past `--max-results` (`internal/filesystem/core/search.go:108-111` and `277-289`). Probed: 1,500 matching lines give `total_matches: 1500`, `shown: 1000`, `truncated: true` and a `help[]` line naming `--max-results 1500`. |
+| 5 | Definitive empty states | **Met** | Probed: an empty directory prints `items[0]:` beside `total: 0`, and a no-match search prints `matches[0]:` beside `total_matches: 0`, each with `help[]` (`internal/filesystem/core/directory.go:86`, `core/search.go:78-79` and `241-242`, `core/advanced.go:118`). JSON renders each as `[]`. |
+| 6 | Structured errors on stdout, exit 0/1, idempotent, never prompt, unknown flags fail loud | **Met** | Probed: `read-file --path /nope` exits 1 and `read-file --bogus` exits 2, each with a structured error on stdout and 0 bytes on stderr, in TOON and with `--format text` before or after the other flags (`root.go:454-484`, `root.go:555-558`). A repeat `create-directory` reports `created: false` / `exists: true`; `delete-file --confirm` on a path already gone exits 0 with `deleted: false` / `existed: false`. `delete-file` without `--confirm` exits 2 rather than prompting. `compress-files`, `extract-archive` and `sync-directories` exit 1 on a partial run and name what was skipped. |
+| 7 | Ambient context (setup command, Agent Skill) | **Met, with one exception** | `llm-filesystem setup` (`internal/filesystem/commands/setup.go:104`) registers Claude Code (a SessionStart hook in `.claude/settings.json` plus the skill), Codex (a SessionStart hook in `.codex/hooks.json`) and OpenCode (a plugin in `.opencode/plugins/`). Probed: in an empty project it writes those four files and exits 0; in the home directory it exits 1 and writes nothing. Exception: no session-end capture (see "What remains"). |
+| 8 | Content first (no-argument run shows live data, path as `~`) | **Met** | Probed: a bare run prints `about`, `bin`, `cwd`, `home: ~`, a bounded listing with `total`, and `help[]`, exit 0 (`internal/filesystem/commands/home.go:121-148`); `bin` and `cwd` are tilde-rendered when under the home directory (`home.go:45-57`, `home.go:73` and `home.go:92`). |
+| 9 | Contextual disclosure (`help[]` next steps) | **Met** | Every probed output — landing view, listings, searches, truncations, and errors — ends in `help[]` with concrete next-step commands (e.g. `read.go:69-89`). |
+| 10 | Consistent `--help` on every subcommand | **Met** | Probed: `--help` exits 0 for all 29 commands the root help lists, plus `completion` and `help`. |
+
+## What remains
+
+- **No session-end capture** (principle 7). Reason: this CLI keeps no session history, so a session-end hook would have nothing to capture; keeping history is out of scope for a filesystem tool. Stated identically in the README's Limits and the catalog entry's `exception`, and guarded by `TestSessionEndGapStatesItsReason` and `TestReadmeLimitsGapsMatchCatalogException`.
+- **`write-file` replaces an existing destination without `--confirm`.** Epic 10 T5 kept this behaviour while gating delete, move/copy onto an existing path, and destructive batch entries. Stated in the README's Limits and the catalog `exception`; the behaviour is pinned by `TestWriteFileStillReplacesWithoutConfirm`.
+
+## History
+
+The first audit (2026-11-03) was a snapshot of tag `v1.0.0` at `c3b0170`, with line numbers at that tag. It found two principle 6 gaps (6a, 6b), principle 7 met only through a manual copy, and a principle 8 gap (`bin` not tilde-rendered). All of them were closed in `v1.0.1`, and a re-check against `v1.0.2` found no new gap. The owner's 2026-11-13 review then found four more, closed by epic 10 before `v1.1.0`; the 2026-11-16 fresh-context review (EST-6608) and the AC6 review (EST-6846) closed the rest. The `v1.0.0` table is kept below as it was, with the `Closed by` column saying what fixed each gap.
+
+### The `v1.0.0` table
 
 | # | Principle (axi.md) | Verdict | Evidence | Closed by |
 |---|---|---|---|---|
@@ -19,7 +42,7 @@
 | 9 | Contextual disclosure (`help[]` next steps) | **Met** | Every probed output — landing view, listings, searches, truncations, and errors — ends in `help[]` with concrete next-step commands (e.g. `read.go:88-92`). | — |
 | 10 | Consistent `--help` on every subcommand | **Met** | Probed: `--help` exits 0 for all 28 subcommands the root help listed at the tag (29 on `main` now that `setup` has landed). | — |
 
-## Principle 6 in detail
+### Principle 6 in detail (v1.0.0)
 
 - **6a. `compress-files` and `extract-archive` reported partial work as success.** Probed on the v1.0.0 binary:
   - `llm-filesystem compress-files --output out.zip --paths a.txt,missing.txt` prints `files_added: 1`, `success: true` and exits 0, with no mention that `missing.txt` was never added. The archive exists and holds only `a.txt`.
@@ -33,7 +56,7 @@ Idempotency of the remaining mutations was spot-checked, not exhaustively probed
 
 - **6c. `delete-file` on a path that was already gone exited 1** with `error: true` / `path does not exist`, though the state asked for already held. Found by the 2026-11-16 fresh-context review (EST-6608) and fixed on `main`: it now exits 0 with `deleted: false` / `existed: false`, alone or as a `batch-file-operations` entry; a missing parent directory or a path outside `--allowed-dirs` is still an error. Guarded by `TestDeleteFileOnAMissingPathIsANoOp`, `TestDeleteFileStillFailsForAMissingParentOrOutsideAllowedDirs` and `TestBatchDeleteOfAMissingPathIsANoOp`.
 
-## Epic 10 re-check (2026-11-16)
+### Epic 10 re-check (2026-11-16)
 
 Re-checked on `main` at `983ea2d`, after epic 10 T1-T5 merged and before the v1.1.0 tag. The owner's 2026-11-13 review, read against the principles on axi.md, found four gaps the passes above had not named: the principle 3/4 pass missed that a capped search reported the cap as its total, the principle 6 pass missed the `--format text` stderr behaviour, the principle 7 row was closed by epic 05's `setup`, which registered Claude Code only, and the safety spot-check missed that move and copy replaced destinations silently. All four are closed. Each closure is guarded by a test in `internal/filesystem/commands/`:
 
@@ -44,8 +67,3 @@ Re-checked on `main` at `983ea2d`, after epic 10 T1-T5 merged and before the v1.
 | With `--format text`, usage and tool errors went to stderr; a flag error before `--format` rendered in TOON | 6 | T3 (`#69`): errors go to stdout in the active format, whatever the flag order | `TestErrorsGoToStdoutInTheActiveFormat` |
 | Searches stopped at `--max-results` and reported the cap as `total_matches` / `total`, with no marker | 3, 4 | T4 (`#70`): exact totals past the cap, plus `shown`, `truncated: true` and a `--max-results` hint | `TestSearchCappedShowsExactTotalMarkerAndHint` |
 | `move-file` and `copy-file` silently replaced an existing destination | the repo's own safety rule (`delete-file` needs `--confirm`) | T5 (`#71`): both refuse without `--confirm`, exit 2, nothing touched | `TestMoveAndCopyOverwriteRequireConfirm` |
-
-What remains, each with its reason or its test:
-
-- **No session-end capture** (principle 7). Reason: this CLI keeps no session history, so a session-end hook would have nothing to capture; keeping history is out of scope for a filesystem tool. Stated identically in the README's Limits and the catalog entry's `exception`, and guarded by `TestSessionEndGapStatesItsReason` and `TestReadmeLimitsGapsMatchCatalogException`.
-- **`write-file` replaces an existing destination without `--confirm`.** Epic 10 T5 kept this behaviour while gating delete, move/copy onto an existing path, and destructive batch entries. Stated in the README's Limits and the catalog `exception`; the behaviour is pinned by `TestWriteFileStillReplacesWithoutConfirm`.

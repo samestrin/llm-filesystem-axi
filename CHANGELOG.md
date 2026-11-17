@@ -6,6 +6,16 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- **Docs re-pinned to v1.1.0.** The AXI catalog entry's `reviewed_revision`
+  now names the commit tag v1.1.0 points at, with every observation re-run on
+  a build of it. `docs/axi-audit.md` restates one verdict per principle at
+  v1.1.0, with the v1.0.0 audit kept under History. The README names v1.1.0
+  as the first release with `llm-filesystem-mcp`, and its Performance table is
+  re-measured on v1.1.0 (on a Linux x86_64 host, not the Apple M4 Pro the
+  v1.0.2 table used).
+
 ## [1.1.0] - 2026-11-17
 
 ### Added

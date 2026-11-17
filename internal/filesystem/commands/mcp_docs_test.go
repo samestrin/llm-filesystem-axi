@@ -20,9 +20,9 @@ func mcpDenial(body string) bool {
 }
 
 // readmeOutsidePerformance returns the README with its Performance section
-// removed. That section carries the dated v1.0.2 benchmark table, whose
-// "not applicable: a CLI has no MCP server" row is a measurement of the old
-// release and is kept on purpose (technical-debt row 80a48d48da0f7e20).
+// removed. That section carries the dated benchmark table, whose generated
+// handshake row may name the MCP server it does not measure, and older tables
+// said "a CLI has no MCP server" (technical-debt row 80a48d48da0f7e20).
 // Everywhere else in the README the phrase is a stale claim.
 func readmeOutsidePerformance(body string) string {
 	lines := strings.Split(body, "\n")
@@ -46,7 +46,7 @@ func readmeOutsidePerformance(body string) string {
 // Defends epic 09 T4's "Done when": git grep -i "no MCP server" over VISION.md,
 // docs/llm-filesystem-commands.md, docs/axi-audit.md and
 // docs/axi-catalog-entry.yaml finds nothing, and the README has no such
-// sentence outside its dated v1.0.2 benchmark table. docs/background.md is
+// sentence outside its dated benchmark table. docs/background.md is
 // included because the EST-6459 review note found the same stale sentence
 // there.
 func TestNamedDocsNoLongerDenyTheMCPServer(t *testing.T) {
@@ -71,7 +71,7 @@ func TestNamedDocsNoLongerDenyTheMCPServer(t *testing.T) {
 		t.Fatalf("reading README: %v", err)
 	}
 	if mcpDenial(readmeOutsidePerformance(string(body))) {
-		t.Error("README says \"no MCP server\" outside the dated v1.0.2 benchmark table; only that table may keep the phrase")
+		t.Error("README says \"no MCP server\" outside the dated benchmark table; only that table may keep the phrase")
 	}
 }
 
