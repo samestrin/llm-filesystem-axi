@@ -44,6 +44,25 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Empty search results are an empty list, not `null`.** `search-code` and
+  `search-files` with no match printed `matches: null` (JSON
+  `"matches": null`), and `find-large-files` with nothing to report printed
+  `files: null` with no next step. They now print `matches[0]:` / `files[0]:`
+  (JSON `[]`) beside a total of 0, as `list-directory` does, and
+  `find-large-files` adds a `help[]` line.
+
+- **The AXI catalog entry describes the current release.** Its
+  `source_observations` in `docs/axi-catalog-entry.yaml` described v1.0.3,
+  and four of them (Claude Code-only setup, `--format text` errors on stderr,
+  a capped search reporting the cap as its total, and move/copy replacing a
+  destination without `--confirm`) were no longer true. Every line is
+  rewritten against the v1.1.0 code, and the MCP server is now among the
+  reviewed components.
+
+- **The demo no longer shows the hidden `--axi` flag.** The tape and
+  `docs/demo/README.md` used `list-directory --axi`, a flag `--help` does not
+  list. The committed GIF is re-rendered after the v1.1.0 tag.
+
 - **`setup` PATH-verifies the Claude Code hook.** It wrote the bare command
   `llm-filesystem` into `.claude/settings.json` even when `PATH` did not find
   this binary, so the hook ran nothing or a different copy. It now names the

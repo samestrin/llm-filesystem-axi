@@ -27,6 +27,6 @@ Type "llm-filesystem search-code --pattern main --path ."
 Enter
 Sleep 4s
 
-Type "llm-filesystem list-directory --path . --axi"
+Type "llm-filesystem list-directory --path ."
 Enter
 Sleep 5s
