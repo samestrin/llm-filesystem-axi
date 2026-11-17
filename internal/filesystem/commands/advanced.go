@@ -67,15 +67,30 @@ func findLargeFilesCmd() *cobra.Command {
 				OutputError(err)
 				return
 			}
-			OutputResult(result, func() string {
-				var sb strings.Builder
-				sb.WriteString(fmt.Sprintf("Found %d files >= %d bytes in %s\n\n",
-					result.Total, result.MinSize, result.Path))
-				for _, f := range result.Files {
-					sb.WriteString(fmt.Sprintf("%s  %d bytes  %s\n", f.Path, f.Size, f.ModTime))
-				}
-				return sb.String()
-			})
+			OutputResultAXI(result, nil,
+				func() []string {
+					// Nothing at or above --min-size, so offer the ways to widen
+					// rather than leaving an empty list with no next step.
+					// At --min-size 0 there are no files at all, and lowering the
+					// threshold would only repeat the same empty answer.
+					if result.Total > 0 {
+						return nil
+					}
+					var steps []string
+					if result.MinSize > 0 {
+						steps = append(steps, fmt.Sprintf("Lower the threshold: --min-size is %d bytes", result.MinSize))
+					}
+					return append(steps, "See what is there: llm-filesystem get-directory-tree --path "+result.Path)
+				},
+				func() string {
+					var sb strings.Builder
+					sb.WriteString(fmt.Sprintf("Found %d files >= %d bytes in %s\n\n",
+						result.Total, result.MinSize, result.Path))
+					for _, f := range result.Files {
+						sb.WriteString(fmt.Sprintf("%s  %d bytes  %s\n", f.Path, f.Size, f.ModTime))
+					}
+					return sb.String()
+				})
 		},
 	}
 
