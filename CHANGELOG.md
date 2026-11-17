@@ -6,7 +6,71 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-11-17
+
+### Added
+
+- **A thin MCP stdio server, `llm-filesystem-mcp`.** It exposes the CLI's
+  operational commands as MCP tools by running the `llm-filesystem` binary,
+  rather than maintaining a second filesystem implementation. Binary lookup
+  uses `LLM_FILESYSTEM_BINARY`, then `PATH`, then the server's own directory.
+- **The installer installs `llm-filesystem-mcp` beside the CLI.** Both release
+  binaries are checksum- and version-checked before either is installed. A
+  release without a server asset still installs the verified CLI with a
+  visible skip notice; an invalid server asset installs neither binary.
+- **Release assets include the MCP server for every supported platform.**
+  Releases now build and version-stamp both `llm-filesystem` and
+  `llm-filesystem-mcp` for Linux, macOS and Windows, and list all ten binaries
+  in `SHA256SUMS.txt`.
+- **`setup` also registers Codex.** It merges a SessionStart hook that runs
+  `llm-filesystem` into the project's `.codex/hooks.json`, keeping every other
+  hook. The hook names the binary by its absolute path unless `PATH` finds
+  this same binary, and a later run repairs that path after the binary moves
+  instead of adding a second hook. Nothing is written under `~/.codex`. Codex
+  runs a project's hooks only once the project is trusted and the hook
+  reviewed.
+- **`setup` also registers OpenCode.** It writes a plugin to the project's
+  `.opencode/plugins/llm-filesystem.js` that runs `llm-filesystem` once when
+  OpenCode loads it and adds the home view to the system context; it adds no
+  tool. The plugin names the binary the same way the Codex hook does, a later
+  run rewrites it after the binary moves, and a file at that path that `setup`
+  did not write is refused and left alone. Nothing is written under
+  `~/.config/opencode`.
+
+- **`VISION.md` states the project's scope and non-goals.** It gives proposed
+  changes one place to check what belongs in `llm-filesystem-axi`.
+
+- **`extract-archive --max-bytes` and `--max-entries`.** Extraction stops at
+  1 GiB written in total or 100,000 entries by default; pass a larger value,
+  or `-1` for no limit.
+
 ### Changed
+
+- **The docs state the behaviour epic 10 shipped, and the one remaining gap
+  carries its reason.** The audit page gains an epic 10 re-check listing the
+  four closed gaps with their fixes and guarding tests; the README, the
+  command reference, the agent routing guide and the Claude Code skill now
+  state the `move-file`/`copy-file` overwrite gate and the exact search totals
+  past `--max-results`; the session-end gap in the README and the catalog
+  entry says why it stays (this CLI keeps no session history), and `setup
+  --help` says the same. New tests pin each of those claims.
+
+- **`move-file` and `copy-file` refuse to replace an existing destination
+  without `--confirm`.** They used to overwrite silently and report success,
+  while `delete-file` and destructive `batch-file-operations` entries already
+  required confirmation for the same destruction. The refusal is a structured
+  usage error naming `--confirm`, with a next step showing the confirmed
+  command, exit 2, and nothing touched. A move or copy to a path that does not
+  exist yet needs no confirmation, and `write-file` keeps replacing. The MCP
+  tools take the same gate as `confirm: true`.
+
+- **Errors go to stdout in every format, whatever the flag order.** With
+  `--format text`, usage and tool errors used to go to stderr and leave stdout
+  empty; they now print their `Error: <msg>` text on stdout, and nothing goes
+  to stderr. A flag error listed before `--format`, as in
+  `read-file --bogus --format text`, used to render in the default TOON; it
+  now renders in the format asked for. Exit codes are unchanged: 1 for a
+  failure, 2 for a usage error.
 
 - **`VISION.md` now states the tool's role in the AXI family.** It names
   the file and archive operations and sibling boundaries, records the truth
@@ -33,16 +97,22 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   lengthen the old string with surrounding lines until it is unique, or pass
   `--replace-all` if every occurrence should change.
 
-### Added
-
-- **`VISION.md` states the project's scope and non-goals.** It gives proposed
-  changes one place to check what belongs in `llm-filesystem-axi`.
-
-- **`extract-archive --max-bytes` and `--max-entries`.** Extraction stops at
-  1 GiB written in total or 100,000 entries by default; pass a larger value,
-  or `-1` for no limit.
-
 ### Fixed
+
+- **Search totals are exact when `--max-results` cuts the list.**
+  `search-code` and `search-files` used to stop at the cap (default 1000) and
+  report it as `total_matches` or `total`, so 1,500 matches read as 1000 with
+  no marker. They now keep counting without storing the extra matches, and
+  report the exact `total_matches`, `total_files` or `total`, plus `shown`,
+  `truncated: true` and a help line naming `--max-results`. A search the cap
+  did not cut carries no marker and no hint.
+
+- **The README's stderr sentence and the release checklist's benchmark
+  script name now match the code.** The README says errors go to stderr,
+  with stdout empty, only once `--format text` has been parsed; a flag error
+  hit before it, such as `read-file --bogus --format text`, still renders in
+  the default TOON on stdout. `release/CHECKLIST.md` step 2 names
+  `benchmarks/benchmark.sh` instead of a script that does not exist.
 
 - **Empty search results are an empty list, not `null`.** `search-code` and
   `search-files` with no match printed `matches: null` (JSON
@@ -86,6 +156,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   copied with an unbounded `io.Copy`. The entry that crosses a cap now fails,
   is counted in `failed`, and its partial file is removed; the run stops,
   reports `truncated: true`, and exits 1.
+
 - **Edits are atomic and keep backups' modes.** Every edit command wrote with
   a truncate-then-write, so a crash or full disk mid-write could leave a
   truncated file; they now write a temp file beside the target, fsync it,
@@ -93,87 +164,13 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   edited at its target, as before. `safe-edit` and `edit-multiple-blocks`
   backups used to be created `0644` whatever the original was, so a `0600`
   file's backup was world-readable; they now take the original's mode.
+
 - **`-V` is shorthand-only.** Its hidden long name `--version-alias` was
   accepted as an undocumented third spelling of `--version`; it is now an
   unknown flag (exit 2).
+
 - **`read-multiple-files` documents what `total_size` counts:** the files
   that exist. A missing path adds nothing and is counted in `failed`.
-
-## [1.1.0] - 2026-11-16
-
-### Added
-
-- **A thin MCP stdio server, `llm-filesystem-mcp`.** It exposes the CLI's
-  operational commands as MCP tools by running the `llm-filesystem` binary,
-  rather than maintaining a second filesystem implementation. Binary lookup
-  uses `LLM_FILESYSTEM_BINARY`, then `PATH`, then the server's own directory.
-- **The installer installs `llm-filesystem-mcp` beside the CLI.** Both release
-  binaries are checksum- and version-checked before either is installed. A
-  release without a server asset still installs the verified CLI with a
-  visible skip notice; an invalid server asset installs neither binary.
-- **Release assets include the MCP server for every supported platform.**
-  Releases now build and version-stamp both `llm-filesystem` and
-  `llm-filesystem-mcp` for Linux, macOS and Windows, and list all ten binaries
-  in `SHA256SUMS.txt`.
-- **`setup` also registers Codex.** It merges a SessionStart hook that runs
-  `llm-filesystem` into the project's `.codex/hooks.json`, keeping every other
-  hook. The hook names the binary by its absolute path unless `PATH` finds
-  this same binary, and a later run repairs that path after the binary moves
-  instead of adding a second hook. Nothing is written under `~/.codex`. Codex
-  runs a project's hooks only once the project is trusted and the hook
-  reviewed.
-- **`setup` also registers OpenCode.** It writes a plugin to the project's
-  `.opencode/plugins/llm-filesystem.js` that runs `llm-filesystem` once when
-  OpenCode loads it and adds the home view to the system context; it adds no
-  tool. The plugin names the binary the same way the Codex hook does, a later
-  run rewrites it after the binary moves, and a file at that path that `setup`
-  did not write is refused and left alone. Nothing is written under
-  `~/.config/opencode`.
-
-### Changed
-
-- **The docs state the behaviour epic 10 shipped, and the one remaining gap
-  carries its reason.** The audit page gains an epic 10 re-check listing the
-  four closed gaps with their fixes and guarding tests; the README, the
-  command reference, the agent routing guide and the Claude Code skill now
-  state the `move-file`/`copy-file` overwrite gate and the exact search totals
-  past `--max-results`; the session-end gap in the README and the catalog
-  entry says why it stays (this CLI keeps no session history), and `setup
-  --help` says the same. New tests pin each of those claims.
-
-- **`move-file` and `copy-file` refuse to replace an existing destination
-  without `--confirm`.** They used to overwrite silently and report success,
-  while `delete-file` and destructive `batch-file-operations` entries already
-  required confirmation for the same destruction. The refusal is a structured
-  usage error naming `--confirm`, with a next step showing the confirmed
-  command, exit 2, and nothing touched. A move or copy to a path that does not
-  exist yet needs no confirmation, and `write-file` keeps replacing. The MCP
-  tools take the same gate as `confirm: true`.
-
-- **Errors go to stdout in every format, whatever the flag order.** With
-  `--format text`, usage and tool errors used to go to stderr and leave stdout
-  empty; they now print their `Error: <msg>` text on stdout, and nothing goes
-  to stderr. A flag error listed before `--format`, as in
-  `read-file --bogus --format text`, used to render in the default TOON; it
-  now renders in the format asked for. Exit codes are unchanged: 1 for a
-  failure, 2 for a usage error.
-
-### Fixed
-
-- **Search totals are exact when `--max-results` cuts the list.**
-  `search-code` and `search-files` used to stop at the cap (default 1000) and
-  report it as `total_matches` or `total`, so 1,500 matches read as 1000 with
-  no marker. They now keep counting without storing the extra matches, and
-  report the exact `total_matches`, `total_files` or `total`, plus `shown`,
-  `truncated: true` and a help line naming `--max-results`. A search the cap
-  did not cut carries no marker and no hint.
-
-- **The README's stderr sentence and the release checklist's benchmark
-  script name now match the code.** The README says errors go to stderr,
-  with stdout empty, only once `--format text` has been parsed; a flag error
-  hit before it, such as `read-file --bogus --format text`, still renders in
-  the default TOON on stdout. `release/CHECKLIST.md` step 2 names
-  `benchmarks/benchmark.sh` instead of a script that does not exist.
 
 ## [1.0.3] - 2026-11-11
 
