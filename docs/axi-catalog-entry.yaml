@@ -4,16 +4,9 @@
 # appended to its `community` list; `pnpm run docs:gen` there regenerates the
 # README and docs/index.html tables from it. That PR is the owner's.
 #
-# Every source_observations line cites file:line on main as rewritten for
-# the v1.1.0 release, and "Observed" means run on a `make build` of it. The
-# lines were rewritten for v1.1.0 (EST-6846), after epic 10 changed setup, error
-# routing, search caps and move/copy overwrites.
-#
-# reviewed_revision is NOT yet set for v1.1.0. The operator sets it to the
-# commit tag v1.1.0 points at, once that tag exists; until then it still names
-# the v1.0.3 revision, and the observations below do not describe that commit.
-# Before changing reviewed_revision, re-check each file:line at the tag: a
-# change merged between this rewrite and the tag can move a citation.
+# reviewed_revision is the commit tag v1.1.0 points at. Every
+# source_observations line cites file:line at that commit, and "Observed" means
+# run on a `make build` of it (re-observed 2026-11-17, EST-6622).
 
 community:
   - name: llm-filesystem-axi
@@ -23,7 +16,7 @@ community:
     description: "Read, write, edit, search, and archive local files from one static Go binary, with TOON output, byte-capped reads that name the offset to continue from, and --confirm on deletes. A thin MCP stdio server, llm-filesystem-mcp, ships beside the CLI for hosts that only speak MCP; every tool call runs the CLI and returns its output."
     admission:
       status: exception
-      reviewed_revision: 3c577f4534421c3d42701b5132fa56e48c40d64f
+      reviewed_revision: 9e8d84ff514956779ba173dad3f48ee04b255a0e
       reviewed_components:
         - cmd/llm-filesystem/main.go
         - cmd/llm-filesystem-mcp/main.go
@@ -44,6 +37,7 @@ community:
         - internal/filesystem/mcpserver/handlers.go
         - internal/filesystem/mcpserver/binary.go
         - integrations/claude-code/skill/SKILL.md
+        - integrations/claude-code/skill/embed.go
       source_observations:
         - "cmd/llm-filesystem/main.go:6 calls commands.Execute; internal/filesystem/commands/root.go:167-168 defaults --format to toon, and root.go:190-194 declares -v, -V (shorthand only) and --version on the root command, which print the bare version and exit 0 (observed: one line, the version `make build` stamps from `git describe`, and nothing else)."
         - "root.go:555-558 renders cobra's parse failures (unknown command, unknown flag, missing required flag) through emitDiagnostic with exit 2, and OutputError (root.go:482-484) renders tool failures the same way with exit 1. emitDiagnostic (root.go:454-478) writes the whole diagnostic to stdout in every format (root.go:476), and execute reads --format from the arguments itself (root.go:557), so flag order does not matter. Observed: `read-file --bogus` exits 2 and `read-file --path /nope` exits 1, each with 0 bytes on stderr, and with --format text before or after the other flags both still write their diagnostic to stdout and 0 bytes to stderr."

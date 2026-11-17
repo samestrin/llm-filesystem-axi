@@ -10,7 +10,7 @@ This page holds the longer explanations that used to sit in the README: where th
 
 LLM agents run tight loops. Starting a Node.js process to read one file takes on the order of a hundred milliseconds or more, which breaks the flow. A static Go binary starts in a few milliseconds.
 
-The measured numbers for the current release, with the version, date, machine and method, are in [`benchmarks/results-performance.md`](../benchmarks/results-performance.md), and the README's Performance section copies that table. An earlier run on 2026-10-31 (`fast-filesystem-mcp` 3.5.2, Node 24, the same machine) published speedup ratios for cold start, file read and directory tree. The `v1.0.2` run did not reproduce those ratios, so they are superseded and not repeated here; the `v1.0.2` table is the current measurement.
+The measured numbers for the current release, with the version, date, machine and method, are in [`benchmarks/results-performance.md`](../benchmarks/results-performance.md), and the README's Performance section copies that table. An earlier run on 2026-10-31 (`fast-filesystem-mcp` 3.5.2, Node 24, the same machine) published speedup ratios for cold start, file read and directory tree. The `v1.0.2` run did not reproduce those ratios, so they are superseded and not repeated here. The current table is measured on `v1.1.0`, on a Linux x86_64 machine rather than the Apple M4 Pro the `v1.0.2` table used, so compare the two tools within one table, not one table's figures with the other's.
 
 ## Token cost of the default output
 

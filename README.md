@@ -51,7 +51,7 @@ go install github.com/samestrin/llm-filesystem-axi/cmd/llm-filesystem@v1.1.0
 
 This installs to `$(go env GOPATH)/bin`, and `--version` prints the tag you installed, without the `v` (`1.1.0` here). A `go install` adds no version stamp, so from `v1.0.3` on the binary falls back to the module version Go records. `v1.0.2` and earlier read only the stamp that the release builds and `make build` add, so a `go install` of one of them prints `1.0.0`; the code is still that release's code.
 
-From the first release that ships the server, `go install github.com/samestrin/llm-filesystem-axi/cmd/llm-filesystem-mcp@<tag>` installs it the same way and it reports the same version; v1.0.3 and earlier do not contain that package.
+From `v1.1.0`, the first release that ships the server, `go install github.com/samestrin/llm-filesystem-axi/cmd/llm-filesystem-mcp@v1.1.0` installs it the same way and it reports the same version; v1.0.3 and earlier do not contain that package.
 
 ### From source
 
@@ -297,20 +297,20 @@ Errors are written to stdout in the active format, `--format text` included, and
 
 `llm-filesystem` compared with [`fast-filesystem-mcp`](https://www.npmjs.com/package/fast-filesystem-mcp). The stamp lines and the table are copied from [`benchmarks/results-performance.md`](benchmarks/results-performance.md), which [`benchmarks/benchmark.sh`](benchmarks/benchmark.sh) generates; [`benchmarks/README.md`](benchmarks/README.md) explains how to run it.
 
-- **Tools:** [llm-filesystem](https://github.com/samestrin/llm-filesystem-axi) `1.0.2`, a Go CLI; [fast-filesystem-mcp](https://www.npmjs.com/package/fast-filesystem-mcp) `3.5.2` from npm, an MCP server, on Node.js v24.15.0
-- **Date:** 2026-11-11 (UTC)
-- **Machine:** Apple M4 Pro, 14 threads, 64.0 GiB RAM, macOS 26.2, Darwin 25.2.0 (arm64)
-- **Directory:** 103 files (`BENCH_DIR`, with a `package.json` at its root)
-- **Method:** hyperfine, warmup 3, runs 10, wall-clock per process invocation (hyperfine 1.20.0); each command runs through `sh`, whose own start hyperfine measures and subtracts; each cell is the mean ± the standard deviation. llm-filesystem is a CLI, so each of its figures is one invocation of the binary. fast-filesystem-mcp is reached over MCP, so its handshake, read and tree figures are each one run of `mcp_client.py` (Python 3.14.5), which starts the server, sends `initialize` and one request, and waits for both answers: each includes a server start and the Python client's own start, measured by this run at 23.5 ms ± 0.5 ms. Cold start is `llm-filesystem --version`, and `fast-filesystem-mcp` with stdin closed, which prints its start line and exits at the end of input; each is piped to `head -1` and timed until the pipeline exits.
+- **Tools:** [llm-filesystem](https://github.com/samestrin/llm-filesystem-axi) `1.1.0`, a Go CLI; [fast-filesystem-mcp](https://www.npmjs.com/package/fast-filesystem-mcp) `3.5.2` from npm, an MCP server, on Node.js v24.22.2
+- **Date:** 2026-11-17 (UTC)
+- **Machine:** Intel(R) Xeon(R) W-2295 CPU @ 3.00GHz, 36 threads, 141.2 GiB RAM, Debian GNU/Linux 13 (trixie) (container), Linux 7.0.0-38-generic (x86_64)
+- **Directory:** 126 files (`BENCH_DIR`, with a `package.json` at its root)
+- **Method:** hyperfine, warmup 3, runs 10, wall-clock per process invocation (hyperfine 1.20.0); each command runs through `sh`, whose own start hyperfine measures and subtracts; each cell is the mean ± the standard deviation. llm-filesystem is a CLI, so each of its figures is one invocation of the binary. fast-filesystem-mcp is reached over MCP, so its handshake, read and tree figures are each one run of `mcp_client.py` (Python 3.13.5), which starts the server, sends `initialize` and one request, and waits for both answers: each includes a server start and the Python client's own start, measured by this run at 25.8 ms ± 1.0 ms. Cold start is `llm-filesystem --version`, and `fast-filesystem-mcp` with stdin closed, which prints its start line and exits at the end of input; each is piped to `head -1` and timed until the pipeline exits.
 
-| Test | llm-filesystem `1.0.2` | fast-filesystem-mcp `3.5.2` |
+| Test | llm-filesystem `1.1.0` | fast-filesystem-mcp `3.5.2` |
 |---|---:|---:|
-| Cold start | 2.63 ms ± 0.09 ms | 72.4 ms ± 3.7 ms |
-| MCP handshake (`initialize` + `tools/list`) | not applicable: a CLI has no MCP server | 108.0 ms ± 1.9 ms |
-| File read (`package.json`) | 2.61 ms ± 0.09 ms | 111.2 ms ± 3.9 ms |
-| Directory tree (depth 3, files included) | 3.32 ms ± 0.19 ms | 121.7 ms ± 1.8 ms |
+| Cold start | 2.38 ms ± 0.25 ms | 153.7 ms ± 4.5 ms |
+| MCP handshake (`initialize` + `tools/list`) | not applicable: the CLI needs no handshake (llm-filesystem-mcp is not measured here) | 186.2 ms ± 5.7 ms |
+| File read (`package.json`) | 1.97 ms ± 0.06 ms | 186.5 ms ± 7.8 ms |
+| Directory tree (depth 3, files included) | 2.82 ms ± 0.05 ms | 202.0 ms ± 6.0 ms |
 
-- **Tree entries returned below the root:** llm-filesystem 58, fast-filesystem-mcp 57
+- **Tree entries returned below the root:** llm-filesystem 64, fast-filesystem-mcp 63
 
 The test directory is a copy of this repository's source plus a `package.json`, with no node_modules, so both trees cover the same files, as the entry counts above show (fast-filesystem-mcp's default excludes leave out one more name).
 

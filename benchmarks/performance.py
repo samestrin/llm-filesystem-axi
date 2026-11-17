@@ -273,7 +273,7 @@ def render(meta, results):
         "|---|---:|---:|",
     ]
     for f, label, llm_measured in TESTS:
-        llm = ms(results[f][LLM]) if llm_measured else "not applicable: a CLI has no MCP server"
+        llm = ms(results[f][LLM]) if llm_measured else "not applicable: the CLI needs no handshake (llm-filesystem-mcp is not measured here)"
         lines.append(f"| {label} | {llm} | {ms(results[f][MCP])} |")
     entries = meta["tree_entries"]
     lines += [
