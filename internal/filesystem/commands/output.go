@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 
 	goaxi "github.com/samestrin/go-axi"
@@ -119,9 +120,9 @@ scan:
 					setFormat(args[i])
 				}
 			case name == "json" && fl != nil:
-				jsonFlag = true
+				jsonFlag = boolFlagValue(jsonFlag, val, joined)
 			case name == "min" && fl != nil:
-				minFlag = true
+				minFlag = boolFlagValue(minFlag, val, joined)
 			case fl != nil && !joined && takesValue(fl):
 				i++
 			}
@@ -157,6 +158,19 @@ scan:
 
 	f, compact, _ := resolveFormat(formatVal, formatSet, jsonFlag, minFlag)
 	return f, compact
+}
+
+// boolFlagValue is the value pflag gives a bool flag: bare means true, and a
+// joined value such as --json=false is parsed, the last one winning. A value
+// pflag would reject leaves the previous value alone.
+func boolFlagValue(prev bool, val string, joined bool) bool {
+	if !joined {
+		return true
+	}
+	if b, err := strconv.ParseBool(val); err == nil {
+		return b
+	}
+	return prev
 }
 
 // lookupFlag finds a flag by long name or by shorthand on cmd or on any

@@ -452,3 +452,28 @@ func TestWriteFileStillReplacesWithoutConfirm(t *testing.T) {
 		t.Errorf("file = %q (err %v), want the replacement", got, err)
 	}
 }
+
+// The gate covers overwrites too (TestBatchOverwriteRequiresConfirm), and the
+// docs say so (TestKnownGapStatementsAreTrue), but --help said "Deletions
+// require --confirm" and the flag said "Confirm any deletions". An agent that
+// reads only --help plans a copy onto an existing file without --confirm and
+// is refused. Both strings must name the overwrite case as well as deletes.
+func TestBatchHelpNamesTheOverwriteGate(t *testing.T) {
+	cmd := batchFileOperationsCmd()
+	confirmFlag := cmd.Flags().Lookup("confirm")
+	if confirmFlag == nil {
+		t.Fatal("batch-file-operations has no --confirm flag")
+	}
+
+	for name, text := range map[string]string{
+		"Long help":       cmd.Long,
+		"--confirm usage": confirmFlag.Usage,
+	} {
+		if !strings.Contains(strings.ToLower(text), "delete") {
+			t.Errorf("%s does not name deletes: %q", name, text)
+		}
+		if !strings.Contains(text, "move or copy onto an existing") {
+			t.Errorf("%s does not name a move or copy onto an existing path: %q", name, text)
+		}
+	}
+}

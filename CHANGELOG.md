@@ -16,6 +16,24 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   re-measured on v1.1.0 (on a Linux x86_64 host, not the Apple M4 Pro the
   v1.0.2 table used).
 
+### Fixed
+
+- **`batch-file-operations --help` names every case `--confirm` gates.** The
+  help text and the `--confirm` flag said only deletions need it, but a move or
+  copy onto an existing path is refused without it too, as the docs already
+  said. The wording now names both. No behaviour change.
+- **`--json=false` and `--min=false` no longer pick JSON or text for a usage
+  error.** When a flag error stops parsing, the output format is read from the
+  raw arguments, and that scan counted any `--json` or `--min` as set, joined
+  value or not. `read-file --path x --json=false --bogus` printed its
+  diagnostic as JSON. The scan now reads the value the way the flag parser
+  does, so that diagnostic is TOON.
+- **The `[1.1.0]` entry no longer says errors go to stderr.** It described a
+  README sentence that the same release replaced: errors go to stdout in every
+  format. The entry now names only the benchmark script fix.
+- **`docs/llm-filesystem-commands.md` names the `extract-archive` caps,**
+  `--max-bytes` (1 GiB) and `--max-entries` (100,000), each `-1` for no limit.
+
 ## [1.1.0] - 2026-11-17
 
 ### Added
@@ -117,12 +135,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `truncated: true` and a help line naming `--max-results`. A search the cap
   did not cut carries no marker and no hint.
 
-- **The README's stderr sentence and the release checklist's benchmark
-  script name now match the code.** The README says errors go to stderr,
-  with stdout empty, only once `--format text` has been parsed; a flag error
-  hit before it, such as `read-file --bogus --format text`, still renders in
-  the default TOON on stdout. `release/CHECKLIST.md` step 2 names
-  `benchmarks/benchmark.sh` instead of a script that does not exist.
+- **The release checklist's benchmark script name now matches the code.**
+  `release/CHECKLIST.md` step 2 names `benchmarks/benchmark.sh` instead of a
+  script that does not exist.
 
 - **Empty search results are an empty list, not `null`.** `search-code` and
   `search-files` with no match printed `matches: null` (JSON
