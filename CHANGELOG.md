@@ -16,6 +16,13 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   re-measured on v1.1.0 (on a Linux x86_64 host, not the Apple M4 Pro the
   v1.0.2 table used).
 
+### Fixed
+
+- **`batch-file-operations --help` names every case `--confirm` gates.** The
+  help text and the `--confirm` flag said only deletions need it, but a move or
+  copy onto an existing path is refused without it too, as the docs already
+  said. The wording now names both. No behaviour change.
+
 ## [1.1.0] - 2026-11-17
 
 ### Added

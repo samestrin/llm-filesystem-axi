@@ -183,7 +183,7 @@ func batchFileOperationsCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "batch-file-operations",
 		Short: "Perform batch file operations",
-		Long:  "Performs multiple file operations in a batch. Deletions require --confirm.",
+		Long:  "Performs multiple file operations in a batch. Any entry that destroys something requires --confirm: a delete, or a move or copy onto an existing path.",
 		Run: func(cmd *cobra.Command, args []string) {
 			var operations []core.BatchOperation
 			if err := json.Unmarshal([]byte(operationsJSON), &operations); err != nil {
@@ -240,7 +240,7 @@ func batchFileOperationsCmd() *cobra.Command {
 
 	cmd.Flags().StringVar(&operationsJSON, "operations", "",
 		`JSON array of operations: [{"operation":"copy","source":"a","destination":"b"}]`)
-	cmd.Flags().BoolVar(&confirm, "confirm", false, "Confirm any deletions contained in the batch")
+	cmd.Flags().BoolVar(&confirm, "confirm", false, "Confirm destructive entries in the batch: a delete, or a move or copy onto an existing path")
 	cmd.MarkFlagRequired("operations")
 
 	return cmd
