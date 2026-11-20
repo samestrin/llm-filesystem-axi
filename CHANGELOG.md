@@ -6,6 +6,13 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- **AXI catalog entry and audit re-pinned to v1.1.1.** The catalog entry's
+  `reviewed_revision` now names the commit tag v1.1.1 points at, and
+  `docs/axi-audit.md` states its verdicts at v1.1.1. Every observation was
+  re-run on a build of the tag; no cited line moved and no result changed.
+
 ## [1.1.1] - 2026-11-20
 
 ### Changed

@@ -1,11 +1,11 @@
 # AXI audit: `llm-filesystem` against the ten principles on axi.md
 
-- **Audited:** 2026-11-17, on a `make build` of tag `v1.1.0` at `9e8d84f` (EST-6622). Line numbers are at that commit.
+- **Audited:** 2026-11-20, on a `make build` of tag `v1.1.1` at `43fd800` (EST-7786). Line numbers are at that commit. Between `v1.1.0` and `v1.1.1` the only code changes were the `batch-file-operations` help text and `--json=false` handling in `output.go`; no cited line moved, and every probe below gave the same result.
 - **Method:** by hand. `axi-axi` is not installed on the build host. Each principle was checked against the text on https://axi.md, by running `build/llm-filesystem` in a scratch directory and reading the code the output comes from.
 - **MCP server:** `llm-filesystem-mcp`, a thin MCP stdio server, ships beside the CLI (epic 09, first released in `v1.1.0`). Every tool is one CLI command: the server runs the `llm-filesystem` binary and returns its output, and a failing command comes back as an MCP error carrying the CLI's own error and exit code, never as a success. The verdicts below are about the CLI and carry over to the server, because every tool result is the CLI's own output. Probed: `tools/list` returns 28 tools, and llm_filesystem_read_file on a missing path returns `isError: true` with the CLI's TOON error and `exit_code: 1`.
 - **Result:** nine principles met; principle 7 met with one stated exception. Two exceptions remain, each listed under "What remains" with its reason.
 
-| # | Principle (axi.md) | Verdict at `v1.1.0` | Evidence |
+| # | Principle (axi.md) | Verdict at `v1.1.1` | Evidence |
 |---|---|---|---|
 | 1 | Token-efficient output (TOON) | **Met** | `--format` defaults to `toon` (`internal/filesystem/commands/root.go:167-168`); every probed command emits TOON. |
 | 2 | Minimal default schemas (3-4 fields per item) | **Met** | `list-directory` emits `items[N]{name,size_readable,type}`, three fields (`internal/filesystem/commands/directory.go:41`); `--full` and `--fields` widen it. |

@@ -4,9 +4,9 @@
 # appended to its `community` list; `pnpm run docs:gen` there regenerates the
 # README and docs/index.html tables from it. That PR is the owner's.
 #
-# reviewed_revision is the commit tag v1.1.0 points at. Every
+# reviewed_revision is the commit tag v1.1.1 points at. Every
 # source_observations line cites file:line at that commit, and "Observed" means
-# run on a `make build` of it (re-observed 2026-11-17, EST-6622).
+# run on a `make build` of it (re-observed 2026-11-20, EST-7786).
 
 community:
   - name: llm-filesystem-axi
@@ -16,7 +16,7 @@ community:
     description: "Read, write, edit, search, and archive local files from one static Go binary, with TOON output, byte-capped reads that name the offset to continue from, and --confirm on deletes. A thin MCP stdio server, llm-filesystem-mcp, ships beside the CLI for hosts that only speak MCP; every tool call runs the CLI and returns its output."
     admission:
       status: exception
-      reviewed_revision: 9e8d84ff514956779ba173dad3f48ee04b255a0e
+      reviewed_revision: 43fd800add7b58ac689ebb54edb4b16bdd1977a9
       reviewed_components:
         - cmd/llm-filesystem/main.go
         - cmd/llm-filesystem-mcp/main.go
