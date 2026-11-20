@@ -155,6 +155,14 @@ func TestFormatFromArgsScansRawArgv(t *testing.T) {
 		// read --json; descending into read-file would make --path swallow it.
 		{"no descent after an unknown subcommand", []string{"bogus-command", "search-code", "--pattern", "--format", "text", "--json"}, FormatText, false},
 		{"no descent into a later subcommand name", []string{"bogus-command", "read-file", "--path", "--format", "text"}, FormatText, false},
+		// A joined bool carries its own value. pflag reads --json=false as
+		// false, last one winning, so the diagnostic for `read-file --path x
+		// --json=false --bogus` rendered as JSON for a caller who asked for
+		// anything but. The scan honours the value the way pflag does.
+		{"--json=false is not --json", []string{"read-file", "--path", "x", "--json=false", "--bogus"}, FormatTOON, false},
+		{"--min=false is not --min", []string{"read-file", "--path", "x", "--min=false", "--bogus"}, FormatTOON, false},
+		{"--json=true is --json", []string{"read-file", "--json=true", "--bogus"}, FormatJSON, false},
+		{"a later --json=false unsets --json", []string{"read-file", "--json", "--json=false", "--bogus"}, FormatTOON, false},
 	}
 
 	for _, tt := range tests {
