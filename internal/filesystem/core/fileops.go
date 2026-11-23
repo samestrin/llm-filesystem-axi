@@ -63,6 +63,12 @@ func CopyFile(opts CopyFileOptions) (*FileOpResult, error) {
 		return nil, fmt.Errorf("source does not exist: %w", err)
 	}
 
+	if srcInfo.IsDir() {
+		if err := checkTreeLinks(srcPath, opts.AllowedDirs); err != nil {
+			return nil, err
+		}
+	}
+
 	// Create destination directory if needed
 	if err := os.MkdirAll(filepath.Dir(dstPath), 0755); err != nil {
 		return nil, fmt.Errorf("failed to create destination directory: %w", err)
@@ -197,7 +203,8 @@ func MoveFile(opts MoveFileOptions) (*FileOpResult, error) {
 		return nil, fmt.Errorf("invalid destination path: %w", err)
 	}
 
-	if err := ValidatePath(srcPath, opts.AllowedDirs); err != nil {
+	// No-follow on the source: a rename moves a final link, not its target.
+	if err := ValidatePathNoFollow(srcPath, opts.AllowedDirs); err != nil {
 		return nil, err
 	}
 	if err := ValidatePath(dstPath, opts.AllowedDirs); err != nil {
@@ -259,7 +266,8 @@ func DeleteFile(opts DeleteFileOptions) (*FileOpResult, error) {
 		return nil, fmt.Errorf("invalid path: %w", err)
 	}
 
-	if err := ValidatePath(normalizedPath, opts.AllowedDirs); err != nil {
+	// No-follow: a delete removes a final link, not what it points to.
+	if err := ValidatePathNoFollow(normalizedPath, opts.AllowedDirs); err != nil {
 		return nil, err
 	}
 

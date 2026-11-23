@@ -212,6 +212,9 @@ func CompressFiles(opts CompressFilesOptions) (*CompressResult, error) {
 		if err := ValidatePath(normalized, opts.AllowedDirs); err != nil {
 			return nil, err
 		}
+		if err := checkTreeLinks(normalized, opts.AllowedDirs); err != nil {
+			return nil, err
+		}
 		paths[i] = normalized
 	}
 
@@ -895,6 +898,9 @@ func SyncDirectories(opts SyncDirectoriesOptions) (*SyncResult, error) {
 	}
 	if !srcInfo.IsDir() {
 		return nil, fmt.Errorf("source is not a directory: %s", normalizedSrc)
+	}
+	if err := checkTreeLinks(normalizedSrc, opts.AllowedDirs); err != nil {
+		return nil, err
 	}
 
 	var filesCopied, dirsCreated int
