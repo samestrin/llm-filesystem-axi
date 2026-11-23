@@ -13,19 +13,25 @@ description: >-
 # llm-filesystem — worked invocations
 
 Routing guidance — *when* to use this instead of your native single-file tools —
-lives in `integrations/cli/AGENTS.md` and is not repeated here. This file is the
-detail you load on demand: the argument shapes that are hard to guess.
+lives in [AGENTS.md](https://raw.githubusercontent.com/samestrin/llm-filesystem-axi/main/integrations/cli/AGENTS.md)
+and is not repeated here. This file is the detail you load on demand: the
+argument shapes that are hard to guess.
 
 Every command takes `--help`, and `--help` is authoritative.
+
+If `llm-filesystem` is not on `PATH` (this skill was installed on its own, with
+`npx skills add`), install the binary first:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/samestrin/llm-filesystem-axi/main/install.sh | bash && export PATH="$HOME/.local/bin:$PATH"
+```
 
 ## JSON-valued flags
 
 These four take a JSON array, and the field names are **not** interchangeable
-with the obvious guesses. Go ignores unknown JSON fields, so on the two edit
-commands a payload with wrong keys decodes as an empty old string — and that
-is now a hard error naming the edit ordinal, not a silent success with
-`changes: 0`. A run where no edit matches is likewise an error, and leaves
-the file untouched.
+with the obvious guesses. An unknown or missing key is refused before anything
+runs: exit `2`, a message naming the entry, and the expected shape. A run where
+no edit matches is an error (exit `1`) and leaves the file untouched.
 
 Every edit's old string must match **exactly once** (on the batch commands,
 in the content the earlier edits leave). One that matches more often is
@@ -40,12 +46,21 @@ llm-filesystem edit-blocks --path file.go \
 ```
 
 **Edit several parts with modes** — keys are `old_text` / `new_text`, plus a
-`mode` of `replace`, `insert_before`, `insert_after` or `delete_line`:
+`mode` of `replace` (the default), `insert_before`, `insert_after` or
+`delete_line`. The three line modes take a 1-based `line_number` instead of
+`old_text`:
 
 ```bash
 llm-filesystem edit-multiple-blocks --path file.go \
-  --edits '[{"old_text":"a","new_text":"b","mode":"replace"}]'
+  --edits '[{"old_text":"a","new_text":"b","mode":"replace"},
+            {"mode":"insert_after","line_number":3,"new_text":"// added"},
+            {"mode":"delete_line","line_number":10}]'
 ```
+
+Edits apply in order, so a later `line_number` counts lines after the earlier
+edits. An edit that finds no target is reported per edit (`not_found`,
+`line_out_of_range`) in `edit_results`; when some edits applied the command
+still exits `0`, so check `unmatched`.
 
 **Write several files** — keys are `path` / `content`:
 

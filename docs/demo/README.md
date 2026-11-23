@@ -2,7 +2,7 @@
 
 `llm-filesystem.gif` is rendered from `llm-filesystem.tape` with [VHS](https://github.com/charmbracelet/vhs). The GIF is committed to the repo; it is not hosted anywhere else.
 
-The session runs about 20 seconds: an install check (`--version`), one read, one search and one directory listing. The committed GIF was rendered before the tape dropped the hidden `--axi` flag from that listing, so it still shows `--axi` until it is rendered again after the v1.1.0 tag.
+The session runs about 20 seconds: an install check (`--version`), one read, one search and one directory listing. The committed GIF was rendered from an earlier version of the tape, on v1.0.2: its listing still passes the hidden `--axi` flag, which the current tape no longer does. It has not been rendered again since; the next render will match the tape.
 
 ## Render it again
 
