@@ -22,7 +22,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BIN="$ROOT/build/llm-filesystem"
 
 # Every command echoes the path it was given, and for search-code that path is
-# repeated once per match - 518 times on this repository - so the absolute
+# repeated once per match - over a thousand times on this repository - so the absolute
 # location of the checkout can move the total by a third. A published number
 # nobody else can reproduce is worse than no number. Making a repo-internal
 # target relative is not enough on its own: the binary absolutizes --path
@@ -70,7 +70,10 @@ trap 'rm -rf "$WORK"' EXIT
 declare -a CASES=(
   "list-directory|--path $TARGET"
   "get-directory-tree|--path $TARGET --depth 3"
-  "search-code|--path $TARGET --pattern func"
+  # --max-results lifted well past any target's match count: at the default
+  # 1000 the internal/ row was silently measuring a capped list. (-1 does not
+  # mean "no limit" here; it lists nothing.)
+  "search-code|--path $TARGET --pattern func --max-results 1000000"
   # Relative, and run from $ROOT. read-file echoes the path it was given
   # verbatim rather than absolutizing it, so this row never depended on
   # where the repository happens to live.
