@@ -1,9 +1,9 @@
 package commands
 
 import (
-	"encoding/json"
 	"fmt"
 
+	goaxi "github.com/samestrin/go-axi"
 	"github.com/samestrin/llm-filesystem-axi/internal/filesystem/core"
 	"github.com/spf13/cobra"
 )
@@ -112,9 +112,9 @@ func writeMultipleFilesCmd() *cobra.Command {
 		Short: "Write multiple files in a single operation",
 		Long:  "Writes multiple files sequentially with auto-mkdir for parent directories",
 		Run: func(cmd *cobra.Command, args []string) {
-			var entries []core.WriteFileEntry
-			if err := json.Unmarshal([]byte(filesJSON), &entries); err != nil {
-				OutputError(fmt.Errorf("invalid --files JSON: %w", err))
+			entries, err := decodeWriteEntries(filesJSON)
+			if err != nil {
+				refusePayload("invalid --files JSON", err, filesExample)
 				return
 			}
 
@@ -129,13 +129,49 @@ func writeMultipleFilesCmd() *cobra.Command {
 			OutputResult(result, func() string {
 				return fmt.Sprintf("Wrote %d files, %d failed", result.Success, result.Failed)
 			})
+
+			// The result first, so the caller learns which entries failed,
+			// then exit 1, as compress-files does: a run with failed entries
+			// did not succeed, and the MCP server reads isError from this code.
+			if result.Failed > 0 {
+				exitFunc(int(goaxi.ExitError))
+				return
+			}
 		},
 	}
 
-	cmd.Flags().StringVar(&filesJSON, "files", "", `JSON array of {path, content} objects (required)`)
+	cmd.Flags().StringVar(&filesJSON, "files", "", "JSON array of objects (required): "+filesExample)
 	cmd.MarkFlagRequired("files")
 
 	return cmd
+}
+
+const filesExample = `[{"path":"a.txt","content":"text"}]`
+
+// decodeWriteEntries decodes --files and requires both keys in every entry.
+//
+// A missing content is refused rather than read as "": an empty file is a
+// legitimate request, but only when it is asked for by name. Decoding through
+// pointers is what tells the two apart.
+func decodeWriteEntries(raw string) ([]core.WriteFileEntry, error) {
+	var payload []struct {
+		Path    *string `json:"path"`
+		Content *string `json:"content"`
+	}
+	if err := decodePayload(raw, &payload); err != nil {
+		return nil, err
+	}
+	entries := make([]core.WriteFileEntry, len(payload))
+	for i, p := range payload {
+		if p.Path == nil || *p.Path == "" {
+			return nil, fmt.Errorf("entry %d: path is required", i)
+		}
+		if p.Content == nil {
+			return nil, fmt.Errorf("entry %d: content is required (use \"\" for an empty file)", i)
+		}
+		entries[i] = core.WriteFileEntry{Path: *p.Path, Content: *p.Content}
+	}
+	return entries, nil
 }
 
 func getFileInfoCmd() *cobra.Command {
