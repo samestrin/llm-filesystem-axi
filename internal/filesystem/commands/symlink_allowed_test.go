@@ -294,6 +294,55 @@ func TestAllowedDirsResolvesSymlinks(t *testing.T) {
 			t.Error("exit 0 syncing through a destination link outside --allowed-dirs")
 		}
 	})
+
+	// The same, with --source itself a link to a directory inside A. Walk
+	// lstats its root, so the destination check visited only the root and
+	// checked nothing, while the copy followed the link and wrote through
+	// A/dest/sub (second review of PR #87).
+	linkedSource := func(t *testing.T, a, out string) (link, dest string) {
+		t.Helper()
+		src, dest := destWithLink(t, a, out)
+		link = filepath.Join(a, "srclink")
+		if err := os.Symlink(src, link); err != nil {
+			t.Fatal(err)
+		}
+		return link, dest
+	}
+
+	t.Run("copy-file from a linked source into a destination tree holding a link", func(t *testing.T) {
+		a, out := symlinkJail(t)
+		link, dest := linkedSource(t, a, out)
+		_, _, code := runCLI(t, "--allowed-dirs", a, "copy-file", "--source", link, "--dest", dest, "--confirm")
+		mustNotExist(t, filepath.Join(out, "f.txt"))
+		if code == -1 {
+			t.Error("exit 0 copying through a destination link outside --allowed-dirs")
+		}
+	})
+
+	t.Run("batch copy from a linked source into a destination tree holding a link", func(t *testing.T) {
+		a, out := symlinkJail(t)
+		link, dest := linkedSource(t, a, out)
+		ops := `[{"operation":"copy","source":` + string(jsonString(link)) + `,"destination":` + string(jsonString(dest)) + `}]`
+		runCLI(t, "--allowed-dirs", a, "batch-file-operations", "--operations", ops, "--confirm")
+		mustNotExist(t, filepath.Join(out, "f.txt"))
+	})
+}
+
+// Known-good for the case above: a linked source that stays inside the
+// allowed dirs, copied into a plain destination, still copies.
+func TestAllowedDirsLinkedSourceTreeStillCopies(t *testing.T) {
+	a, _ := symlinkJail(t)
+	mustWrite(t, filepath.Join(a, "real", "sub", "f.txt"), "x")
+	if err := os.Symlink(filepath.Join(a, "real"), filepath.Join(a, "srclink")); err != nil {
+		t.Fatal(err)
+	}
+	plain := filepath.Join(a, "plain")
+	if _, _, code := runCLI(t, "--allowed-dirs", a, "copy-file", "--source", filepath.Join(a, "srclink"), "--dest", plain); code != -1 {
+		t.Errorf("exit %d, want success", code)
+	}
+	if got := readString(t, filepath.Join(plain, "sub", "f.txt")); got != "x" {
+		t.Errorf("copied file is %q", got)
+	}
 }
 
 // --allowed-dirs / allows everything. IsWithin's root branch exists because
