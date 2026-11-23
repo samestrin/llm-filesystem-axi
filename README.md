@@ -205,7 +205,7 @@ llm-filesystem sync-directories --source src --dest backup --dry-run
 llm-filesystem setup --dry-run
 ```
 
-To restrict every command to specific directories, pass `--allowed-dirs`, for example `--allowed-dirs /Users/me/projects,/tmp`. A path outside them fails with exit `1`. Symlinks are resolved first, in the path and in each allowed directory, so a link inside an allowed directory that points outside it counts as outside, and so does a directory being copied, synced or archived that holds such a link, or a destination tree that does. A hard link has no target to resolve, so `write-file` and `write-multiple-files` refuse (exit `2`) an existing file with more than one hard link, whose other names may be outside; this check needs a link count, which Windows does not report.
+To restrict every command to specific directories, pass `--allowed-dirs`, for example `--allowed-dirs /Users/me/projects,/tmp`. A path outside them fails with exit `1`. Symlinks are resolved first, in the path and in each allowed directory, so a link inside an allowed directory that points outside it counts as outside, and so does a directory being copied, synced or archived that holds such a link, or a destination tree that does. A hard link has no target to resolve, so `write-file` and `write-multiple-files` refuse (exit `2`) an existing file with more than one hard link, whose other names may be outside.
 
 ### MCP server
 

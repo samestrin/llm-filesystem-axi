@@ -14,8 +14,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   file and exited `0`: a hard link has no target to resolve, so the
   allowed-dirs check passed it. Under `--allowed-dirs`, an existing file with
   more than one hard link is now refused with exit `2` and left unchanged.
-  Without `--allowed-dirs`, writes through hard links work as before. Windows
-  reports no link count, so the check does not run there.
+  Without `--allowed-dirs`, writes through hard links work as before.
 
 ## [1.1.2] - 2026-11-23
 
