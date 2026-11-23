@@ -172,9 +172,12 @@ func TestAmbiguousEditIsRefusedWithRecovery(t *testing.T) {
 	}
 }
 
-// outputEditError routes every error that is not an ambiguous match through the
-// ordinary tool-failure path. A not-found edit must still exit 1 with the
-// generic --help pointer and no --replace-all advice, which does not apply.
+// A not-found edit exits 1 as any tool failure, with no --replace-all advice,
+// which does not apply.
+//
+// It used to carry the generic --help pointer. AXI 9 asks for the command that
+// fixes the problem, and for an old text that matched nothing that is reading
+// the file's current text (axi.md review round 1, item 5).
 func TestEditNotFoundTakesTheOrdinaryErrorPath(t *testing.T) {
 	cases := map[string][]string{
 		"edit-block":           {"--old", "absent", "--new", "x"},
@@ -189,8 +192,11 @@ func TestEditNotFoundTakesTheOrdinaryErrorPath(t *testing.T) {
 			if code != 1 {
 				t.Errorf("exit = %d, want 1: %q", code, stdout)
 			}
-			if !strings.Contains(stdout, name+" --help") || strings.Contains(stdout, "--replace-all") {
-				t.Errorf("want the generic --help pointer and no --replace-all advice: %q", stdout)
+			if !strings.Contains(stdout, "llm-filesystem read-file --path "+file) {
+				t.Errorf("want a read-file step naming the file: %q", stdout)
+			}
+			if strings.Contains(stdout, "--help") || strings.Contains(stdout, "--replace-all") {
+				t.Errorf("want neither the generic --help pointer nor --replace-all advice: %q", stdout)
 			}
 			assertFileContent(t, file, "foo foo\n")
 		})

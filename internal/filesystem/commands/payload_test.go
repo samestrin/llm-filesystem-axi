@@ -215,3 +215,31 @@ func TestFailedEntriesExitOne(t *testing.T) {
 		}
 	})
 }
+
+// Item 5: every tool failure ended in "Check the flags ... --help". AXI 9 asks
+// for the command that fixes the problem. For a path that does not exist that
+// is listing its parent directory, so the agent can see what is there.
+func TestMissingPathSuggestsListingItsParent(t *testing.T) {
+	dir := t.TempDir()
+	missing := filepath.Join(dir, "nope.txt")
+
+	for _, args := range [][]string{
+		{"read-file", "--path", missing},
+		{"get-file-info", "--path", missing},
+		{"copy-file", "--source", missing, "--dest", filepath.Join(dir, "out.txt")},
+	} {
+		t.Run(args[0], func(t *testing.T) {
+			stdout, _, code := runCLI(t, args...)
+
+			if code != int(goaxi.ExitError) {
+				t.Errorf("exit = %d, want ExitError (%d)", code, goaxi.ExitError)
+			}
+			if !strings.Contains(stdout, "llm-filesystem list-directory --path "+dir) {
+				t.Errorf("stdout = %q, want a list-directory step naming %s", stdout, dir)
+			}
+			if strings.Contains(stdout, "--help") {
+				t.Errorf("stdout = %q, want the specific step instead of --help", stdout)
+			}
+		})
+	}
+}
