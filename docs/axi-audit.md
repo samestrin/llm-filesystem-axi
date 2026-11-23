@@ -16,7 +16,7 @@
 | 7 | Ambient context (setup command, Agent Skill) | **Met, with one exception** | `llm-filesystem setup` (`internal/filesystem/commands/setup.go:104`) registers Claude Code (a SessionStart hook in `.claude/settings.json` plus the skill), Codex (a SessionStart hook in `.codex/hooks.json`) and OpenCode (a plugin in `.opencode/plugins/`). Probed: in an empty project it writes those four files and exits 0; in the home directory it exits 1 and writes nothing. Exception: no session-end capture (see "What remains"). |
 | 8 | Content first (no-argument run shows live data, path as `~`) | **Met** | Probed: a bare run prints `about`, `bin`, `cwd`, `home: ~`, a bounded listing with `total`, and `help[]`, exit 0 (`internal/filesystem/commands/home.go:121-148`); `bin` and `cwd` are tilde-rendered when under the home directory (`home.go:45-57`, `home.go:73` and `home.go:92`). |
 | 9 | Contextual disclosure (`help[]` next steps) | **Met** | Every probed output — landing view, listings, searches, truncations, and errors — ends in `help[]` with concrete next-step commands (e.g. `read.go:69-89`). |
-| 10 | Consistent `--help` on every subcommand | **Met** | Probed: `--help` exits 0 for all 29 commands the root help lists, plus `completion` and `help`. |
+| 10 | Consistent `--help` on every subcommand | **Met** | Probed: `--help` exits 0 for all 29 commands the root help lists, plus `completion` and `help`. Each of the 29 ends in an Examples block of two or three invocations (`internal/filesystem/commands/examples.go`), which `TestEveryCommandHasExamples` parses against the command's flags and JSON decoders; before v1.1.2 only `setup` had one. |
 
 ## What remains
 

@@ -291,8 +291,8 @@ llm-filesystem list-directory --path . --format json   # JSON for scripts
 | Code | Meaning |
 |------|---------|
 | `0` | Success |
-| `1` | The tool failed: the operation was attempted and did not fully work. This includes a partial run: `compress-files`, `extract-archive`, `sync-directories`, `write-multiple-files`, `batch-file-operations` and `read-multiple-files` exit `1` when any input, entry or file failed or was skipped, with the failures named in the output |
-| `2` | Usage error: unknown subcommand, unknown flag, missing required flag, invalid `--format`, a malformed JSON payload (invalid JSON, or an unknown or missing key in `--files`, `--edits` or `--operations`), or a destructive operation without `--confirm` |
+| `1` | The tool failed: the operation was attempted and did not fully work. This includes a partial run: `compress-files`, `extract-archive`, `sync-directories`, `write-multiple-files`, `batch-file-operations` and `read-multiple-files` exit `1` when any input, entry or file failed or was skipped, with the failures named in the output and a `help` line to retry only those |
+| `2` | Usage error: unknown subcommand, unknown flag, missing required flag, invalid `--format`, a malformed JSON payload (invalid JSON; an unknown, missing or wrongly cased key in `--files`, `--edits` or `--operations`, checked for every entry before any runs; or an unknown edit `mode` or batch `operation`), or a destructive operation without `--confirm` |
 
 One exception to "partial means `1`": `edit-blocks` and `edit-multiple-blocks` exit `0` when at least one edit applied, because those edits are already written to the file. The edits that found no target are counted in `unmatched` (and, for `edit-multiple-blocks`, listed per edit in `edit_results`), so check `unmatched` before treating the run as complete. A run in which no edit applies exits `1` and leaves the file untouched.
 
@@ -342,7 +342,7 @@ Archive extraction is capped against decompression bombs. `extract-archive` stop
 Known gaps against the [AXI](https://axi.md) principles, the same ones the catalog entry in [`docs/axi-catalog-entry.yaml`](docs/axi-catalog-entry.yaml) states:
 
 - Principle 7: `setup` registers Claude Code (a SessionStart hook in the project's .claude/settings.json plus the skill), Codex (a SessionStart hook in the project's .codex/hooks.json) and OpenCode (a plugin in the project's .opencode/plugins/ that adds the home view to the system context); there is no session-end capture, because this CLI keeps no session history.
-- write-file replaces an existing destination without --confirm; delete-file requires it, and so do move-file and copy-file when the destination already exists, and any batch-file-operations entry that destroys something: a delete, or a move or copy onto a path that already exists.
+- Principle 6: write-file replaces an existing destination without --confirm; delete-file requires it, and so do move-file and copy-file when the destination already exists, and any batch-file-operations entry that destroys something: a delete, or a move or copy onto a path that already exists.
 
 ## Documentation
 
