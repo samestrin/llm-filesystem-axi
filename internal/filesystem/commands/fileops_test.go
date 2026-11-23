@@ -150,6 +150,46 @@ func TestBatchOverwriteRequiresConfirm(t *testing.T) {
 	}
 }
 
+// axi.md review round 1, item 2: the batch gate stat'ed op.Destination raw,
+// while core runs it through NormalizePath. A copy onto '~/victim' or onto
+// 'victim/' (an existing file) missed the existence check and overwrote it with
+// exit 0 — the hole TestMoveAndCopyOverwriteGateNormalizesDestination closed
+// for the single commands, left open one command across.
+func TestBatchOverwriteGateNormalizesDestination(t *testing.T) {
+	const precious = "IRREPLACEABLE"
+
+	for _, op := range []string{"move", "copy"} {
+		for name, spell := range map[string]func(victim string) string{
+			"tilde":          func(string) string { return "~/victim.txt" },
+			"trailing slash": func(victim string) string { return victim + "/" },
+		} {
+			t.Run(op+" "+name, func(t *testing.T) {
+				home := t.TempDir()
+				t.Setenv("HOME", home)
+				src := filepath.Join(home, "src.txt")
+				victim := filepath.Join(home, "victim.txt")
+				if err := os.WriteFile(src, []byte("replacement"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(victim, []byte(precious), 0o600); err != nil {
+					t.Fatal(err)
+				}
+
+				ops := `[{"operation":"` + op + `","source":"` + src + `","destination":"` + spell(victim) + `"}]`
+				_, _, code := runCLI(t, "batch-file-operations", "--operations", ops)
+
+				if code != int(goaxi.ExitUsage) {
+					t.Errorf("exit = %d, want ExitUsage (%d) for an unconfirmed overwrite", code, goaxi.ExitUsage)
+				}
+				got, err := os.ReadFile(victim)
+				if err != nil || string(got) != precious {
+					t.Errorf("destination = %q (err %v), want it untouched", got, err)
+				}
+			})
+		}
+	}
+}
+
 // The gate must stay scoped to what actually destroys something: a move or copy
 // to a path that does not exist yet overwrites nothing and needs no confirming.
 func TestBatchNonOverwritingMoveNeedsNoConfirm(t *testing.T) {
