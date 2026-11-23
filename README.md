@@ -6,7 +6,7 @@
 
 ## Demo
 
-<img src="docs/demo/llm-filesystem.gif" alt="A terminal session running llm-filesystem: the version check, a file read, a code search and the default TOON output">
+<img src="docs/demo/llm-filesystem.gif" alt="A terminal session running llm-filesystem v1.0.2: the version check, a file read, a code search and a directory listing in TOON output">
 
 The GIF is rendered from [`docs/demo/llm-filesystem.tape`](docs/demo/llm-filesystem.tape); [`docs/demo/README.md`](docs/demo/README.md) gives the command that renders it again.
 
@@ -33,8 +33,8 @@ The installer downloads the release binaries for your platform (Linux or macOS, 
 Each release publishes `llm-filesystem-linux-amd64`, `llm-filesystem-linux-arm64`, `llm-filesystem-darwin-amd64`, `llm-filesystem-darwin-arm64`, `llm-filesystem-windows-amd64.exe` and `SHA256SUMS.txt`. Releases that ship the MCP server also publish the matching `llm-filesystem-mcp-<os>-<arch>` assets, listed in the same `SHA256SUMS.txt`; v1.0.3 and earlier have none. Download your platform's binary and the checksum file, check the one line for your asset, then install it:
 
 ```bash
-curl -fsSLO https://github.com/samestrin/llm-filesystem-axi/releases/download/v1.1.0/llm-filesystem-linux-amd64
-curl -fsSLO https://github.com/samestrin/llm-filesystem-axi/releases/download/v1.1.0/SHA256SUMS.txt
+curl -fsSLO https://github.com/samestrin/llm-filesystem-axi/releases/download/v1.1.2/llm-filesystem-linux-amd64
+curl -fsSLO https://github.com/samestrin/llm-filesystem-axi/releases/download/v1.1.2/SHA256SUMS.txt
 grep ' llm-filesystem-linux-amd64$' SHA256SUMS.txt | sha256sum -c -    # macOS: shasum -a 256 -c -
 mkdir -p ~/.local/bin && install -m 755 llm-filesystem-linux-amd64 ~/.local/bin/llm-filesystem
 ```
@@ -46,12 +46,12 @@ The server installs the same way: download its asset for your platform, check it
 Requires Go 1.24 or later.
 
 ```bash
-go install github.com/samestrin/llm-filesystem-axi/cmd/llm-filesystem@v1.1.0
+go install github.com/samestrin/llm-filesystem-axi/cmd/llm-filesystem@v1.1.2
 ```
 
-This installs to `$(go env GOPATH)/bin`, and `--version` prints the tag you installed, without the `v` (`1.1.0` here). A `go install` adds no version stamp, so from `v1.0.3` on the binary falls back to the module version Go records. `v1.0.2` and earlier read only the stamp that the release builds and `make build` add, so a `go install` of one of them prints `1.0.0`; the code is still that release's code.
+This installs to `$(go env GOPATH)/bin`, and `--version` prints the tag you installed, without the `v` (`1.1.2` here). A `go install` adds no version stamp, so from `v1.0.3` on the binary falls back to the module version Go records. `v1.0.2` and earlier read only the stamp that the release builds and `make build` add, so a `go install` of one of them prints `1.0.0`; the code is still that release's code.
 
-From `v1.1.0`, the first release that ships the server, `go install github.com/samestrin/llm-filesystem-axi/cmd/llm-filesystem-mcp@v1.1.0` installs it the same way and it reports the same version; v1.0.3 and earlier do not contain that package.
+From `v1.1.0`, the first release that ships the server, `go install github.com/samestrin/llm-filesystem-axi/cmd/llm-filesystem-mcp@v1.1.2` installs it the same way and it reports the same version; v1.0.3 and earlier do not contain that package.
 
 ### From source
 
@@ -75,8 +75,10 @@ It merges a SessionStart hook into `.claude/settings.json` (keeping every other 
 To install only the skill with the skills CLI:
 
 ```bash
-npx skills add samestrin/llm-filesystem-axi --skill llm-filesystem
+npx skills add samestrin/llm-filesystem-axi --skill llm-filesystem --agent claude-code -y
 ```
+
+`--agent` and `-y` make it non-interactive; without them the skills CLI prompts, and fails when there is no terminal to prompt on. The skill alone does not install the binary.
 
 For any other agent, append the routing guidance to your project's `AGENTS.md` or `CLAUDE.md`. It lists all 29 commands grouped by task, says when to reach for them instead of built-in single-file tools, and covers the two behaviours that surprise agents: large reads truncate rather than fail, and destructive operations need `--confirm`.
 
@@ -92,7 +94,7 @@ Re-run the installer. It replaces the existing binaries and prints, for each, th
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/samestrin/llm-filesystem-axi/main/install.sh | bash
-curl -fsSL https://raw.githubusercontent.com/samestrin/llm-filesystem-axi/main/install.sh | LLM_FILESYSTEM_VERSION=v1.1.0 bash   # pin a release
+curl -fsSL https://raw.githubusercontent.com/samestrin/llm-filesystem-axi/main/install.sh | LLM_FILESYSTEM_VERSION=v1.1.2 bash   # pin a release
 llm-filesystem --version
 ```
 
@@ -118,6 +120,7 @@ sudo rm /usr/local/bin/llm-filesystem          # make install
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/samestrin/llm-filesystem-axi/main/install.sh | bash
+export PATH="$HOME/.local/bin:$PATH"          # if ~/.local/bin is not on PATH yet
 llm-filesystem --version
 cd ~/hello                                   # any project directory
 llm-filesystem
@@ -130,7 +133,7 @@ Output, trimmed to the lines that matter:
 Downloading llm-filesystem-linux-amd64 (latest) from https://github.com/samestrin/llm-filesystem-axi/releases/latest/download
 Checksum verified.
 
-1.1.0
+1.1.2
 
 about: "Fast filesystem operations for an AI agent: read, write, edit, search and manage files."
 bin: ~/.local/bin/llm-filesystem
@@ -259,7 +262,7 @@ See [`docs/llm-filesystem-commands.md`](docs/llm-filesystem-commands.md) for the
 |------|---------|---------|
 | `LLM_FILESYSTEM_FULL` | unset | `1`, `true`, `yes` or `on` makes full output the default for every command, as if `--full` were passed. An explicit `--full=false` still wins. |
 | `INSTALL_DIR` | `$HOME/.local/bin` | Installer only: the directory the binary is installed to. |
-| `LLM_FILESYSTEM_VERSION` | `latest` | Installer only: the release tag to install, for example `v1.1.0`. |
+| `LLM_FILESYSTEM_VERSION` | `latest` | Installer only: the release tag to install, for example `v1.1.2`. |
 | `LLM_FILESYSTEM_DOWNLOAD_TIMEOUT` | `300` | Installer only: seconds before a download is abandoned. |
 | `LLM_FILESYSTEM_BASE_URL` | unset | Installer only: the URL the assets are fetched from, overriding the version. Used by the installer's tests. |
 | `LLM_FILESYSTEM_BINARY` | unset | MCP server only: full path to the `llm-filesystem` binary to run, overriding `PATH` and the server's own directory. A path with no executable there is an error, not a fallback. |
@@ -288,14 +291,18 @@ llm-filesystem list-directory --path . --format json   # JSON for scripts
 | Code | Meaning |
 |------|---------|
 | `0` | Success |
-| `1` | The tool failed: the operation was attempted and did not fully work. This includes a partial run: `compress-files`, `extract-archive` and `sync-directories` exit `1` when any input, archive entry or file was skipped, with the failures named in the output |
-| `2` | Usage error: unknown subcommand, unknown flag, missing required flag, invalid `--format`, or a destructive operation without `--confirm` |
+| `1` | The tool failed: the operation was attempted and did not fully work. This includes a partial run: `compress-files`, `extract-archive`, `sync-directories`, `write-multiple-files`, `batch-file-operations` and `read-multiple-files` exit `1` when any input, entry or file failed or was skipped, with the failures named in the output |
+| `2` | Usage error: unknown subcommand, unknown flag, missing required flag, invalid `--format`, a malformed JSON payload (invalid JSON, or an unknown or missing key in `--files`, `--edits` or `--operations`), or a destructive operation without `--confirm` |
+
+One exception to "partial means `1`": `edit-blocks` and `edit-multiple-blocks` exit `0` when at least one edit applied, because those edits are already written to the file. The edits that found no target are counted in `unmatched` (and, for `edit-multiple-blocks`, listed per edit in `edit_results`), so check `unmatched` before treating the run as complete. A run in which no edit applies exits `1` and leaves the file untouched.
 
 Errors are written to stdout in the active format, `--format text` included, and stderr stays empty. That holds whatever the flag order: in `read-file --bogus --format text` the unknown flag stops parsing before `--format`, and the error still renders as text.
 
 ## Performance
 
 `llm-filesystem` compared with [`fast-filesystem-mcp`](https://www.npmjs.com/package/fast-filesystem-mcp). The stamp lines and the table are copied from [`benchmarks/results-performance.md`](benchmarks/results-performance.md), which [`benchmarks/benchmark.sh`](benchmarks/benchmark.sh) generates; [`benchmarks/README.md`](benchmarks/README.md) explains how to run it.
+
+These figures were measured on v1.1.0 and have not been re-run for later releases.
 
 - **Tools:** [llm-filesystem](https://github.com/samestrin/llm-filesystem-axi) `1.1.0`, a Go CLI; [fast-filesystem-mcp](https://www.npmjs.com/package/fast-filesystem-mcp) `3.5.2` from npm, an MCP server, on Node.js v24.22.2
 - **Date:** 2026-11-17 (UTC)
@@ -354,7 +361,7 @@ Support is best-effort. Report bugs or request features by opening an issue at [
 Before proposing or adding a command, read [`VISION.md`](VISION.md): it defines this tool's scope and which work belongs to a sibling tool.
 
 ```bash
-make build         # the binary into ./build/; the end-to-end tests need it
+make build         # both binaries into ./build/; the end-to-end tests need them
 make test          # go test ./...
 make test-race     # race detector
 make lint          # go vet + gofmt check

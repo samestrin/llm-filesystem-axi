@@ -2,7 +2,7 @@
 
 An agent-ergonomic filesystem CLI with 29 commands for reading, writing, editing, and managing files.
 
-Every count, flag and example in this file is checked against the binary. The command count is enforced in-repo by `TestDocumentedCommandCountMatchesReality` — this number once drifted to 26 against a real 28.
+The command count and the examples in the command tables are checked against the binary. `TestDocumentedCommandCountMatchesReality` enforces the count — this number once drifted to 26 against a real 28. `TestCommandsDocExamplesParse` checks that every flag in an example exists on its command and its value parses, and that every JSON payload passes the command's own decoder; it does not run the examples.
 
 ## Installation
 
@@ -62,7 +62,7 @@ A read larger than the size budget is **truncated, not refused**. The result car
 |---------|-------------|---------|
 | `edit-block` | Replace text block | `llm-filesystem edit-block --path file.txt --old "foo" --new "bar"` |
 | `edit-blocks` | Multiple replacements | `llm-filesystem edit-blocks --path file.txt --edits '[{"old_string":"a","new_string":"b"}]'` |
-| `edit-multiple-blocks` | Edit several parts with modes | `llm-filesystem edit-multiple-blocks --path file.txt --edits '[...]'` |
+| `edit-multiple-blocks` | Edit several parts with modes | `llm-filesystem edit-multiple-blocks --path file.txt --edits '[{"old_text":"a","new_text":"b"},{"mode":"insert_after","line_number":3,"new_text":"c"}]'` |
 | `safe-edit` | Edit with backup | `llm-filesystem safe-edit --path file.txt --old "x" --new "y" --backup` |
 | `edit-file` | Line-based editing | `llm-filesystem edit-file --path file.txt --operation insert --line 5 --content "new line"` |
 | `search-and-replace` | Regex replace across files | `llm-filesystem search-and-replace --path ./src --pattern "old" --replacement "new"` |
@@ -96,7 +96,7 @@ Search totals are exact. `--max-results` (default 1000) caps what a search lists
 | `copy-file` | Copy file/directory | `llm-filesystem copy-file --source a.txt --dest b.txt` |
 | `move-file` | Move/rename file | `llm-filesystem move-file --source old.txt --dest new.txt` |
 | `delete-file` | Delete file/directory | `llm-filesystem delete-file --path /tmp/old --recursive --confirm` |
-| `batch-file-operations` | Batch operations | `llm-filesystem batch-file-operations --operations '[...]' --confirm` |
+| `batch-file-operations` | Batch operations | `llm-filesystem batch-file-operations --operations '[{"operation":"move","source":"a.txt","destination":"b.txt"}]' --confirm` |
 
 `delete-file` **requires `--confirm`**. So do `move-file` and `copy-file` when the destination already exists — replacing a destination is destruction too, and the refusal is a structured usage error naming `--confirm`, exit `2`, with nothing touched. A move or copy to a path that does not exist yet needs no confirmation, and `write-file` keeps replacing without it. `batch-file-operations` requires confirmation for any operation that destroys something: a `delete`, or a `move`/`copy` whose destination already exists — `os.Rename` and `os.Create` both replace silently, so gating only `delete` would just move the hole one operation across. Without confirmation nothing is touched and the command exits `2`. An operation that only creates something new needs no confirmation. Deleting a path that is already gone is a no-op, not an error: it exits `0` with `deleted: false` and `existed: false` (a real delete says `deleted: true`, `existed: true`), alone or as a batch entry. A missing parent directory, or a path outside `--allowed-dirs`, is still an error.
 
@@ -105,7 +105,7 @@ Search totals are exact. `--max-results` (default 1000) caps what a search lists
 | Command | Description | Example |
 |---------|-------------|---------|
 | `get-disk-usage` | Get disk usage stats | `llm-filesystem get-disk-usage --path /tmp` |
-| `find-large-files` | Find files over size | `llm-filesystem find-large-files --path ./src --min-size "1MB"` |
+| `find-large-files` | Find files over a size in bytes | `llm-filesystem find-large-files --path ./src --min-size 1048576` |
 | `compress-files` | Create archive (type from `--output` extension, or `--archive-format` with `zip`, `tar.gz` or `tgz`) | `llm-filesystem compress-files --paths file1.txt --paths file2.txt --output archive.zip` |
 | `extract-archive` | Extract archive | `llm-filesystem extract-archive --archive file.zip --dest /tmp/extracted` |
 | `sync-directories` | Sync directories | `llm-filesystem sync-directories --source /src --dest /backup --dry-run` |
@@ -128,8 +128,8 @@ Search totals are exact. `--max-results` (default 1000) caps what a search lists
 | Code | Meaning |
 |------|---------|
 | `0` | Success |
-| `1` | The tool failed — the operation was attempted and did not fully work (including a partial run, such as an archive command that skipped some entries) |
-| `2` | Usage error — unknown subcommand, unknown flag, missing required flag, invalid `--format`, or a refused confirmation |
+| `1` | The tool failed — the operation was attempted and did not fully work (including a partial run: an archive or sync command that skipped some entries, or a `write-multiple-files`, `batch-file-operations` or `read-multiple-files` entry that failed). `edit-blocks` and `edit-multiple-blocks` are the exception: when some edits applied they exit `0` and count the rest in `unmatched` |
+| `2` | Usage error — unknown subcommand, unknown flag, missing required flag, invalid `--format`, a malformed JSON payload (invalid JSON, or an unknown or missing key), or a refused confirmation |
 
 Errors are structured documents on **stdout** in the active format, each carrying a `help[]` block naming a concrete next command. `--format text` keeps its `Error: <msg>` shape, also on stdout; nothing is written to stderr. The format is read before any other flag is parsed, so `read-file --bogus --format text` still answers in text.
 

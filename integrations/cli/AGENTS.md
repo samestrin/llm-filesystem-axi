@@ -98,4 +98,4 @@ TOON by default with a minimal field set — measured at 59.8-93.3% fewer tokens
 - `--full` for every field — and on a large file, every byte, which costs a multiple of the file in memory.
 - `--allowed-dirs a,b` to restrict it to given directories.
 
-Exit codes: `0` success, `1` the tool tried and failed, `2` the invocation was malformed. **`2` means nothing was touched** — fix the command rather than retrying it. Every error is a structured document on stdout carrying a next step.
+Exit codes: `0` success, `1` the tool tried and failed, `2` the invocation was malformed. **`2` means nothing was touched** — fix the command rather than retrying it. Every error is a structured document on stdout carrying a next step. A multi-entry command with any failed entry exits `1` after naming the failures; the exception is a partial `edit-blocks` or `edit-multiple-blocks`, which exits `0` with the misses counted in `unmatched`.

@@ -1,7 +1,6 @@
 package commands
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -21,9 +20,17 @@ func addEditCommands(rootCmd *cobra.Command) {
 
 // outputEditError reports an edit failure. An ambiguous match carries its own
 // recovery: the generic --help pointer would leave the caller guessing that the
-// two ways out are --replace-all and a longer old string. Still exit 1, as any
-// tool failure: the edit was attempted against the file and could not apply.
-func outputEditError(err error, oldFlag string) {
+// two ways out are --replace-all and a longer old string. An unmatched edit
+// does too: the old text is not in the file as given, and the fix is to copy it
+// from the file's current text. Still exit 1, as any tool failure: the edit
+// was attempted against the file and could not apply.
+func outputEditError(err error, oldFlag, path string) {
+	if errors.Is(err, core.ErrNoMatch) {
+		emitDiagnostic(activeFmt, activeCompact, err, goaxi.ExitError, []string{
+			"See the file's current text, then copy " + oldFlag + " from it exactly: llm-filesystem read-file --path " + path,
+		})
+		return
+	}
 	var amb *core.AmbiguousMatchError
 	if !errors.As(err, &amb) {
 		OutputError(err)
@@ -33,6 +40,50 @@ func outputEditError(err error, oldFlag string) {
 		"Replace every occurrence: re-run the same command with --replace-all",
 		"Or make " + oldFlag + " longer, with surrounding lines, so it matches exactly once",
 	})
+}
+
+const (
+	editPairsExample  = `[{"old_string":"x","new_string":"y"}]`
+	multiEditsExample = `[{"old_text":"x","new_text":"y","mode":"replace"},{"mode":"insert_after","line_number":3,"new_text":"z"}]`
+)
+
+// decodeEditPairs decodes edit-blocks' --edits and requires old_string in
+// every edit. An edit with nothing to find is a malformed invocation (exit 2),
+// not an edit that was attempted and failed.
+func decodeEditPairs(raw string) ([]core.EditPair, error) {
+	var edits []core.EditPair
+	if err := decodePayload(raw, &edits); err != nil {
+		return nil, err
+	}
+	for i, e := range edits {
+		if e.OldString == "" {
+			return nil, fmt.Errorf("edit %d: old_string is required", i+1)
+		}
+	}
+	return edits, nil
+}
+
+// decodeMultiEdits decodes edit-multiple-blocks' --edits and requires what each
+// mode needs. A line mode without line_number used to come back as status
+// invalid_line with exit 0 and the file unchanged.
+func decodeMultiEdits(raw string) ([]core.MultiEditOperation, error) {
+	var edits []core.MultiEditOperation
+	if err := decodePayload(raw, &edits); err != nil {
+		return nil, err
+	}
+	for i, e := range edits {
+		switch e.Mode {
+		case "", "replace":
+			if e.OldText == "" {
+				return nil, fmt.Errorf("edit %d: old_text is required for replace mode", i+1)
+			}
+		case "insert_before", "insert_after", "delete_line":
+			if e.LineNumber < 1 {
+				return nil, fmt.Errorf("edit %d: line_number (1-based) is required for %s mode", i+1, e.Mode)
+			}
+		}
+	}
+	return edits, nil
 }
 
 const replaceAllUsage = "Replace every occurrence of the old text (default: refuse unless it matches exactly once)"
@@ -54,7 +105,7 @@ func editBlockCmd() *cobra.Command {
 				AllowedDirs: GetAllowedDirs(),
 			})
 			if err != nil {
-				outputEditError(err, "--old")
+				outputEditError(err, "--old", path)
 				return
 			}
 			OutputResult(result, func() string {
@@ -82,9 +133,9 @@ func editBlocksCmd() *cobra.Command {
 		Short: "Apply multiple edits to a file",
 		Long:  "Applies multiple block edits to a single file. Each old_string must match exactly once in the content the earlier edits leave; an ambiguous edit refuses the whole batch unless --replace-all is set.",
 		Run: func(cmd *cobra.Command, args []string) {
-			var edits []core.EditPair
-			if err := json.Unmarshal([]byte(editsJSON), &edits); err != nil {
-				OutputError(fmt.Errorf("invalid edits JSON: %w", err))
+			edits, err := decodeEditPairs(editsJSON)
+			if err != nil {
+				refusePayload("invalid edits JSON", err, editPairsExample)
 				return
 			}
 
@@ -95,7 +146,7 @@ func editBlocksCmd() *cobra.Command {
 				AllowedDirs: GetAllowedDirs(),
 			})
 			if err != nil {
-				outputEditError(err, "old_string")
+				outputEditError(err, "old_string", path)
 				return
 			}
 			OutputResult(result, func() string {
@@ -105,7 +156,7 @@ func editBlocksCmd() *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(&path, "path", "", "File path (required)")
-	cmd.Flags().StringVar(&editsJSON, "edits", "", `JSON array of edits: [{"old_string":"x","new_string":"y"}]`)
+	cmd.Flags().StringVar(&editsJSON, "edits", "", "JSON array of edits: "+editPairsExample)
 	cmd.Flags().BoolVar(&replaceAll, "replace-all", false, replaceAllUsage)
 	cmd.MarkFlagRequired("path")
 	cmd.MarkFlagRequired("edits")
@@ -122,9 +173,9 @@ func editMultipleBlocksCmd() *cobra.Command {
 		Short: "Edit multiple parts of a file with different modes",
 		Long:  "Applies multiple edits with modes: replace, insert_before, insert_after, delete_line. A replace edit's old_text must match exactly once; an ambiguous edit refuses the whole batch unless --replace-all is set.",
 		Run: func(cmd *cobra.Command, args []string) {
-			var edits []core.MultiEditOperation
-			if err := json.Unmarshal([]byte(editsJSON), &edits); err != nil {
-				OutputError(fmt.Errorf("invalid edits JSON: %w", err))
+			edits, err := decodeMultiEdits(editsJSON)
+			if err != nil {
+				refusePayload("invalid edits JSON", err, multiEditsExample)
 				return
 			}
 
@@ -136,7 +187,7 @@ func editMultipleBlocksCmd() *cobra.Command {
 				AllowedDirs: GetAllowedDirs(),
 			})
 			if err != nil {
-				outputEditError(err, "old_text")
+				outputEditError(err, "old_text", path)
 				return
 			}
 			OutputResult(result, func() string {
@@ -150,7 +201,7 @@ func editMultipleBlocksCmd() *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(&path, "path", "", "File path (required)")
-	cmd.Flags().StringVar(&editsJSON, "edits", "", `JSON array of edits: [{"old_text":"x","new_text":"y","mode":"replace"}]`)
+	cmd.Flags().StringVar(&editsJSON, "edits", "", "JSON array of edits: "+multiEditsExample)
 	cmd.Flags().BoolVar(&backup, "backup", true, "Create backup before editing")
 	cmd.Flags().BoolVar(&replaceAll, "replace-all", false, replaceAllUsage)
 	cmd.MarkFlagRequired("path")
@@ -178,7 +229,7 @@ func safeEditCmd() *cobra.Command {
 				AllowedDirs: GetAllowedDirs(),
 			})
 			if err != nil {
-				outputEditError(err, "--old")
+				outputEditError(err, "--old", path)
 				return
 			}
 			OutputResult(result, func() string {

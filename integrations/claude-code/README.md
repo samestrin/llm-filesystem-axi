@@ -1,8 +1,8 @@
 # Claude Code integration
 
-`llm-filesystem` is a CLI, and Claude Code can run a CLI. That is the whole integration — there is nothing to register.
+`llm-filesystem` is a CLI, and Claude Code can run a CLI, so nothing has to be registered for Claude to use it.
 
-What follows is optional: telling Claude *when* to reach for it, and giving it somewhere to look up detail on demand. This is the AXI "ambient context" principle — session guidance first, an on-demand skill second.
+What follows is optional, and `llm-filesystem setup` does it in one command: telling Claude *when* to reach for it, and giving it somewhere to look up detail on demand. This is the AXI "ambient context" principle — session guidance first, an on-demand skill second.
 
 It is a **complement** to Claude's native `Read`/`Write`/`Edit`, not a replacement. Single-file work stays on the native tools.
 
@@ -23,12 +23,14 @@ llm-filesystem setup --dry-run
 Or install just the skill with the skills CLI, without the SessionStart hook:
 
 ```bash
-npx skills add samestrin/llm-filesystem-axi --skill llm-filesystem
+npx skills add samestrin/llm-filesystem-axi --skill llm-filesystem --agent claude-code -y
 ```
+
+`--agent` and `-y` keep it from prompting, which fails when there is no terminal. The skill alone does not install the binary.
 
 ## 2. Routing guidance
 
-The hook above prints the working directory at session start. For routing guidance — so Claude reaches for the right tool without being asked — append [`../cli/AGENTS.md`](../cli/AGENTS.md) to your project or user `CLAUDE.md`. Without a clone of this repo, fetch it straight from GitHub:
+The hook above prints the home view at session start: the binary in use, the working directory and what is in it, and the next commands to try. For routing guidance — so Claude reaches for the right tool without being asked — append [`../cli/AGENTS.md`](../cli/AGENTS.md) to your project or user `CLAUDE.md`. Without a clone of this repo, fetch it straight from GitHub:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/samestrin/llm-filesystem-axi/main/integrations/cli/AGENTS.md >> ./CLAUDE.md          # this project only

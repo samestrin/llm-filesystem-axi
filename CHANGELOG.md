@@ -6,8 +6,53 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.1.2] - 2026-11-23
+
+### Fixed
+
+- **`write-multiple-files` no longer truncates a file on a wrong key.** An
+  entry keyed `{"path","text"}` decoded to empty content, so the file it named
+  was cut to 0 bytes and the command reported success with exit `0`. The JSON
+  flags of `write-multiple-files`, `batch-file-operations`, `edit-blocks` and
+  `edit-multiple-blocks` are now decoded strictly: an unknown key, a missing
+  `content` or `path`, an edit with no `old_string`/`old_text`, or a line mode
+  with no `line_number` is refused with exit `2` before anything runs, and the
+  diagnostic shows the expected shape. Invalid JSON in those flags also exits
+  `2` now (it was `1`).
+- **`batch-file-operations` no longer lets `~` or a trailing slash past
+  `--confirm`.** The gate checked the destination as typed while the copy or
+  move used the normalized path, so a copy onto an existing `~/victim` or
+  `victim/` overwrote it with exit `0`. The gate now checks the normalized
+  path, as `move-file` and `copy-file` already did.
+- **A run with failed entries exits `1`.** `write-multiple-files`,
+  `batch-file-operations` and `read-multiple-files` printed `failed: N` and
+  exited `0`, so the MCP server, which takes `isError` from the exit code,
+  reported success. They now print the result and exit `1`, as
+  `compress-files`, `extract-archive` and `sync-directories` already did.
+- **Errors suggest the fixing command for the common failures.** A path that
+  does not exist suggests `list-directory` on its parent, an edit whose old
+  text matched nothing suggests `read-file` on the file, and a malformed JSON
+  payload shows the expected shape. Other failures still point at the
+  command's `--help`.
+- **Release binaries are static.** The CLI imports `net` and `os/user`, so
+  with cgo available the Linux binaries were dynamically linked although the
+  docs said static. `make build`, `make build-all` and the release workflow
+  set `CGO_ENABLED=0`, and the release check fails if the linux-amd64 pair is
+  not statically linked.
+
 ### Changed
 
+- **Docs from the first axi.md review round.** The skill documents
+  `line_number` for the line modes of `edit-multiple-blocks`, links the routing
+  guide by URL, and gives an install line for when the binary is not on
+  `PATH`. The README pins v1.1.2, adds the `PATH` line to Quick start, gives the
+  non-interactive `npx skills add ... --agent claude-code -y` form, and states
+  which commands exit `1` on a partial run and that a partial `edit-blocks` or
+  `edit-multiple-blocks` exits `0` with `unmatched`. Every example in
+  `docs/llm-filesystem-commands.md` is now parsed by a test, which caught
+  `find-large-files --min-size "1MB"` (the flag takes bytes). The token table
+  in `docs/background.md` is re-measured on this release, with `search-code`
+  no longer capped at 1000 matches.
 - **AXI catalog entry and audit re-pinned to v1.1.1.** The catalog entry's
   `reviewed_revision` now names the commit tag v1.1.1 points at, and
   `docs/axi-audit.md` states its verdicts at v1.1.1. Every observation was

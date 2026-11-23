@@ -48,14 +48,16 @@ jobs:
             VERSION="dev-${GITHUB_SHA::12}"
           fi
           mkdir -p dist
-          # One stamp for both binaries: they share the commands package, so
-          # the CLI and the MCP server report the same version.
+          # CGO_ENABLED=0 makes every binary static (the CLI imports net and
+          # os/user, which otherwise link libc). One stamp for both binaries:
+          # they share the commands package, so the CLI and the MCP server
+          # report the same version.
           CLI_LDFLAGS="-s -w -X github.com/samestrin/llm-filesystem-axi/internal/filesystem/commands.Version=$VERSION"
           for platform in darwin/amd64 darwin/arm64 linux/amd64 linux/arm64 windows/amd64; do
             os=${platform%/*}; arch=${platform#*/}
             ext=""; [ "$os" = "windows" ] && ext=".exe"
-            GOOS=$os GOARCH=$arch go build -ldflags "$CLI_LDFLAGS" -o dist/llm-filesystem-$os-$arch$ext ./cmd/llm-filesystem
-            GOOS=$os GOARCH=$arch go build -ldflags "$CLI_LDFLAGS" -o dist/llm-filesystem-mcp-$os-$arch$ext ./cmd/llm-filesystem-mcp
+            CGO_ENABLED=0 GOOS=$os GOARCH=$arch go build -ldflags "$CLI_LDFLAGS" -o dist/llm-filesystem-$os-$arch$ext ./cmd/llm-filesystem
+            CGO_ENABLED=0 GOOS=$os GOARCH=$arch go build -ldflags "$CLI_LDFLAGS" -o dist/llm-filesystem-mcp-$os-$arch$ext ./cmd/llm-filesystem-mcp
           done
           cd dist && sha256sum * > SHA256SUMS.txt
 
@@ -78,6 +80,9 @@ jobs:
           cli_version="$(./llm-filesystem-linux-amd64 --version)"
           test -n "$cli_version"
           test "$cli_version" = "$(./llm-filesystem-mcp-linux-amd64 --version)"
+          # The docs say static; prove it rather than trust CGO_ENABLED.
+          file llm-filesystem-linux-amd64 | grep -q "statically linked"
+          file llm-filesystem-mcp-linux-amd64 | grep -q "statically linked"
 
       - uses: actions/upload-artifact@v4
         with:

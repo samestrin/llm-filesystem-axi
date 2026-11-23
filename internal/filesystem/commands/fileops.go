@@ -1,7 +1,6 @@
 package commands
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 
@@ -34,16 +33,8 @@ func refuseUnconfirmedOverwrite(command, source, destination string, confirm boo
 	if confirm {
 		return false
 	}
-	// Stat the path core will actually write to: core.MoveFile/CopyFile run
-	// the destination through core.NormalizePath (~ expansion, filepath.Clean),
-	// so a raw stat misses '~/victim.txt' and 'victim.txt/' and lets the
-	// overwrite through silently. If normalization fails, defer to core to
-	// report that error rather than inventing a refusal here.
-	dst, err := core.NormalizePath(destination)
-	if err != nil {
-		return false
-	}
-	if _, statErr := os.Stat(dst); statErr != nil {
+	dst, exists := destinationExists(destination)
+	if !exists {
 		return false
 	}
 	emitDiagnostic(activeFmt, activeCompact,
@@ -51,6 +42,25 @@ func refuseUnconfirmedOverwrite(command, source, destination string, confirm boo
 		goaxi.ExitUsage,
 		[]string{"Confirm the overwrite: llm-filesystem " + command + " --source " + source + " --dest " + dst + " --confirm"})
 	return true
+}
+
+// destinationExists reports whether a move or copy to destination would replace
+// something, and the normalized path it checked.
+//
+// It stats the path core will actually write to: core.MoveFile/CopyFile run
+// the destination through core.NormalizePath (~ expansion, filepath.Clean), so
+// a raw stat misses '~/victim.txt' and 'victim.txt/' and lets the overwrite
+// through silently. If normalization fails, it reports false so core reports
+// that error rather than a refusal being invented here.
+func destinationExists(destination string) (string, bool) {
+	dst, err := core.NormalizePath(destination)
+	if err != nil {
+		return "", false
+	}
+	if _, statErr := os.Stat(dst); statErr != nil {
+		return dst, false
+	}
+	return dst, true
 }
 
 func copyFileCmd() *cobra.Command {
@@ -176,6 +186,8 @@ func deleteFileCmd() *cobra.Command {
 	return cmd
 }
 
+const operationsExample = `[{"operation":"copy","source":"a","destination":"b"}]`
+
 func batchFileOperationsCmd() *cobra.Command {
 	var operationsJSON string
 	var confirm bool
@@ -186,8 +198,8 @@ func batchFileOperationsCmd() *cobra.Command {
 		Long:  "Performs multiple file operations in a batch. Any entry that destroys something requires --confirm: a delete, or a move or copy onto an existing path.",
 		Run: func(cmd *cobra.Command, args []string) {
 			var operations []core.BatchOperation
-			if err := json.Unmarshal([]byte(operationsJSON), &operations); err != nil {
-				OutputError(fmt.Errorf("invalid operations JSON: %w", err))
+			if err := decodePayload(operationsJSON, &operations); err != nil {
+				refusePayload("invalid operations JSON", err, operationsExample)
 				return
 			}
 
@@ -207,7 +219,9 @@ func batchFileOperationsCmd() *cobra.Command {
 						// os.Rename and os.Create both replace an existing
 						// destination silently. Gating delete while leaving
 						// these open just moved the hole one operation across.
-						if _, statErr := os.Stat(op.Destination); statErr == nil {
+						// Normalized as the single commands do, or '~/x'
+						// and 'x/' walk past the gate.
+						if _, exists := destinationExists(op.Destination); exists {
 							why = "overwrites an existing file"
 						}
 					}
@@ -235,11 +249,18 @@ func batchFileOperationsCmd() *cobra.Command {
 				return fmt.Sprintf("Batch complete: %d success, %d failed",
 					result.Success, result.Failed)
 			})
+
+			// As in write-multiple-files: the result names the failed
+			// entries, and the exit code says the batch did not succeed.
+			if result.Failed > 0 {
+				exitFunc(int(goaxi.ExitError))
+				return
+			}
 		},
 	}
 
 	cmd.Flags().StringVar(&operationsJSON, "operations", "",
-		`JSON array of operations: [{"operation":"copy","source":"a","destination":"b"}]`)
+		"JSON array of operations: "+operationsExample)
 	cmd.Flags().BoolVar(&confirm, "confirm", false, "Confirm destructive entries in the batch: a delete, or a move or copy onto an existing path")
 	cmd.MarkFlagRequired("operations")
 

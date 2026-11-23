@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	goaxi "github.com/samestrin/go-axi"
 	"github.com/samestrin/llm-filesystem-axi/internal/filesystem/core"
 	"github.com/spf13/cobra"
 )
@@ -171,6 +172,14 @@ func readMultipleFilesCmd() *cobra.Command {
 				}
 				return sb.String()
 			})
+
+			// The files that were read are delivered first; then exit 1, as
+			// compress-files does, because a read that missed a file did not
+			// succeed and the MCP server reads isError from this code.
+			if result.Failed > 0 {
+				exitFunc(int(goaxi.ExitError))
+				return
+			}
 		},
 	}
 
