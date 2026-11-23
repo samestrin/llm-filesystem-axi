@@ -10,6 +10,53 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **`--allowed-dirs` follows symlinks.** It compared text prefixes, so with
+  `A` allowed and `A/link` pointing outside it, `write-file`,
+  `large-write-file`, `write-multiple-files`, `copy-file`, `create-directory`,
+  `delete-file`, `compress-files`, `extract-archive` and `sync-directories`
+  wrote or deleted outside `A` with exit `0`, and a linked source copied
+  outside data in. The path (its deepest existing parent, and a final or
+  dangling link) and each allowed directory are now resolved before
+  comparing, and a directory being copied, synced or archived may not hold a
+  link that leads outside. Removing or renaming a link itself is still
+  allowed.
+- **A directory cannot be copied into itself.** `copy-file --source d --dest
+  d/sub/inner` (and the batch form) recursed until the path was too long,
+  left hundreds of files and exited `1`; `sync-directories` with the
+  destination inside the source ran too. A destination that is the source
+  directory or inside it, for copy, move, batch copy or move, and sync, is
+  now refused with exit `2` before anything is written.
+- **`delete-file` refuses the filesystem root, HOME and the working
+  directory.** `--path ~ --recursive --confirm` removed all of HOME and
+  `--path .` the working directory. Those, and any directory holding one of
+  them, are refused with exit `2`, alone or as a batch entry, as `setup`
+  already refused HOME.
+- **`edit-block` and `safe-edit` require `--new`; `edit-file` insert and
+  replace require `--content`.** Left out, each read as `""`: `--old x`
+  alone deleted the match with exit `0` (`safe-edit` too, leaving a `.bak`),
+  and `edit-file` blanked the line or inserted an empty one. The flag is now
+  required, exit `2`; `--new ""` and `--content ""` still work.
+- **`compress-files` checks every input before touching `--output`, and
+  replacing an existing `--output` needs `--confirm`.** An existing archive
+  plus one missing input was truncated and left partial, exit `1`; an
+  existing `--output` was replaced unasked. A missing input now exits `1`
+  with nothing written, and an existing `--output` without `--confirm` exits
+  `2`. A file that cannot be read inside a directory input is still a
+  reported failure of a partial run.
+- **`sync-directories` needs `--confirm` to replace files in the
+  destination.** It replaced them, a newer file with older content
+  included, without asking. A real run that would replace any exits `2`
+  with nothing written unless given `--confirm`; `--dry-run` needs none.
+- **More malformed invocations exit `2` rather than `1`:** an empty
+  `--files`, `--edits` or `--operations` array, an unknown `edit-file`
+  operation, an empty `--old`, and an empty required path, source,
+  destination or pattern. `copy-file --dest ''` no longer draws a "would
+  overwrite" refusal. A `write-file`, `large-write-file` or
+  `write-multiple-files` path ending in a separator is refused rather than
+  written as a file of that name, and two `write-multiple-files` entries for
+  one path are refused rather than the last silently winning.
+  `search-and-replace` skips `.git` directories, and `extract-archive`
+  checks the archive before it creates `--dest`.
 - **An edit without a replacement no longer deletes text.** `edit-blocks
   --edits '[{"old_string":"src"}]'` decoded the missing `new_string` to `""`,
   removed the matched text and exited `0`; `edit-multiple-blocks` did the same
@@ -79,7 +126,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   to pass `confirm: true`. `make lint` now fails when `gofmt` would change a
   file; it printed the list and passed. The catalog entry's description is
   shortened and says "size-capped" (the budget is in characters), and its
-  `write-file` exception is labelled principle 6. The token table is
+  `write-file` exception is labelled principle 6, and it now lists the
+  `compress-files` and `sync-directories` gates. The description is trimmed
+  again, to 202 characters. The token table is
   re-measured on this release's final tree.
 - **Docs from the first axi.md review round.** The skill documents
   `line_number` for the line modes of `edit-multiple-blocks`, links the routing

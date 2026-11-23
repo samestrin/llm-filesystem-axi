@@ -205,7 +205,7 @@ llm-filesystem sync-directories --source src --dest backup --dry-run
 llm-filesystem setup --dry-run
 ```
 
-To restrict every command to specific directories, pass `--allowed-dirs`, for example `--allowed-dirs /Users/me/projects,/tmp`. A path outside them fails with exit `1`.
+To restrict every command to specific directories, pass `--allowed-dirs`, for example `--allowed-dirs /Users/me/projects,/tmp`. A path outside them fails with exit `1`. Symlinks are resolved first, in the path and in each allowed directory, so a link inside an allowed directory that points outside it counts as outside, and so does a directory being copied, synced or archived that holds such a link.
 
 ### MCP server
 
@@ -292,7 +292,7 @@ llm-filesystem list-directory --path . --format json   # JSON for scripts
 |------|---------|
 | `0` | Success |
 | `1` | The tool failed: the operation was attempted and did not fully work. This includes a partial run: `compress-files`, `extract-archive`, `sync-directories`, `write-multiple-files`, `batch-file-operations` and `read-multiple-files` exit `1` when any input, entry or file failed or was skipped, with the failures named in the output and a `help` line to retry only those |
-| `2` | Usage error: unknown subcommand, unknown flag, missing required flag, invalid `--format`, a malformed JSON payload (invalid JSON; an unknown, missing or wrongly cased key in `--files`, `--edits` or `--operations`, checked for every entry before any runs; or an unknown edit `mode` or batch `operation`), or a destructive operation without `--confirm` |
+| `2` | Usage error: unknown subcommand, unknown flag, missing required flag, invalid `--format`, an empty required value, a malformed JSON payload (invalid JSON; an empty array; an unknown, missing or wrongly cased key in `--files`, `--edits` or `--operations`, checked for every entry before any runs; or an unknown edit `mode` or batch `operation`), a destructive operation without `--confirm`, a delete of the filesystem root, HOME or the working directory, or a copy, move or sync of a directory into itself |
 
 One exception to "partial means `1`": `edit-blocks` and `edit-multiple-blocks` exit `0` when at least one edit applied, because those edits are already written to the file. The edits that found no target are counted in `unmatched` (and, for `edit-multiple-blocks`, listed per edit in `edit_results`), so check `unmatched` before treating the run as complete. A run in which no edit applies exits `1` and leaves the file untouched.
 
@@ -327,7 +327,7 @@ Raw results: [`results-coldstart.json`](benchmarks/results-coldstart.json), [`re
 
 Big reads truncate rather than refuse. A file over the size budget (70,000 characters by default) returns its leading content plus `truncated`, `total_size` and `next_offset`, and exits `0`. `next_offset` is the exact `--start-offset` that resumes the read; `--full` or `--max-size -1` returns the whole file.
 
-Deletes and overwrites are gated. `delete-file` requires `--confirm`. So do `move-file` and `copy-file` when the destination already exists, and any `batch-file-operations` entry that destroys something: a delete, or a move or copy onto a path that already exists. Without confirmation nothing is touched and the command exits `2`. `write-file` still replaces an existing destination without confirmation.
+Deletes and overwrites are gated. `delete-file` requires `--confirm`. So do `move-file` and `copy-file` when the destination already exists, and any `batch-file-operations` entry that destroys something: a delete, or a move or copy onto a path that already exists. So do `compress-files` when `--output` already exists, and `sync-directories` when it would replace a file already in the destination (`--dry-run` needs no confirmation). Without confirmation nothing is touched and the command exits `2`. `write-file` still replaces an existing destination without confirmation. `delete-file` refuses the filesystem root, HOME, the working directory and any directory holding one of them, with `--confirm` or without, and a copy, move or sync of a directory into itself is refused before anything is written; both exit `2`.
 
 A missing path is a failure, not an empty result. A search against a path that does not exist reports an error rather than zero matches, so a typo cannot read as "the code you are looking for is not here".
 
@@ -342,7 +342,7 @@ Archive extraction is capped against decompression bombs. `extract-archive` stop
 Known gaps against the [AXI](https://axi.md) principles, the same ones the catalog entry in [`docs/axi-catalog-entry.yaml`](docs/axi-catalog-entry.yaml) states:
 
 - Principle 7: `setup` registers Claude Code (a SessionStart hook in the project's .claude/settings.json plus the skill), Codex (a SessionStart hook in the project's .codex/hooks.json) and OpenCode (a plugin in the project's .opencode/plugins/ that adds the home view to the system context); there is no session-end capture, because this CLI keeps no session history.
-- Principle 6: write-file replaces an existing destination without --confirm; delete-file requires it, and so do move-file and copy-file when the destination already exists, and any batch-file-operations entry that destroys something: a delete, or a move or copy onto a path that already exists.
+- Principle 6: write-file replaces an existing destination without --confirm; delete-file requires it, and so do move-file and copy-file when the destination already exists, compress-files when --output already exists, sync-directories when it would replace a file in the destination, and any batch-file-operations entry that destroys something: a delete, or a move or copy onto a path that already exists.
 
 ## Documentation
 
