@@ -20,9 +20,17 @@ func addEditCommands(rootCmd *cobra.Command) {
 
 // outputEditError reports an edit failure. An ambiguous match carries its own
 // recovery: the generic --help pointer would leave the caller guessing that the
-// two ways out are --replace-all and a longer old string. Still exit 1, as any
-// tool failure: the edit was attempted against the file and could not apply.
-func outputEditError(err error, oldFlag string) {
+// two ways out are --replace-all and a longer old string. An unmatched edit
+// does too: the old text is not in the file as given, and the fix is to copy it
+// from the file's current text. Still exit 1, as any tool failure: the edit
+// was attempted against the file and could not apply.
+func outputEditError(err error, oldFlag, path string) {
+	if errors.Is(err, core.ErrNoMatch) {
+		emitDiagnostic(activeFmt, activeCompact, err, goaxi.ExitError, []string{
+			"Copy " + oldFlag + " from the file's current text: llm-filesystem read-file --path " + path,
+		})
+		return
+	}
 	var amb *core.AmbiguousMatchError
 	if !errors.As(err, &amb) {
 		OutputError(err)
@@ -97,7 +105,7 @@ func editBlockCmd() *cobra.Command {
 				AllowedDirs: GetAllowedDirs(),
 			})
 			if err != nil {
-				outputEditError(err, "--old")
+				outputEditError(err, "--old", path)
 				return
 			}
 			OutputResult(result, func() string {
@@ -138,7 +146,7 @@ func editBlocksCmd() *cobra.Command {
 				AllowedDirs: GetAllowedDirs(),
 			})
 			if err != nil {
-				outputEditError(err, "old_string")
+				outputEditError(err, "old_string", path)
 				return
 			}
 			OutputResult(result, func() string {
@@ -179,7 +187,7 @@ func editMultipleBlocksCmd() *cobra.Command {
 				AllowedDirs: GetAllowedDirs(),
 			})
 			if err != nil {
-				outputEditError(err, "old_text")
+				outputEditError(err, "old_text", path)
 				return
 			}
 			OutputResult(result, func() string {
@@ -221,7 +229,7 @@ func safeEditCmd() *cobra.Command {
 				AllowedDirs: GetAllowedDirs(),
 			})
 			if err != nil {
-				outputEditError(err, "--old")
+				outputEditError(err, "--old", path)
 				return
 			}
 			OutputResult(result, func() string {

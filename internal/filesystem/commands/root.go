@@ -6,7 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
+	"path/filepath"
 	"runtime/debug"
 	"sort"
 	"strings"
@@ -480,20 +482,30 @@ func emitDiagnostic(f Format, compact bool, err error, code goaxi.ExitCode, step
 // OutputError renders a TOOL failure in the active output format and exits
 // ExitError: the operation was attempted and it did not work.
 func OutputError(err error) {
-	emitDiagnostic(activeFmt, activeCompact, err, goaxi.ExitError, toolFailureSteps())
+	emitDiagnostic(activeFmt, activeCompact, err, goaxi.ExitError, toolFailureSteps(err))
 }
 
 // toolFailureSteps is the guidance carried by every tool failure.
 //
-// It names the failing command's own --help rather than guessing at the cause.
-// An invented per-error suggestion — "try --allowed-dirs", "check the path" —
-// is wrong for some of the errors it would be attached to, and AC10 forbids a
+// A path that does not exist gets the command that shows what does: listing
+// its parent. That step is attached only when the error itself carries the
+// missing path (an *fs.PathError wrapping fs.ErrNotExist), so it is never a
+// guess. AXI 9 asks for the fixing command rather than --help.
+//
+// Everything else names the failing command's own --help rather than guessing
+// at the cause. An invented per-error suggestion — "try --allowed-dirs" — is
+// wrong for some of the errors it would be attached to, and AC10 forbids a
 // help line the agent cannot act on. --help is always valid and always exists,
 // which is what makes it safe to attach unconditionally.
 //
 // Errors that know their own recovery still pass better steps directly through
 // emitDiagnostic; this is the floor, not the ceiling.
-func toolFailureSteps() []string {
+func toolFailureSteps(err error) []string {
+	var pe *fs.PathError
+	if errors.Is(err, fs.ErrNotExist) && errors.As(err, &pe) {
+		return []string{"See what exists there: llm-filesystem list-directory --path " + filepath.Dir(pe.Path)}
+	}
+
 	path := activeCmdPath
 	if path == "" {
 		// No subcommand resolved, so the root is the honest answer.

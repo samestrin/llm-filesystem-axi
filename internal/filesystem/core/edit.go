@@ -1,6 +1,7 @@
 package core
 
 import (
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -50,6 +51,17 @@ func (e *AmbiguousMatchError) Error() string {
 	}
 	return msg
 }
+
+// ErrNoMatch marks an edit that changed nothing because its target was not in
+// the file. Callers test for it with errors.Is to suggest reading the file's
+// current text; the messages themselves are unchanged.
+var ErrNoMatch = errors.New("no edit matched")
+
+// noMatch carries an unmatched-edit message and matches ErrNoMatch.
+type noMatch string
+
+func (e noMatch) Error() string        { return string(e) }
+func (e noMatch) Is(target error) bool { return target == ErrNoMatch }
 
 // replaceMatches replaces old in content: exactly one occurrence, or every
 // occurrence under replaceAll. It returns the number replaced, 0 when old does
@@ -168,7 +180,7 @@ func EditBlock(opts EditBlockOptions) (*EditResult, error) {
 		return nil, err
 	}
 	if n == 0 {
-		return nil, fmt.Errorf("old_string not found in file")
+		return nil, noMatch("old_string not found in file")
 	}
 
 	if err := replaceFile(normalizedPath, []byte(newContent)); err != nil {
@@ -259,7 +271,7 @@ func EditBlocks(opts EditBlocksOptions) (*EditResult, error) {
 	}
 
 	if changes == 0 {
-		return nil, fmt.Errorf("old_string not found in file: none of %d edits matched", len(opts.Edits))
+		return nil, noMatch(fmt.Sprintf("old_string not found in file: none of %d edits matched", len(opts.Edits)))
 	}
 
 	// Only write when something changed. The previous version rewrote the file
@@ -331,7 +343,7 @@ func SafeEdit(opts SafeEditOptions) (*EditResult, error) {
 		return nil, err
 	}
 	if n == 0 {
-		return nil, fmt.Errorf("old_string not found in file")
+		return nil, noMatch("old_string not found in file")
 	}
 
 	result := &EditResult{
@@ -805,7 +817,7 @@ func EditMultipleBlocks(opts EditMultipleBlocksOptions) (*MultiEditResult, error
 	}
 
 	if successfulEdits == 0 {
-		return nil, fmt.Errorf("none of %d edits applied", len(opts.Edits))
+		return nil, noMatch(fmt.Sprintf("none of %d edits applied", len(opts.Edits)))
 	}
 
 	var backupPath *string
