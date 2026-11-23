@@ -275,11 +275,18 @@ func checkTreeDest(src, dst string, allowedDirs []string) error {
 	if len(allowedDirs) == 0 {
 		return nil
 	}
-	return filepath.Walk(src, func(p string, info os.FileInfo, err error) error {
+	// Walk lstats its root, so a --source that is itself a link was visited
+	// alone and nothing below it checked, while the copy followed the link
+	// (second review of PR #87). Walk where the source really is.
+	real, err := filepath.EvalSymlinks(src)
+	if err != nil {
+		return nil // the operation itself reports the unreadable source
+	}
+	return filepath.Walk(real, func(p string, info os.FileInfo, err error) error {
 		if err != nil {
 			return nil
 		}
-		rel, err := filepath.Rel(src, p)
+		rel, err := filepath.Rel(real, p)
 		if err != nil {
 			return nil
 		}
