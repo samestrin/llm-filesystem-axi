@@ -157,7 +157,8 @@ func TestBatchRejectsUnknownOperationKeys(t *testing.T) {
 			if code != int(goaxi.ExitUsage) {
 				t.Errorf("exit = %d, want ExitUsage (%d): %q", code, goaxi.ExitUsage, stdout)
 			}
-			if !strings.Contains(stdout, "invalid operations JSON") || !strings.Contains(stdout, "unknown field") {
+			// "unknown key" since review round 2, which also names the entry.
+			if !strings.Contains(stdout, "invalid operations JSON") || !strings.Contains(stdout, "operation 1: unknown key") {
 				t.Errorf("stdout = %q, want the payload refusal naming the unknown field", stdout)
 			}
 			if _, err := os.Stat(dst); err == nil {

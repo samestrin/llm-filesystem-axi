@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -84,7 +85,7 @@ func TestBatchValidatesEveryEntryBeforeRunning(t *testing.T) {
 		confirm         bool
 	}{
 		{"missing operation", `{"source":"SRC","destination":"OUT2"}`, "operation 2: operation is required", true},
-		{"unknown operation", `{"operation":"frobnicate","source":"SRC"}`, `operation 2: unknown operation "frobnicate"`, true},
+		{"unknown operation", `{"operation":"frobnicate","source":"SRC"}`, `operation 2: unknown operation \"frobnicate\"`, true},
 		{"missing source", `{"operation":"delete"}`, "operation 2: source is required", true},
 		{"copy missing destination", `{"operation":"copy","source":"SRC"}`, "operation 2: destination is required for copy", true},
 		{"move missing destination", `{"operation":"move","source":"SRC"}`, "operation 2: destination is required for move", true},
@@ -293,19 +294,24 @@ func TestPayloadKeyErrorsNameTheEntry(t *testing.T) {
 		{"operations unknown key", []string{"batch-file-operations", "--operations",
 			`[{"operation":"copy","source":"` + a + `","destination":"` + b + `"},{"operation":"copy","source":"` + a + `","dest":"x"}]`}, `operation 2: unknown key "dest"`},
 		{"files key in wrong case", []string{"write-multiple-files", "--files",
-			`[{"Path":"` + b + `","Content":"x"}]`}, `entry 1: unknown key "Path" (keys are case-sensitive: "path")`},
+			`[{"Path":"` + b + `","content":"x"}]`}, `entry 1: unknown key "Path" (keys are case-sensitive: "path")`},
 		{"edits key in wrong case", []string{"edit-blocks", "--path", a, "--edits",
 			`[{"Old_String":"alpha","new_string":"A"}]`}, `edit 1: unknown key "Old_String" (keys are case-sensitive: "old_string")`},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			stdout, _, code := runCLI(t, tc.args...)
+			// JSON, so the quotes around the key are not escaped as in TOON.
+			stdout, _, code := runCLI(t, append(tc.args, "--json")...)
 
 			if code != int(goaxi.ExitUsage) {
 				t.Errorf("exit = %d, want ExitUsage (%d): %q", code, goaxi.ExitUsage, stdout)
 			}
-			if !strings.Contains(stdout, tc.want) {
-				t.Errorf("stdout = %q, want %q", stdout, tc.want)
+			var doc struct{ Message string }
+			if err := json.Unmarshal([]byte(stdout), &doc); err != nil {
+				t.Fatalf("stdout is not JSON: %v: %q", err, stdout)
+			}
+			if !strings.Contains(doc.Message, tc.want) {
+				t.Errorf("message = %q, want %q", doc.Message, tc.want)
 			}
 			assertUntouched(t, a, "alpha\n")
 			if _, err := os.Stat(b); err == nil {

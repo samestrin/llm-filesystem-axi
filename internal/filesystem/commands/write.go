@@ -126,7 +126,13 @@ func writeMultipleFilesCmd() *cobra.Command {
 				OutputError(err)
 				return
 			}
-			OutputResult(result, func() string {
+			OutputResultAXI(result, nil, func() []string {
+				var details []string
+				for _, n := range result.FailedEntries {
+					details = append(details, fmt.Sprintf("entry %d (%s): %s", n, result.Files[n-1].Path, result.Files[n-1].Message))
+				}
+				return failedEntrySteps("files", "entry", "entries", result.FailedEntries, details)
+			}, func() string {
 				return fmt.Sprintf("Wrote %d files, %d failed", result.Success, result.Failed)
 			})
 
@@ -154,20 +160,20 @@ const filesExample = `[{"path":"a.txt","content":"text"}]`
 // legitimate request, but only when it is asked for by name. Decoding through
 // pointers is what tells the two apart.
 func decodeWriteEntries(raw string) ([]core.WriteFileEntry, error) {
-	var payload []struct {
+	payload, err := decodeEntries[struct {
 		Path    *string `json:"path"`
 		Content *string `json:"content"`
-	}
-	if err := decodePayload(raw, &payload); err != nil {
+	}](raw, "entry")
+	if err != nil {
 		return nil, err
 	}
 	entries := make([]core.WriteFileEntry, len(payload))
 	for i, p := range payload {
 		if p.Path == nil || *p.Path == "" {
-			return nil, fmt.Errorf("entry %d: path is required", i)
+			return nil, fmt.Errorf("entry %d: path is required", i+1)
 		}
 		if p.Content == nil {
-			return nil, fmt.Errorf("entry %d: content is required (use \"\" for an empty file)", i)
+			return nil, fmt.Errorf("entry %d: content is required (use \"\" for an empty file)", i+1)
 		}
 		entries[i] = core.WriteFileEntry{Path: *p.Path, Content: *p.Content}
 	}

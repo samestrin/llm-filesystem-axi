@@ -141,8 +141,21 @@ func readMultipleFilesCmd() *cobra.Command {
 			}
 
 			OutputResultAXI(result, nil, func() []string {
+				var steps []string
+				var failed, details []string
+				for _, f := range result.Files {
+					if f.Error != "" {
+						failed = append(failed, f.Path)
+						details = append(details, f.Path+": "+f.Error)
+					}
+				}
+				if len(failed) > 0 {
+					steps = append(steps,
+						fmt.Sprintf("Not read (%d): %s", len(failed), strings.Join(details, "; ")),
+						"Fix the cause, then read only those: llm-filesystem read-multiple-files --paths "+strings.Join(failed, ","))
+				}
 				if !result.Truncated {
-					return nil
+					return steps
 				}
 				// Name the files that did not fit, so the continuation is a
 				// concrete command rather than a puzzle.
@@ -152,12 +165,11 @@ func readMultipleFilesCmd() *cobra.Command {
 						pending = append(pending, f.Path)
 					}
 				}
-				steps := []string{"Whole files: add --full"}
 				if len(pending) > 0 {
-					steps = append([]string{"Re-request what did not fit: llm-filesystem read-multiple-files --paths " +
-						strings.Join(pending, ",")}, steps...)
+					steps = append(steps, "Re-request what did not fit: llm-filesystem read-multiple-files --paths "+
+						strings.Join(pending, ","))
 				}
-				return steps
+				return append(steps, "Whole files: add --full")
 			}, func() string {
 				var sb strings.Builder
 				sb.WriteString(fmt.Sprintf("Read %d files (%d success, %d failed)\n",

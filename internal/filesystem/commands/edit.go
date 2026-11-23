@@ -47,40 +47,72 @@ const (
 	multiEditsExample = `[{"old_text":"x","new_text":"y","mode":"replace"},{"mode":"insert_after","line_number":3,"new_text":"z"}]`
 )
 
-// decodeEditPairs decodes edit-blocks' --edits and requires old_string in
-// every edit. An edit with nothing to find is a malformed invocation (exit 2),
-// not an edit that was attempted and failed.
+// decodeEditPairs decodes edit-blocks' --edits and requires both keys in every
+// edit. An edit with nothing to find is a malformed invocation (exit 2), not an
+// edit that was attempted and failed. A missing new_string is refused rather
+// than read as "": it DELETED the matched text and exited 0 (axi.md review
+// round 2). An empty replacement is still allowed when given by name, as an
+// empty content is in write-multiple-files; the pointer tells the two apart.
 func decodeEditPairs(raw string) ([]core.EditPair, error) {
-	var edits []core.EditPair
-	if err := decodePayload(raw, &edits); err != nil {
+	wire, err := decodeEntries[struct {
+		OldString string  `json:"old_string"`
+		NewString *string `json:"new_string"`
+	}](raw, "edit")
+	if err != nil {
 		return nil, err
 	}
-	for i, e := range edits {
+	edits := make([]core.EditPair, len(wire))
+	for i, e := range wire {
 		if e.OldString == "" {
 			return nil, fmt.Errorf("edit %d: old_string is required", i+1)
 		}
+		if e.NewString == nil {
+			return nil, fmt.Errorf("edit %d: new_string is required (use \"\" to delete the old text)", i+1)
+		}
+		edits[i] = core.EditPair{OldString: e.OldString, NewString: *e.NewString}
 	}
 	return edits, nil
 }
 
 // decodeMultiEdits decodes edit-multiple-blocks' --edits and requires what each
 // mode needs. A line mode without line_number used to come back as status
-// invalid_line with exit 0 and the file unchanged.
+// invalid_line with exit 0 and the file unchanged; a replace or insert without
+// new_text replaced with or inserted "" and exited 0; an unknown mode was
+// attempted and failed with exit 1. All three are malformed invocations.
 func decodeMultiEdits(raw string) ([]core.MultiEditOperation, error) {
-	var edits []core.MultiEditOperation
-	if err := decodePayload(raw, &edits); err != nil {
+	wire, err := decodeEntries[struct {
+		OldText    string  `json:"old_text"`
+		NewText    *string `json:"new_text"`
+		LineNumber int     `json:"line_number"`
+		Mode       string  `json:"mode"`
+	}](raw, "edit")
+	if err != nil {
 		return nil, err
 	}
-	for i, e := range edits {
-		switch e.Mode {
-		case "", "replace":
+	edits := make([]core.MultiEditOperation, len(wire))
+	for i, e := range wire {
+		mode := e.Mode
+		if mode == "" {
+			mode = "replace"
+		}
+		switch mode {
+		case "replace":
 			if e.OldText == "" {
 				return nil, fmt.Errorf("edit %d: old_text is required for replace mode", i+1)
 			}
 		case "insert_before", "insert_after", "delete_line":
 			if e.LineNumber < 1 {
-				return nil, fmt.Errorf("edit %d: line_number (1-based) is required for %s mode", i+1, e.Mode)
+				return nil, fmt.Errorf("edit %d: line_number (1-based) is required for %s mode", i+1, mode)
 			}
+		default:
+			return nil, fmt.Errorf("edit %d: unknown mode %q (use replace, insert_before, insert_after or delete_line)", i+1, e.Mode)
+		}
+		if mode != "delete_line" && e.NewText == nil {
+			return nil, fmt.Errorf("edit %d: new_text is required for %s mode (use \"\" to replace or insert nothing)", i+1, mode)
+		}
+		edits[i] = core.MultiEditOperation{OldText: e.OldText, LineNumber: e.LineNumber, Mode: e.Mode}
+		if e.NewText != nil {
+			edits[i].NewText = *e.NewText
 		}
 	}
 	return edits, nil
