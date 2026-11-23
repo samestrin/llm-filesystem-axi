@@ -105,11 +105,12 @@ func findLargeFilesCmd() *cobra.Command {
 func compressFilesCmd() *cobra.Command {
 	var paths []string
 	var output, archiveFormat string
+	var confirm bool
 
 	cmd := &cobra.Command{
 		Use:   "compress-files",
 		Short: "Compress files into an archive",
-		Long:  "Creates a zip or tar.gz archive from files and directories",
+		Long:  "Creates a zip or tar.gz archive from files and directories. Every input must exist, or nothing is written. Replacing an existing --output requires --confirm.",
 		Run: func(cmd *cobra.Command, args []string) {
 			kind, err := resolveArchiveType(output, archiveFormat, formatFlag)
 			if err != nil {
@@ -122,6 +123,7 @@ func compressFilesCmd() *cobra.Command {
 				Output:      output,
 				Format:      kind,
 				AllowedDirs: GetAllowedDirs(),
+				Confirm:     confirm,
 			})
 			if err != nil {
 				OutputError(err)
@@ -161,6 +163,7 @@ func compressFilesCmd() *cobra.Command {
 	cmd.Flags().StringSliceVar(&paths, "paths", nil, "Paths to compress (required)")
 	cmd.Flags().StringVar(&output, "output", "", "Output archive path (required)")
 	cmd.Flags().StringVar(&archiveFormat, "archive-format", "", "Archive type: zip, tar.gz, tgz (default: from --output's extension)")
+	cmd.Flags().BoolVar(&confirm, "confirm", false, "Confirm replacing an existing --output")
 	cmd.MarkFlagRequired("paths")
 	cmd.MarkFlagRequired("output")
 
@@ -313,18 +316,19 @@ func extractArchiveCmd() *cobra.Command {
 
 func syncDirectoriesCmd() *cobra.Command {
 	var source, destination string
-	var dryRun bool
+	var dryRun, confirm bool
 
 	cmd := &cobra.Command{
 		Use:   "sync-directories",
 		Short: "Synchronize two directories",
-		Long:  "Synchronizes the contents of a source directory to a destination",
+		Long:  "Copies a source directory's contents into a destination. Replacing files that already exist in the destination requires --confirm; --dry-run previews without it.",
 		Run: func(cmd *cobra.Command, args []string) {
 			result, err := core.SyncDirectories(core.SyncDirectoriesOptions{
 				Source:      source,
 				Destination: destination,
 				AllowedDirs: GetAllowedDirs(),
 				DryRun:      dryRun,
+				Confirm:     confirm,
 			})
 			if err != nil {
 				OutputError(err)
@@ -373,6 +377,7 @@ func syncDirectoriesCmd() *cobra.Command {
 	cmd.Flags().StringVar(&source, "source", "", "Source directory (required)")
 	cmd.Flags().StringVar(&destination, "dest", "", "Destination directory (required)")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview changes without applying")
+	cmd.Flags().BoolVar(&confirm, "confirm", false, "Confirm replacing files that already exist in the destination")
 	cmd.MarkFlagRequired("source")
 	cmd.MarkFlagRequired("dest")
 

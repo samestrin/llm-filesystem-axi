@@ -153,10 +153,10 @@ type EditBlockOptions struct {
 // EditBlock replaces a single block of text in a file
 func EditBlock(opts EditBlockOptions) (*EditResult, error) {
 	if opts.Path == "" {
-		return nil, fmt.Errorf("path is required")
+		return nil, usageErrorf("path is required")
 	}
 	if opts.OldString == "" {
-		return nil, fmt.Errorf("old_string is required")
+		return nil, usageErrorf("old_string is required")
 	}
 
 	// Normalize and validate path
@@ -213,7 +213,7 @@ type EditPair struct {
 // EditBlocks applies multiple edits to a single file
 func EditBlocks(opts EditBlocksOptions) (*EditResult, error) {
 	if opts.Path == "" {
-		return nil, fmt.Errorf("path is required")
+		return nil, usageErrorf("path is required")
 	}
 
 	// Normalize and validate path
@@ -233,7 +233,7 @@ func EditBlocks(opts EditBlocksOptions) (*EditResult, error) {
 	}
 
 	if len(opts.Edits) == 0 {
-		return nil, fmt.Errorf("edits is required")
+		return nil, usageErrorf("edits is required")
 	}
 
 	contentStr := string(content)
@@ -312,10 +312,10 @@ type SafeEditOptions struct {
 // SafeEdit performs a safe edit with backup and dry-run support
 func SafeEdit(opts SafeEditOptions) (*EditResult, error) {
 	if opts.Path == "" {
-		return nil, fmt.Errorf("path is required")
+		return nil, usageErrorf("path is required")
 	}
 	if opts.OldString == "" {
-		return nil, fmt.Errorf("old_string is required")
+		return nil, usageErrorf("old_string is required")
 	}
 
 	// Normalize and validate path
@@ -408,10 +408,10 @@ type EditFileOptions struct {
 // EditFile performs line-based file editing
 func EditFile(opts EditFileOptions) (*EditResult, error) {
 	if opts.Path == "" {
-		return nil, fmt.Errorf("path is required")
+		return nil, usageErrorf("path is required")
 	}
 	if opts.Operation == "" {
-		return nil, fmt.Errorf("operation is required")
+		return nil, usageErrorf("operation is required")
 	}
 
 	// Normalize and validate path
@@ -456,7 +456,7 @@ func EditFile(opts EditFileOptions) (*EditResult, error) {
 		lines[opts.Line-1] = opts.Content
 
 	default:
-		return nil, fmt.Errorf("unknown operation: %s", opts.Operation)
+		return nil, usageErrorf("unknown operation %q (use insert, replace or delete)", opts.Operation)
 	}
 
 	newContent := strings.Join(lines, "\n")
@@ -497,10 +497,10 @@ type SearchReplaceResult struct {
 // SearchAndReplace performs search and replace across files
 func SearchAndReplace(opts SearchReplaceOptions) (*SearchReplaceResult, error) {
 	if opts.Path == "" {
-		return nil, fmt.Errorf("path is required")
+		return nil, usageErrorf("path is required")
 	}
 	if opts.Pattern == "" {
-		return nil, fmt.Errorf("pattern is required")
+		return nil, usageErrorf("pattern is required")
 	}
 
 	// Normalize and validate path
@@ -533,7 +533,15 @@ func SearchAndReplace(opts SearchReplaceOptions) (*SearchReplaceResult, error) {
 	totalChanges := 0
 
 	walkFn := func(filePath string, info os.FileInfo, err error) error {
-		if err != nil || info.IsDir() {
+		if err != nil {
+			return nil
+		}
+		// Repository metadata is not the caller's text: a replace across a
+		// checkout rewrote .git/config (EST-8264).
+		if info.IsDir() && info.Name() == ".git" && filePath != normalizedPath {
+			return filepath.SkipDir
+		}
+		if info.IsDir() {
 			return nil
 		}
 
@@ -674,7 +682,7 @@ type EditMultipleBlocksOptions struct {
 // Modes: replace (text matching), insert_before (line-based), insert_after (line-based), delete_line (line-based)
 func EditMultipleBlocks(opts EditMultipleBlocksOptions) (*MultiEditResult, error) {
 	if opts.Path == "" {
-		return nil, fmt.Errorf("path is required")
+		return nil, usageErrorf("path is required")
 	}
 
 	// Normalize and validate path
@@ -694,7 +702,7 @@ func EditMultipleBlocks(opts EditMultipleBlocksOptions) (*MultiEditResult, error
 	}
 
 	if len(opts.Edits) == 0 {
-		return nil, fmt.Errorf("edits is required")
+		return nil, usageErrorf("edits is required")
 	}
 
 	contentStr := string(content)

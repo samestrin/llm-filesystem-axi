@@ -33,10 +33,10 @@ type CopyFileOptions struct {
 // CopyFile copies a file or directory
 func CopyFile(opts CopyFileOptions) (*FileOpResult, error) {
 	if opts.Source == "" {
-		return nil, fmt.Errorf("source is required")
+		return nil, usageErrorf("source is required")
 	}
 	if opts.Destination == "" {
-		return nil, fmt.Errorf("destination is required")
+		return nil, usageErrorf("destination is required")
 	}
 
 	// Normalize and validate paths
@@ -61,6 +61,18 @@ func CopyFile(opts CopyFileOptions) (*FileOpResult, error) {
 	srcInfo, err := os.Stat(srcPath)
 	if err != nil {
 		return nil, fmt.Errorf("source does not exist: %w", err)
+	}
+	if err := CheckNotIntoItself(srcPath, dstPath); err != nil {
+		return nil, err
+	}
+
+	if srcInfo.IsDir() {
+		if err := checkTreeLinks(srcPath, opts.AllowedDirs); err != nil {
+			return nil, err
+		}
+		if err := checkTreeDest(srcPath, dstPath, opts.AllowedDirs); err != nil {
+			return nil, err
+		}
 	}
 
 	// Create destination directory if needed
@@ -180,10 +192,10 @@ type MoveFileOptions struct {
 // MoveFile moves or renames a file or directory
 func MoveFile(opts MoveFileOptions) (*FileOpResult, error) {
 	if opts.Source == "" {
-		return nil, fmt.Errorf("source is required")
+		return nil, usageErrorf("source is required")
 	}
 	if opts.Destination == "" {
-		return nil, fmt.Errorf("destination is required")
+		return nil, usageErrorf("destination is required")
 	}
 
 	// Normalize and validate paths
@@ -197,7 +209,8 @@ func MoveFile(opts MoveFileOptions) (*FileOpResult, error) {
 		return nil, fmt.Errorf("invalid destination path: %w", err)
 	}
 
-	if err := ValidatePath(srcPath, opts.AllowedDirs); err != nil {
+	// No-follow on the source: a rename moves a final link, not its target.
+	if err := ValidatePathNoFollow(srcPath, opts.AllowedDirs); err != nil {
 		return nil, err
 	}
 	if err := ValidatePath(dstPath, opts.AllowedDirs); err != nil {
@@ -208,6 +221,9 @@ func MoveFile(opts MoveFileOptions) (*FileOpResult, error) {
 	srcInfo, err := os.Stat(srcPath)
 	if err != nil {
 		return nil, fmt.Errorf("source does not exist: %w", err)
+	}
+	if err := CheckNotIntoItself(srcPath, dstPath); err != nil {
+		return nil, err
 	}
 
 	// Create destination directory if needed
@@ -250,7 +266,7 @@ type DeleteFileOptions struct {
 // DeleteFile deletes a file or directory
 func DeleteFile(opts DeleteFileOptions) (*FileOpResult, error) {
 	if opts.Path == "" {
-		return nil, fmt.Errorf("path is required")
+		return nil, usageErrorf("path is required")
 	}
 
 	// Normalize and validate path
@@ -259,7 +275,11 @@ func DeleteFile(opts DeleteFileOptions) (*FileOpResult, error) {
 		return nil, fmt.Errorf("invalid path: %w", err)
 	}
 
-	if err := ValidatePath(normalizedPath, opts.AllowedDirs); err != nil {
+	// No-follow: a delete removes a final link, not what it points to.
+	if err := ValidatePathNoFollow(normalizedPath, opts.AllowedDirs); err != nil {
+		return nil, err
+	}
+	if err := CheckDeletable(normalizedPath); err != nil {
 		return nil, err
 	}
 

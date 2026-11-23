@@ -354,14 +354,26 @@ func TestExtractArchiveCleanRunExitsZero(t *testing.T) {
 // compress-files --paths ok.txt,missing.txt printed files_added: 1,
 // success: true and exited 0. A partial run now says so in every format and
 // exits 1 (owner decision Q2), after printing the result.
+//
+// The missing file is a dangling link inside a directory input. A missing
+// top-level input is now refused before --output is touched (EST-8264, see
+// TestCompressChecksInputsAndGatesAnExistingOutput), so it no longer makes a
+// partial run; a file lost while walking a directory input still does.
 func TestCompressFilesReportsAPartialRun(t *testing.T) {
 	dir := t.TempDir()
 	ok := filepath.Join(dir, "ok.txt")
 	if err := os.WriteFile(ok, []byte("ok"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	missing := filepath.Join(dir, "missing.txt")
-	paths := ok + "," + missing
+	tree := filepath.Join(dir, "tree")
+	if err := os.Mkdir(tree, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	missing := filepath.Join(tree, "missing.txt")
+	if err := os.Symlink(filepath.Join(dir, "gone"), missing); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	paths := ok + "," + tree
 
 	t.Run("toon", func(t *testing.T) {
 		out, _, code := runCLI(t, "compress-files", "--paths", paths, "--output", filepath.Join(t.TempDir(), "o.zip"))
@@ -424,17 +436,25 @@ func TestCompressFilesReportsAPartialRun(t *testing.T) {
 }
 
 // failures[] is capped at maxPlannedPaths, so the help[] step must say how many
-// more were left out, or a run with 105 missing inputs reads as 100.
+// more were left out, or a run with 105 missing inputs reads as 100. They are
+// dangling links inside a directory input: a missing top-level input is now
+// refused before anything is written (EST-8264).
 func TestCompressFilesHelpCountsFailuresBeyondTheSample(t *testing.T) {
 	dir := t.TempDir()
 	ok := filepath.Join(dir, "ok.txt")
 	if err := os.WriteFile(ok, []byte("ok"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	paths := []string{ok}
-	for i := 0; i < 105; i++ {
-		paths = append(paths, filepath.Join(dir, fmt.Sprintf("missing%d.txt", i)))
+	tree := filepath.Join(dir, "tree")
+	if err := os.Mkdir(tree, 0o755); err != nil {
+		t.Fatal(err)
 	}
+	for i := 0; i < 105; i++ {
+		if err := os.Symlink(filepath.Join(dir, "gone"), filepath.Join(tree, fmt.Sprintf("missing%d.txt", i))); err != nil {
+			t.Skipf("symlinks unavailable: %v", err)
+		}
+	}
+	paths := []string{ok, tree}
 
 	out, _, code := runCLI(t, "--min", "compress-files", "--paths", strings.Join(paths, ","), "--output", filepath.Join(t.TempDir(), "o.zip"))
 
@@ -447,6 +467,7 @@ func TestCompressFilesHelpCountsFailuresBeyondTheSample(t *testing.T) {
 }
 
 // An existing --output is replaced and reported, and a clean run exits 0.
+// Replacing it takes --confirm since EST-8264.
 func TestCompressFilesReportsAnOverwriteAndExitsZero(t *testing.T) {
 	in := filepath.Join(t.TempDir(), "a.txt")
 	if err := os.WriteFile(in, []byte("a"), 0o644); err != nil {
@@ -457,7 +478,7 @@ func TestCompressFilesReportsAnOverwriteAndExitsZero(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	out, _, code := runCLI(t, "compress-files", "--paths", in, "--output", output)
+	out, _, code := runCLI(t, "compress-files", "--paths", in, "--output", output, "--confirm")
 
 	if code != -1 && code != 0 {
 		t.Errorf("a clean run exited %d:\n%s", code, out)
@@ -471,7 +492,7 @@ func TestCompressFilesReportsAnOverwriteAndExitsZero(t *testing.T) {
 		t.Errorf("the output still holds the old content")
 	}
 
-	out, _, _ = runCLI(t, "--min", "compress-files", "--paths", in, "--output", output)
+	out, _, _ = runCLI(t, "--min", "compress-files", "--paths", in, "--output", output, "--confirm")
 	if !strings.Contains(out, "(zip format, replaced the existing file)") || !strings.Contains(out, "1 files added, 0 failed") {
 		t.Errorf("text output does not report the overwrite:\n%s", out)
 	}
@@ -491,7 +512,8 @@ func TestCompressFilesExitsOneWhenTheArchiveCannotBeFinished(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	out, _, code := runCLI(t, "compress-files", "--paths", in, "--output", "/dev/full", "--archive-format", "zip")
+	// --confirm: /dev/full exists, and replacing an existing --output is gated.
+	out, _, code := runCLI(t, "compress-files", "--paths", in, "--output", "/dev/full", "--archive-format", "zip", "--confirm")
 
 	if code != 1 {
 		t.Errorf("an unfinished archive exited %d, want 1:\n%s", code, out)
@@ -623,6 +645,7 @@ func TestSyncDirectoriesExitsOneOnAPartialRun(t *testing.T) {
 		}
 		// A directory where the destination file belongs makes that one copy
 		// fail, so the run is partial without needing permissions withheld.
+		// It also exists, so the run needs --confirm (EST-8264).
 		if err := os.Mkdir(filepath.Join(dst, "b.txt"), 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -632,7 +655,7 @@ func TestSyncDirectoriesExitsOneOnAPartialRun(t *testing.T) {
 	t.Run("toon", func(t *testing.T) {
 		src, dst := build(t)
 
-		out, _, code := runCLI(t, "sync-directories", "--source", src, "--dest", dst)
+		out, _, code := runCLI(t, "sync-directories", "--source", src, "--dest", dst, "--confirm")
 
 		if code != 1 {
 			t.Errorf("a partial run exited %d, want 1:\n%s", code, out)
@@ -652,7 +675,7 @@ func TestSyncDirectoriesExitsOneOnAPartialRun(t *testing.T) {
 	t.Run("text names the failure", func(t *testing.T) {
 		src, dst := build(t)
 
-		out, _, code := runCLI(t, "--format", "text", "sync-directories", "--source", src, "--dest", dst)
+		out, _, code := runCLI(t, "--format", "text", "sync-directories", "--source", src, "--dest", dst, "--confirm")
 
 		if code != 1 {
 			t.Errorf("a partial run exited %d, want 1:\n%s", code, out)

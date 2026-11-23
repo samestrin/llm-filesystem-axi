@@ -168,9 +168,20 @@ func decodeWriteEntries(raw string) ([]core.WriteFileEntry, error) {
 		return nil, err
 	}
 	entries := make([]core.WriteFileEntry, len(payload))
+	seen := make(map[string]int, len(payload))
 	for i, p := range payload {
 		if p.Path == nil || *p.Path == "" {
 			return nil, fmt.Errorf("entry %d: path is required", i+1)
+		}
+		if core.EndsInSeparator(*p.Path) {
+			return nil, fmt.Errorf("entry %d: path %q ends in a separator; name a file", i+1, *p.Path)
+		}
+		// Two entries for one file silently kept the last (EST-8264).
+		if norm, err := core.NormalizePath(*p.Path); err == nil {
+			if first, dup := seen[norm]; dup {
+				return nil, fmt.Errorf("entry %d: path %s is also entry %d", i+1, norm, first)
+			}
+			seen[norm] = i + 1
 		}
 		if p.Content == nil {
 			return nil, fmt.Errorf("entry %d: content is required (use \"\" for an empty file)", i+1)

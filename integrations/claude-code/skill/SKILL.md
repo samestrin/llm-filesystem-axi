@@ -141,8 +141,10 @@ everything, which on a large file means holding a multiple of it in memory.
 ## Safety
 
 `delete-file` requires `--confirm`, and so do `move-file` and `copy-file`
-when the destination already exists, and any `batch-file-operations`
-entry that destroys something. Without it nothing is touched and the command
+when the destination already exists, `compress-files` when `--output`
+already exists, `sync-directories` when it would replace a file in the
+destination, and any `batch-file-operations` entry that destroys
+something. Without it nothing is touched and the command
 exits `2` — which always means nothing happened, so fix the command rather than
 retrying it. A move or copy to a new path needs no confirmation, and
 `write-file` keeps replacing without it.

@@ -120,6 +120,12 @@ func decodeMultiEdits(raw string) ([]core.MultiEditOperation, error) {
 
 const replaceAllUsage = "Replace every occurrence of the old text (default: refuse unless it matches exactly once)"
 
+// newUsage is the --new help for edit-block and safe-edit. --new is required:
+// left out, it read as "" and the edit DELETED the match with exit 0, as a
+// missing new_string did in edit-blocks (EST-8264). --new "" still deletes,
+// because it is asked for by name.
+const newUsage = `Replacement text (required; --new "" deletes the match)`
+
 func editBlockCmd() *cobra.Command {
 	var path, oldString, newString string
 	var replaceAll bool
@@ -148,10 +154,11 @@ func editBlockCmd() *cobra.Command {
 
 	cmd.Flags().StringVar(&path, "path", "", "File path (required)")
 	cmd.Flags().StringVar(&oldString, "old", "", "Text to find and replace (required)")
-	cmd.Flags().StringVar(&newString, "new", "", "Replacement text")
+	cmd.Flags().StringVar(&newString, "new", "", newUsage)
 	cmd.Flags().BoolVar(&replaceAll, "replace-all", false, replaceAllUsage)
 	cmd.MarkFlagRequired("path")
 	cmd.MarkFlagRequired("old")
+	cmd.MarkFlagRequired("new")
 
 	return cmd
 }
@@ -279,12 +286,13 @@ func safeEditCmd() *cobra.Command {
 
 	cmd.Flags().StringVar(&path, "path", "", "File path (required)")
 	cmd.Flags().StringVar(&oldString, "old", "", "Text to find and replace (required)")
-	cmd.Flags().StringVar(&newString, "new", "", "Replacement text")
+	cmd.Flags().StringVar(&newString, "new", "", newUsage)
 	cmd.Flags().BoolVar(&backup, "backup", true, "Create backup before editing")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview changes without applying")
 	cmd.Flags().BoolVar(&replaceAll, "replace-all", false, replaceAllUsage)
 	cmd.MarkFlagRequired("path")
 	cmd.MarkFlagRequired("old")
+	cmd.MarkFlagRequired("new")
 
 	return cmd
 }
@@ -298,6 +306,15 @@ func editFileCmd() *cobra.Command {
 		Short: "Line-based file editing",
 		Long:  "Performs line-based operations: insert, replace, or delete",
 		Run: func(cmd *cobra.Command, args []string) {
+			// As --new for edit-block: a missing --content read as "" and
+			// blanked the line or inserted an empty one, exit 0 (EST-8264).
+			if (operation == "insert" || operation == "replace") && !cmd.Flags().Changed("content") {
+				emitDiagnostic(activeFmt, activeCompact,
+					fmt.Errorf("edit-file --operation %s requires --content", operation),
+					goaxi.ExitUsage,
+					[]string{`Pass the text: --content "..." (--content "" for an empty line)`})
+				return
+			}
 			result, err := core.EditFile(core.EditFileOptions{
 				Path:        path,
 				Operation:   operation,
@@ -318,7 +335,7 @@ func editFileCmd() *cobra.Command {
 	cmd.Flags().StringVar(&path, "path", "", "File path (required)")
 	cmd.Flags().StringVar(&operation, "operation", "", "Operation: insert, replace, delete (required)")
 	cmd.Flags().IntVar(&line, "line", 0, "Line number to operate on (required)")
-	cmd.Flags().StringVar(&content, "content", "", "Content for insert/replace operations")
+	cmd.Flags().StringVar(&content, "content", "", "Content for insert/replace operations (required for both)")
 	cmd.MarkFlagRequired("path")
 	cmd.MarkFlagRequired("operation")
 	cmd.MarkFlagRequired("line")

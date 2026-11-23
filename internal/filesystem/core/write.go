@@ -31,7 +31,10 @@ type WriteFileResult struct {
 // WriteFile writes content to a file
 func WriteFile(opts WriteFileOptions) (*WriteFileResult, error) {
 	if opts.Path == "" {
-		return nil, fmt.Errorf("path is required")
+		return nil, usageErrorf("path is required")
+	}
+	if EndsInSeparator(opts.Path) {
+		return nil, usageErrorf("path %q ends in a separator, which names a directory; name a file", opts.Path)
 	}
 
 	// Normalize and validate path
@@ -83,6 +86,13 @@ func WriteFile(opts WriteFileOptions) (*WriteFileResult, error) {
 	}, nil
 }
 
+// EndsInSeparator reports whether a path ends in a separator. Such a path
+// names a directory, but cleaning drops the separator, so a write to "newd/"
+// created a FILE named newd (EST-8264).
+func EndsInSeparator(path string) bool {
+	return len(path) > 1 && os.IsPathSeparator(path[len(path)-1])
+}
+
 // WriteFileEntry represents a single file to write in a batch operation
 type WriteFileEntry struct {
 	Path    string `json:"path"`
@@ -110,7 +120,7 @@ type WriteMultipleFilesResult struct {
 // WriteMultipleFiles writes multiple files sequentially with auto-mkdir
 func WriteMultipleFiles(opts WriteMultipleFilesOptions) (*WriteMultipleFilesResult, error) {
 	if len(opts.Files) == 0 {
-		return nil, fmt.Errorf("files is required")
+		return nil, usageErrorf("files is required")
 	}
 
 	results := make([]WriteFileResult, len(opts.Files))
@@ -161,7 +171,10 @@ type LargeWriteFileOptions struct {
 // LargeWriteFile writes large files with backup and verification
 func LargeWriteFile(opts LargeWriteFileOptions) (*WriteFileResult, error) {
 	if opts.Path == "" {
-		return nil, fmt.Errorf("path is required")
+		return nil, usageErrorf("path is required")
+	}
+	if EndsInSeparator(opts.Path) {
+		return nil, usageErrorf("path %q ends in a separator, which names a directory; name a file", opts.Path)
 	}
 
 	// Normalize and validate path
@@ -280,7 +293,7 @@ type GetFileInfoResult struct {
 // GetFileInfo gets detailed information about a file or directory
 func GetFileInfo(opts GetFileInfoOptions) (*GetFileInfoResult, error) {
 	if opts.Path == "" {
-		return nil, fmt.Errorf("path is required")
+		return nil, usageErrorf("path is required")
 	}
 
 	normalizedPath, err := NormalizePath(opts.Path)
@@ -325,7 +338,7 @@ type CreateDirectoryResult struct {
 // CreateDirectory creates a directory
 func CreateDirectory(opts CreateDirectoryOptions) (*CreateDirectoryResult, error) {
 	if opts.Path == "" {
-		return nil, fmt.Errorf("path is required")
+		return nil, usageErrorf("path is required")
 	}
 
 	// Check for unresolved template variables before normalizing

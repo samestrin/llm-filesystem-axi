@@ -55,7 +55,7 @@ type ListDirectoryResult struct {
 // ListDirectory lists directory contents
 func ListDirectory(opts ListDirectoryOptions) (*ListDirectoryResult, error) {
 	if opts.Path == "" {
-		return nil, fmt.Errorf("path is required")
+		return nil, usageErrorf("path is required")
 	}
 
 	// Normalize and validate path
@@ -235,7 +235,7 @@ type GetDirectoryTreeResult struct {
 // GetDirectoryTree gets the directory tree structure
 func GetDirectoryTree(opts GetDirectoryTreeOptions) (*GetDirectoryTreeResult, error) {
 	if opts.Path == "" {
-		return nil, fmt.Errorf("path is required")
+		return nil, usageErrorf("path is required")
 	}
 
 	// Normalize and validate path

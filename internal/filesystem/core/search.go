@@ -44,10 +44,10 @@ type SearchFilesResult struct {
 // SearchFiles searches for files by name pattern
 func SearchFiles(opts SearchFilesOptions) (*SearchFilesResult, error) {
 	if opts.Path == "" {
-		return nil, fmt.Errorf("path is required")
+		return nil, usageErrorf("path is required")
 	}
 	if opts.Pattern == "" {
-		return nil, fmt.Errorf("pattern is required")
+		return nil, usageErrorf("pattern is required")
 	}
 
 	// Normalize and validate path
@@ -178,10 +178,10 @@ type SearchCodeResult struct {
 // SearchCode searches for patterns in file contents
 func SearchCode(opts SearchCodeOptions) (*SearchCodeResult, error) {
 	if opts.Path == "" {
-		return nil, fmt.Errorf("path is required")
+		return nil, usageErrorf("path is required")
 	}
 	if opts.Pattern == "" {
-		return nil, fmt.Errorf("pattern is required")
+		return nil, usageErrorf("pattern is required")
 	}
 
 	// Normalize and validate path
