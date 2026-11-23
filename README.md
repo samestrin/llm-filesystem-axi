@@ -205,7 +205,7 @@ llm-filesystem sync-directories --source src --dest backup --dry-run
 llm-filesystem setup --dry-run
 ```
 
-To restrict every command to specific directories, pass `--allowed-dirs`, for example `--allowed-dirs /Users/me/projects,/tmp`. A path outside them fails with exit `1`. Symlinks are resolved first, in the path and in each allowed directory, so a link inside an allowed directory that points outside it counts as outside, and so does a directory being copied, synced or archived that holds such a link.
+To restrict every command to specific directories, pass `--allowed-dirs`, for example `--allowed-dirs /Users/me/projects,/tmp`. A path outside them fails with exit `1`. Symlinks are resolved first, in the path and in each allowed directory, so a link inside an allowed directory that points outside it counts as outside, and so does a directory being copied, synced or archived that holds such a link, or a destination tree that does.
 
 ### MCP server
 

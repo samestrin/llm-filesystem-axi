@@ -70,6 +70,9 @@ func CopyFile(opts CopyFileOptions) (*FileOpResult, error) {
 		if err := checkTreeLinks(srcPath, opts.AllowedDirs); err != nil {
 			return nil, err
 		}
+		if err := checkTreeDest(srcPath, dstPath, opts.AllowedDirs); err != nil {
+			return nil, err
+		}
 	}
 
 	// Create destination directory if needed

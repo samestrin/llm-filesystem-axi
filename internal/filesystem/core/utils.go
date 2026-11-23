@@ -266,6 +266,31 @@ func checkTreeLinks(root string, allowedDirs []string) error {
 	})
 }
 
+// checkTreeDest refuses a tree copy or sync whose writes would land outside
+// the allowed dirs. The destination root passing the check is not enough: a
+// link already inside the destination (dest/sub -> /outside) is followed by
+// MkdirAll and the copy, so every path the walk would write is resolved and
+// checked before anything is written (review of PR #87).
+func checkTreeDest(src, dst string, allowedDirs []string) error {
+	if len(allowedDirs) == 0 {
+		return nil
+	}
+	return filepath.Walk(src, func(p string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil
+		}
+		rel, err := filepath.Rel(src, p)
+		if err != nil {
+			return nil
+		}
+		target := filepath.Join(dst, rel)
+		if ValidatePath(target, allowedDirs) != nil {
+			return fmt.Errorf("%s leads outside the allowed directories", target)
+		}
+		return nil
+	})
+}
+
 // IsWithin reports whether path is dir or below it. Both must be clean and
 // absolute; nothing is resolved here.
 func IsWithin(path, dir string) bool {

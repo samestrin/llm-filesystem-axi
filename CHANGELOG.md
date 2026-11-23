@@ -17,8 +17,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   wrote or deleted outside `A` with exit `0`, and a linked source copied
   outside data in. The path (its deepest existing parent, and a final or
   dangling link) and each allowed directory are now resolved before
-  comparing, and a directory being copied, synced or archived may not hold a
-  link that leads outside. Removing or renaming a link itself is still
+  comparing. A directory being copied, synced or archived may not hold a
+  link that leads outside, and a tree copy or sync may not write through a
+  link already in the destination that leads outside. Removing or renaming a link itself is still
   allowed.
 - **A directory cannot be copied into itself.** `copy-file --source d --dest
   d/sub/inner` (and the batch form) recursed until the path was too long,

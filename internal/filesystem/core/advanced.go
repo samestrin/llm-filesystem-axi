@@ -939,6 +939,9 @@ func SyncDirectories(opts SyncDirectoriesOptions) (*SyncResult, error) {
 	if err := checkTreeLinks(normalizedSrc, opts.AllowedDirs); err != nil {
 		return nil, err
 	}
+	if err := checkTreeDest(normalizedSrc, normalizedDst, opts.AllowedDirs); err != nil {
+		return nil, err
+	}
 	if err := CheckNotIntoItself(normalizedSrc, normalizedDst); err != nil {
 		return nil, err
 	}
