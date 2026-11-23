@@ -50,6 +50,10 @@ func TestWriteMultipleFilesRejectsMalformedEntries(t *testing.T) {
 		"missing content": func(p string) string { return `[{"path":"` + p + `"}]` },
 		"missing path":    func(p string) string { return `[{"content":"x"}]` },
 		"not json":        func(p string) string { return `nope` },
+		// Only strict decoding refuses these two: every required key is
+		// present and valid, so the per-field checks pass them through.
+		"extra unknown key": func(p string) string { return `[{"path":"` + p + `","content":"ok","text":"x"}]` },
+		"trailing data":     func(p string) string { return `[{"path":"` + p + `","content":"ok"}] {}` },
 	}
 	for name, payload := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -62,6 +66,10 @@ func TestWriteMultipleFilesRejectsMalformedEntries(t *testing.T) {
 			}
 			if !strings.Contains(stdout, "error: true") {
 				t.Errorf("stdout = %q, want a structured error", stdout)
+			}
+			// The payload refusal, not some later check, must be what stopped it.
+			if !strings.Contains(stdout, "invalid --files JSON") {
+				t.Errorf("stdout = %q, want the payload refusal", stdout)
 			}
 			assertUntouched(t, keep, precious)
 		})
@@ -93,6 +101,9 @@ func TestMalformedEditsPayloadIsAUsageError(t *testing.T) {
 		{"edit-blocks not json", "edit-blocks", `[{`},
 		{"edit-blocks missing old_string", "edit-blocks", `[{"new_string":"x"}]`},
 		{"edit-blocks unknown key", "edit-blocks", `[{"old":"alpha","new":"x"}]`},
+		// Valid required keys plus one unknown: only strict decoding refuses it.
+		{"edit-blocks extra unknown key", "edit-blocks", `[{"old_string":"alpha","new_string":"x","note":"y"}]`},
+		{"edit-multiple-blocks extra unknown key", "edit-multiple-blocks", `[{"old_text":"alpha","new_text":"x","note":"y"}]`},
 		{"edit-multiple-blocks not json", "edit-multiple-blocks", `{`},
 		{"edit-multiple-blocks unknown key", "edit-multiple-blocks", `[{"old":"alpha","new_text":"x"}]`},
 		{"edit-multiple-blocks replace without old_text", "edit-multiple-blocks", `[{"new_text":"x"}]`},
@@ -121,22 +132,38 @@ func TestMalformedEditsPayloadIsAUsageError(t *testing.T) {
 
 // A batch entry keyed "dest" instead of "destination" decoded to an empty
 // destination. Reject it up front as malformed rather than attempting it.
+//
+// Each case carries a valid destination outside the working directory, and the
+// diagnostic must be the payload refusal. An earlier version used only "dest",
+// left destination empty, and passed because the empty path resolved to the
+// working directory and the overwrite gate refused it instead (review of PR
+// #85): deleting DisallowUnknownFields left it green.
 func TestBatchRejectsUnknownOperationKeys(t *testing.T) {
-	dir := t.TempDir()
-	src := filepath.Join(dir, "src.txt")
-	if err := os.WriteFile(src, []byte("x"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	dst := filepath.Join(dir, "dst.txt")
+	for name, extra := range map[string]string{
+		"misspelled key": `"dest":"elsewhere"`,
+		"unknown key":    `"foo":1`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			src := filepath.Join(dir, "src.txt")
+			if err := os.WriteFile(src, []byte("x"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			dst := filepath.Join(dir, "dst.txt")
 
-	stdout, _, code := runCLI(t, "batch-file-operations", "--operations",
-		`[{"operation":"copy","source":"`+src+`","dest":"`+dst+`"}]`)
+			stdout, _, code := runCLI(t, "batch-file-operations", "--operations",
+				`[{"operation":"copy","source":"`+src+`","destination":"`+dst+`",`+extra+`}]`)
 
-	if code != int(goaxi.ExitUsage) {
-		t.Errorf("exit = %d, want ExitUsage (%d): %q", code, goaxi.ExitUsage, stdout)
-	}
-	if _, err := os.Stat(dst); err == nil {
-		t.Error("a malformed operation ran")
+			if code != int(goaxi.ExitUsage) {
+				t.Errorf("exit = %d, want ExitUsage (%d): %q", code, goaxi.ExitUsage, stdout)
+			}
+			if !strings.Contains(stdout, "invalid operations JSON") || !strings.Contains(stdout, "unknown field") {
+				t.Errorf("stdout = %q, want the payload refusal naming the unknown field", stdout)
+			}
+			if _, err := os.Stat(dst); err == nil {
+				t.Error("a malformed operation ran")
+			}
+		})
 	}
 }
 
