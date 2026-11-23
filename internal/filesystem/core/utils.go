@@ -165,7 +165,12 @@ func withinAllowed(resolved string, allowedDirs []string) bool {
 // UsageError is a refusal of the request as made: nothing was attempted, so
 // the CLI exits 2 ("fix the invocation") rather than 1 ("the tool tried and
 // failed"), which invites retrying the same command.
-type UsageError struct{ msg string }
+//
+// Hint, when set, is the command that fixes the invocation.
+type UsageError struct {
+	msg  string
+	Hint string
+}
 
 func (e *UsageError) Error() string { return e.msg }
 

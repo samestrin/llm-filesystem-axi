@@ -818,6 +818,9 @@ func compress(t *testing.T, format, output string, paths ...string) *CompressRes
 
 // compress-files --paths ok.txt,missing.txt printed files_added: 1 and
 // success: true. The missing input was skipped at os.Stat and nothing said so.
+// Since EST-8264 a missing top-level input is refused before --output is
+// touched, because the create truncated an existing archive first; the error
+// names the input, and nothing is written.
 func TestCompressFilesReportsAMissingInput(t *testing.T) {
 	for _, format := range compressFormats {
 		t.Run(format, func(t *testing.T) {
@@ -827,14 +830,14 @@ func TestCompressFilesReportsAMissingInput(t *testing.T) {
 				t.Fatal(err)
 			}
 			missing := filepath.Join(dir, "missing.txt")
+			out := filepath.Join(t.TempDir(), "out."+format)
 
-			res := compress(t, format, filepath.Join(t.TempDir(), "out."+format), ok, missing)
-
-			if res.FilesAdded != 1 || res.Failed != 1 || res.Success {
-				t.Errorf("want files_added 1, failed 1, success false; got %+v", res)
+			res, err := CompressFiles(CompressFilesOptions{Paths: []string{ok, missing}, Output: out, Format: format})
+			if err == nil || !strings.Contains(err.Error(), missing) {
+				t.Errorf("want an error naming %s; got %v, %+v", missing, err, res)
 			}
-			if len(res.Failures) != 1 || !strings.HasPrefix(res.Failures[0], missing+": ") {
-				t.Errorf("failures = %q, want the missing path and a reason", res.Failures)
+			if _, statErr := os.Lstat(out); statErr == nil {
+				t.Errorf("an archive was written despite the missing input")
 			}
 		})
 	}
@@ -884,8 +887,9 @@ func TestCompressFilesReportsWalkAndAddErrors(t *testing.T) {
 	}
 }
 
-// os.Create truncated an existing --output without a word. It is still
-// replaced (owner decision Q5: report, not refuse), but the result says so.
+// os.Create truncated an existing --output without a word. The result says so
+// (owner decision Q5). Since EST-8264 replacing it also takes Confirm; without
+// it the run is refused and the old output kept.
 func TestCompressFilesReportsAnOverwrittenOutput(t *testing.T) {
 	for _, format := range compressFormats {
 		t.Run(format, func(t *testing.T) {
@@ -898,7 +902,14 @@ func TestCompressFilesReportsAnOverwrittenOutput(t *testing.T) {
 			if res := compress(t, format, out, in); res.Overwritten {
 				t.Errorf("overwritten = true for an output that did not exist")
 			}
-			res := compress(t, format, out, in)
+			var usage *UsageError
+			if _, err := CompressFiles(CompressFilesOptions{Paths: []string{in}, Output: out, Format: format}); !errors.As(err, &usage) {
+				t.Errorf("replacing an existing output without Confirm: want a usage error, got %v", err)
+			}
+			res, err := CompressFiles(CompressFilesOptions{Paths: []string{in}, Output: out, Format: format, Confirm: true})
+			if err != nil {
+				t.Fatal(err)
+			}
 			if !res.Overwritten || !res.Success || res.Failed != 0 {
 				t.Errorf("want overwritten true, success true, failed 0; got %+v", res)
 			}
@@ -958,14 +969,18 @@ func TestCompressFilesFailsWhenTheArchiveCannotBeFinished(t *testing.T) {
 }
 
 // failures[] is bounded like extract's, and failed stays the true count.
+//
+// The failures are dangling links inside a directory input: a missing
+// top-level input is refused before anything is written (EST-8264).
 func TestCompressFilesBoundsFailures(t *testing.T) {
 	dir := t.TempDir()
-	var paths []string
 	for i := 0; i < maxPlannedPaths+5; i++ {
-		paths = append(paths, filepath.Join(dir, fmt.Sprintf("missing%d.txt", i)))
+		if err := os.Symlink(filepath.Join(dir, "gone"), filepath.Join(dir, fmt.Sprintf("missing%d.txt", i))); err != nil {
+			t.Skipf("symlinks unavailable: %v", err)
+		}
 	}
 
-	res := compress(t, "zip", filepath.Join(t.TempDir(), "out.zip"), paths...)
+	res := compress(t, "zip", filepath.Join(t.TempDir(), "out.zip"), dir)
 
 	if res.Failed != maxPlannedPaths+5 || len(res.Failures) != maxPlannedPaths || res.Success {
 		t.Errorf("want failed %d, %d failures, success false; got failed %d, %d failures, success %v",
@@ -1067,10 +1082,13 @@ func TestSyncDirectoriesCountsEveryFailurePastTheSampleCap(t *testing.T) {
 		}
 	}
 
+	// Confirm: every destination name exists, which the gate refuses
+	// without it (EST-8264).
 	res, err := SyncDirectories(SyncDirectoriesOptions{
 		Source:      src,
 		Destination: dst,
 		AllowedDirs: []string{src, dst},
+		Confirm:     true,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -1441,7 +1459,8 @@ func TestCompressFilesLeavesANonRegularOutputInPlace(t *testing.T) {
 			t.Skip("symlinks unavailable on this filesystem")
 		}
 
-		if res, err := CompressFiles(CompressFilesOptions{Paths: []string{in}, Output: link, Format: "zip"}); err == nil {
+		// Confirm, so the run reaches the write rather than the gate.
+		if res, err := CompressFiles(CompressFilesOptions{Paths: []string{in}, Output: link, Format: "zip", Confirm: true}); err == nil {
 			t.Fatalf("an archive that could not be finished returned no error: %+v", res)
 		}
 
@@ -1460,7 +1479,7 @@ func TestCompressFilesLeavesANonRegularOutputInPlace(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		if res, err := CompressFiles(CompressFilesOptions{Paths: []string{in}, Output: out, Format: "zip"}); err == nil {
+		if res, err := CompressFiles(CompressFilesOptions{Paths: []string{in}, Output: out, Format: "zip", Confirm: true}); err == nil {
 			t.Fatalf("an archive that could not be finished returned no error: %+v", res)
 		}
 

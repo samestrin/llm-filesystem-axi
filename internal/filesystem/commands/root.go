@@ -490,7 +490,11 @@ func emitDiagnostic(f Format, compact bool, err error, code goaxi.ExitCode, step
 func OutputError(err error) {
 	var usage *core.UsageError
 	if errors.As(err, &usage) {
-		emitDiagnostic(activeFmt, activeCompact, err, goaxi.ExitUsage, toolFailureSteps(err))
+		steps := toolFailureSteps(err)
+		if usage.Hint != "" {
+			steps = []string{usage.Hint}
+		}
+		emitDiagnostic(activeFmt, activeCompact, err, goaxi.ExitUsage, steps)
 		return
 	}
 	emitDiagnostic(activeFmt, activeCompact, err, goaxi.ExitError, toolFailureSteps(err))

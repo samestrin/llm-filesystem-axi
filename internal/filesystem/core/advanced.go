@@ -160,6 +160,8 @@ type CompressFilesOptions struct {
 	Output      string
 	Format      string
 	AllowedDirs []string
+	// Confirm allows replacing an existing Output.
+	Confirm bool
 }
 
 // CompressResult represents compression result.
@@ -218,6 +220,25 @@ func CompressFiles(opts CompressFilesOptions) (*CompressResult, error) {
 		paths[i] = normalized
 	}
 
+	// Every input is checked before --output is touched. The create below
+	// truncates it, so an existing archive plus one missing input was replaced
+	// by a partial one (EST-8264). A missing input inside a directory input
+	// is still a reported failure of a partial run.
+	var missing []string
+	var firstMissing error
+	for _, p := range paths {
+		if _, err := os.Stat(p); err != nil {
+			missing = append(missing, err.Error())
+			if firstMissing == nil {
+				firstMissing = err
+			}
+		}
+	}
+	if len(missing) > 0 {
+		return nil, fmt.Errorf("%d of %d inputs cannot be read, so nothing was written (%s): %w",
+			len(missing), len(paths), strings.Join(missing, "; "), firstMissing)
+	}
+
 	// The create below truncates --output before any input is read, so an
 	// output that is also an input destroys it and reports success.
 	outInfo, outStatErr := os.Stat(normalizedOutput)
@@ -247,6 +268,12 @@ func CompressFiles(opts CompressFilesOptions) (*CompressResult, error) {
 	// names a device or a symlink is not ours to delete.
 	prior, statErr := os.Lstat(normalizedOutput)
 	overwritten := statErr == nil
+	if overwritten && !opts.Confirm {
+		return nil, &UsageError{
+			msg:  fmt.Sprintf("--output %s already exists; replacing it requires --confirm", normalizedOutput),
+			Hint: "Replace it: re-run the same command with --confirm (over MCP, pass confirm: true)",
+		}
+	}
 	removable := !overwritten || prior.Mode().IsRegular()
 
 	file, err := createArchiveFile(normalizedOutput)
@@ -845,6 +872,8 @@ type SyncDirectoriesOptions struct {
 	Destination string
 	AllowedDirs []string
 	DryRun      bool
+	// Confirm allows replacing files that already exist in Destination.
+	Confirm bool
 }
 
 // maxPlannedPaths bounds the preview. A sync of 50,000 files must not answer
@@ -912,6 +941,15 @@ func SyncDirectories(opts SyncDirectoriesOptions) (*SyncResult, error) {
 	}
 	if err := CheckNotIntoItself(normalizedSrc, normalizedDst); err != nil {
 		return nil, err
+	}
+	if !opts.DryRun && !opts.Confirm {
+		if n, sample := syncReplacements(normalizedSrc, normalizedDst); n > 0 {
+			return nil, &UsageError{
+				msg: fmt.Sprintf("sync would replace %d existing file(s) in the destination (%s), which requires --confirm",
+					n, strings.Join(sample, ", ")),
+				Hint: "Preview it with --dry-run, or replace them: re-run the same command with --confirm (over MCP, pass confirm: true)",
+			}
+		}
 	}
 
 	var filesCopied, dirsCreated int
@@ -1005,6 +1043,31 @@ func SyncDirectories(opts SyncDirectoriesOptions) (*SyncResult, error) {
 		DryRun:      opts.DryRun,
 		Planned:     planned,
 	}, nil
+}
+
+// syncReplacements counts the source files whose destination already exists,
+// with a sample of their relative paths. A sync replaced them, a newer file
+// with older content included, with no --confirm (EST-8264).
+func syncReplacements(src, dst string) (int, []string) {
+	n := 0
+	var sample []string
+	_ = filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() {
+			return nil
+		}
+		rel, err := filepath.Rel(src, path)
+		if err != nil {
+			return nil
+		}
+		if _, err := os.Lstat(filepath.Join(dst, rel)); err == nil {
+			n++
+			if len(sample) < 5 {
+				sample = append(sample, rel)
+			}
+		}
+		return nil
+	})
+	return n, sample
 }
 
 // ListAllowedDirectoriesResult represents the allowed directories
