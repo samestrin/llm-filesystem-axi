@@ -224,3 +224,46 @@ func TestReleaseWorkflowVerifyBuildsBeforeTesting(t *testing.T) {
 		t.Error("make build must come before go test in the verify step")
 	}
 }
+
+// axi.md review round 1, item 6: the catalog entry and the README say the
+// release binaries are static, but the CLI imports net and os/user, so with
+// cgo available the linux-amd64 assets were dynamically linked. Every
+// shipping build must set CGO_ENABLED=0, and the release check must prove the
+// linux-amd64 pair came out static rather than trust the flag.
+//
+// The Makefile sets it per recipe, not with a global export: test-race needs
+// cgo for the race detector.
+func TestShippingBuildsAreStatic(t *testing.T) {
+	build := readReleaseWorkflow(t).jobs["build"]
+	for _, bin := range []string{"llm-filesystem", "llm-filesystem-mcp"} {
+		want := `CGO_ENABLED=0 GOOS=$os GOARCH=$arch go build -ldflags "$CLI_LDFLAGS" -o dist/` + bin + `-$os-$arch$ext`
+		if !strings.Contains(build, want) {
+			t.Errorf("release build job is missing %q", want)
+		}
+		check := `file ` + bin + `-linux-amd64 | grep -q "statically linked"`
+		if !strings.Contains(build, check) {
+			t.Errorf("release check step is missing %q", check)
+		}
+	}
+
+	body, err := os.ReadFile(filepath.Join("../../..", "Makefile"))
+	if err != nil {
+		t.Fatalf("reading Makefile: %v", err)
+	}
+	var builds int
+	for _, line := range strings.Split(string(body), "\n") {
+		if !strings.Contains(line, "go build ") {
+			continue
+		}
+		builds++
+		if !strings.Contains(line, "CGO_ENABLED=0 ") {
+			t.Errorf("Makefile build line without CGO_ENABLED=0: %q", strings.TrimSpace(line))
+		}
+	}
+	if builds != 4 {
+		t.Errorf("want 4 go build lines in the Makefile (build and build-all, both binaries), got %d", builds)
+	}
+	if strings.Contains(string(body), "export CGO_ENABLED") {
+		t.Error("CGO_ENABLED is exported globally, which breaks make test-race")
+	}
+}
