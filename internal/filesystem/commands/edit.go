@@ -27,7 +27,7 @@ func addEditCommands(rootCmd *cobra.Command) {
 func outputEditError(err error, oldFlag, path string) {
 	if errors.Is(err, core.ErrNoMatch) {
 		emitDiagnostic(activeFmt, activeCompact, err, goaxi.ExitError, []string{
-			"Copy " + oldFlag + " from the file's current text: llm-filesystem read-file --path " + path,
+			"See the file's current text, then copy " + oldFlag + " from it exactly: llm-filesystem read-file --path " + path,
 		})
 		return
 	}
