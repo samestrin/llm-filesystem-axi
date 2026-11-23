@@ -162,6 +162,82 @@ func withinAllowed(resolved string, allowedDirs []string) bool {
 	return false
 }
 
+// UsageError is a refusal of the request as made: nothing was attempted, so
+// the CLI exits 2 ("fix the invocation") rather than 1 ("the tool tried and
+// failed"), which invites retrying the same command.
+type UsageError struct{ msg string }
+
+func (e *UsageError) Error() string { return e.msg }
+
+func usageErrorf(format string, a ...any) error {
+	return &UsageError{msg: fmt.Sprintf(format, a...)}
+}
+
+// CheckNotIntoItself refuses a copy, move or sync of a directory whose
+// destination is the directory itself or inside it. The copy recursed into
+// what it had just written until the path was too long, leaving hundreds of
+// files behind (EST-8264). Both spellings and the resolved paths are compared,
+// so a link to the source is caught too. A source that is not a directory has
+// nothing inside it and passes.
+func CheckNotIntoItself(source, destination string) error {
+	src, err := NormalizePath(source)
+	if err != nil {
+		return nil
+	}
+	dst, err := NormalizePath(destination)
+	if err != nil {
+		return nil
+	}
+	if info, err := os.Stat(src); err != nil || !info.IsDir() {
+		return nil
+	}
+	realSrc, err1 := ResolvePath(src)
+	realDst, err2 := ResolvePath(dst)
+	if IsWithin(dst, src) || (err1 == nil && err2 == nil && IsWithin(realDst, realSrc)) {
+		return usageErrorf("destination %s is the source directory %s or inside it; a directory cannot be copied into itself", dst, src)
+	}
+	return nil
+}
+
+// CheckDeletable refuses to delete the filesystem root, HOME, the working
+// directory, or any directory that holds one of them. delete-file --path ~
+// --recursive removed all of HOME and --path . the working directory
+// (EST-8264); setup already refused HOME. A final symlink is not followed,
+// because deleting it removes only the link.
+func CheckDeletable(path string) error {
+	p, err := NormalizePath(path)
+	if err != nil {
+		return nil
+	}
+	real := p
+	if parent, err := ResolvePath(filepath.Dir(p)); err == nil {
+		real = filepath.Join(parent, filepath.Base(p))
+	}
+
+	type guarded struct{ dir, name string }
+	protected := []guarded{{filepath.VolumeName(p) + string(filepath.Separator), "the filesystem root"}}
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		protected = append(protected, guarded{filepath.Clean(home), "HOME"})
+	}
+	if cwd, err := os.Getwd(); err == nil {
+		protected = append(protected, guarded{cwd, "the working directory"})
+	}
+	for _, g := range protected {
+		dir, name := g.dir, g.name
+		realDir, err := ResolvePath(dir)
+		if err != nil {
+			realDir = dir
+		}
+		if IsWithin(dir, p) || IsWithin(realDir, real) {
+			if dir == p || realDir == real {
+				return usageErrorf("refusing to delete %s: it is %s", p, name)
+			}
+			return usageErrorf("refusing to delete %s: it holds %s (%s)", p, name, dir)
+		}
+	}
+	return nil
+}
+
 // checkTreeLinks refuses a directory tree holding a symlink that resolves
 // outside the allowed dirs. A copy, sync or archive of the tree follows such a
 // link and reads the outside file in, though the tree's root passed the check.

@@ -216,6 +216,17 @@ func decodeBatchOperations(raw string) ([]core.BatchOperation, error) {
 		if op.Operation != "delete" && op.Destination == "" {
 			return nil, fmt.Errorf("operation %d: destination is required for %s", i+1, op.Operation)
 		}
+		// Refusals that would otherwise surface as one failed entry after
+		// the entries before it had run.
+		var check error
+		if op.Operation == "delete" {
+			check = core.CheckDeletable(op.Source)
+		} else {
+			check = core.CheckNotIntoItself(op.Source, op.Destination)
+		}
+		if check != nil {
+			return nil, fmt.Errorf("operation %d: %w", i+1, check)
+		}
 	}
 	return ops, nil
 }

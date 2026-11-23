@@ -62,6 +62,9 @@ func CopyFile(opts CopyFileOptions) (*FileOpResult, error) {
 	if err != nil {
 		return nil, fmt.Errorf("source does not exist: %w", err)
 	}
+	if err := CheckNotIntoItself(srcPath, dstPath); err != nil {
+		return nil, err
+	}
 
 	if srcInfo.IsDir() {
 		if err := checkTreeLinks(srcPath, opts.AllowedDirs); err != nil {
@@ -216,6 +219,9 @@ func MoveFile(opts MoveFileOptions) (*FileOpResult, error) {
 	if err != nil {
 		return nil, fmt.Errorf("source does not exist: %w", err)
 	}
+	if err := CheckNotIntoItself(srcPath, dstPath); err != nil {
+		return nil, err
+	}
 
 	// Create destination directory if needed
 	if err := os.MkdirAll(filepath.Dir(dstPath), 0755); err != nil {
@@ -268,6 +274,9 @@ func DeleteFile(opts DeleteFileOptions) (*FileOpResult, error) {
 
 	// No-follow: a delete removes a final link, not what it points to.
 	if err := ValidatePathNoFollow(normalizedPath, opts.AllowedDirs); err != nil {
+		return nil, err
+	}
+	if err := CheckDeletable(normalizedPath); err != nil {
 		return nil, err
 	}
 

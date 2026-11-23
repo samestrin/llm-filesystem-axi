@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	goaxi "github.com/samestrin/go-axi"
+	"github.com/samestrin/llm-filesystem-axi/internal/filesystem/core"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 )
@@ -483,7 +484,15 @@ func emitDiagnostic(f Format, compact bool, err error, code goaxi.ExitCode, step
 
 // OutputError renders a TOOL failure in the active output format and exits
 // ExitError: the operation was attempted and it did not work.
+//
+// A *core.UsageError is the exception: core refused the request before
+// attempting it, so it is a usage error and exits ExitUsage.
 func OutputError(err error) {
+	var usage *core.UsageError
+	if errors.As(err, &usage) {
+		emitDiagnostic(activeFmt, activeCompact, err, goaxi.ExitUsage, toolFailureSteps(err))
+		return
+	}
 	emitDiagnostic(activeFmt, activeCompact, err, goaxi.ExitError, toolFailureSteps(err))
 }
 
