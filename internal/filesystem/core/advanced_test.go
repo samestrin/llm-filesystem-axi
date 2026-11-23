@@ -519,7 +519,7 @@ func TestExtractArchiveTreatsTheDestinationEntryAsANoOp(t *testing.T) {
 		}
 		archive := filepath.Join(t.TempDir(), "x.tgz")
 		// COPYFILE_DISABLE stops macOS tar adding ._ AppleDouble entries for
-		// provenance xattrs, which would make the count below 2.
+		// provenance xattrs, which the one-file count below does not expect.
 		tarCmd := exec.Command(tarBin, "czf", archive, "-C", src, ".")
 		tarCmd.Env = append(os.Environ(), "COPYFILE_DISABLE=1")
 		if out, err := tarCmd.CombinedOutput(); err != nil {
