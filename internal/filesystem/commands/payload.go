@@ -44,6 +44,11 @@ func decodeEntries[T any](raw, noun string) ([]T, error) {
 	if err := decodePayload(raw, &items); err != nil {
 		return nil, err
 	}
+	// An empty array asks for nothing; that is a malformed invocation, not a
+	// run that did nothing and failed (EST-8264).
+	if len(items) == 0 {
+		return nil, fmt.Errorf("no %ss given: the array is empty", noun)
+	}
 	known := jsonKeys(reflect.TypeOf((*T)(nil)).Elem())
 	out := make([]T, len(items))
 	for i, item := range items {

@@ -32,7 +32,7 @@ type DiskUsageResult struct {
 // GetDiskUsage calculates disk usage for a path
 func GetDiskUsage(opts DiskUsageOptions) (*DiskUsageResult, error) {
 	if opts.Path == "" {
-		return nil, fmt.Errorf("path is required")
+		return nil, usageErrorf("path is required")
 	}
 
 	normalizedPath, err := NormalizePath(opts.Path)
@@ -98,7 +98,7 @@ type FindLargeFilesResult struct {
 // FindLargeFiles finds files larger than a minimum size
 func FindLargeFiles(opts FindLargeFilesOptions) (*FindLargeFilesResult, error) {
 	if opts.Path == "" {
-		return nil, fmt.Errorf("path is required")
+		return nil, usageErrorf("path is required")
 	}
 
 	normalizedPath, err := NormalizePath(opts.Path)
@@ -182,10 +182,10 @@ type CompressResult struct {
 // CompressFiles compresses files into an archive
 func CompressFiles(opts CompressFilesOptions) (*CompressResult, error) {
 	if len(opts.Paths) == 0 {
-		return nil, fmt.Errorf("paths is required")
+		return nil, usageErrorf("paths is required")
 	}
 	if opts.Output == "" {
-		return nil, fmt.Errorf("output is required")
+		return nil, usageErrorf("output is required")
 	}
 
 	format := opts.Format
@@ -501,10 +501,10 @@ func (t *extractTally) fail(entry string, err error) {
 // ExtractArchive extracts an archive to a destination
 func ExtractArchive(opts ExtractArchiveOptions) (*ExtractResult, error) {
 	if opts.Archive == "" {
-		return nil, fmt.Errorf("archive is required")
+		return nil, usageErrorf("archive is required")
 	}
 	if opts.Destination == "" {
-		return nil, fmt.Errorf("destination is required")
+		return nil, usageErrorf("destination is required")
 	}
 
 	normalizedArchive, err := NormalizePath(opts.Archive)
@@ -522,6 +522,14 @@ func ExtractArchive(opts ExtractArchiveOptions) (*ExtractResult, error) {
 	}
 	if err := ValidatePath(normalizedDest, opts.AllowedDirs); err != nil {
 		return nil, err
+	}
+
+	// The archive is checked before --dest is created, so a missing or
+	// unreadable archive leaves nothing behind (EST-8264).
+	if info, err := os.Stat(normalizedArchive); err != nil {
+		return nil, fmt.Errorf("cannot read archive: %w", err)
+	} else if info.IsDir() {
+		return nil, fmt.Errorf("archive %s is a directory", normalizedArchive)
 	}
 
 	// Create destination directory
@@ -866,10 +874,10 @@ type SyncResult struct {
 // SyncDirectories synchronizes two directories
 func SyncDirectories(opts SyncDirectoriesOptions) (*SyncResult, error) {
 	if opts.Source == "" {
-		return nil, fmt.Errorf("source is required")
+		return nil, usageErrorf("source is required")
 	}
 	if opts.Destination == "" {
-		return nil, fmt.Errorf("destination is required")
+		return nil, usageErrorf("destination is required")
 	}
 
 	normalizedSrc, err := NormalizePath(opts.Source)

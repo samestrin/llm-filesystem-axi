@@ -33,10 +33,10 @@ type CopyFileOptions struct {
 // CopyFile copies a file or directory
 func CopyFile(opts CopyFileOptions) (*FileOpResult, error) {
 	if opts.Source == "" {
-		return nil, fmt.Errorf("source is required")
+		return nil, usageErrorf("source is required")
 	}
 	if opts.Destination == "" {
-		return nil, fmt.Errorf("destination is required")
+		return nil, usageErrorf("destination is required")
 	}
 
 	// Normalize and validate paths
@@ -189,10 +189,10 @@ type MoveFileOptions struct {
 // MoveFile moves or renames a file or directory
 func MoveFile(opts MoveFileOptions) (*FileOpResult, error) {
 	if opts.Source == "" {
-		return nil, fmt.Errorf("source is required")
+		return nil, usageErrorf("source is required")
 	}
 	if opts.Destination == "" {
-		return nil, fmt.Errorf("destination is required")
+		return nil, usageErrorf("destination is required")
 	}
 
 	// Normalize and validate paths
@@ -263,7 +263,7 @@ type DeleteFileOptions struct {
 // DeleteFile deletes a file or directory
 func DeleteFile(opts DeleteFileOptions) (*FileOpResult, error) {
 	if opts.Path == "" {
-		return nil, fmt.Errorf("path is required")
+		return nil, usageErrorf("path is required")
 	}
 
 	// Normalize and validate path

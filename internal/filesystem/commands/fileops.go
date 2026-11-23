@@ -30,7 +30,9 @@ func addFileOpsCommands(rootCmd *cobra.Command) {
 // Only inspecting the flag's VALUE closes the --confirm=false hole: a
 // provided flag satisfies cobra's required check even when it says false.
 func refuseUnconfirmedOverwrite(command, source, destination string, confirm bool) bool {
-	if confirm {
+	// An empty destination normalizes to the working directory, which
+	// exists; core refuses it as missing, which is the right message.
+	if confirm || destination == "" {
 		return false
 	}
 	dst, exists := destinationExists(destination)

@@ -72,7 +72,7 @@ type ReadFileResult struct {
 // ReadFile reads a file with optional line range or byte offset
 func ReadFile(opts ReadFileOptions) (*ReadFileResult, error) {
 	if opts.Path == "" {
-		return nil, fmt.Errorf("path is required")
+		return nil, usageErrorf("path is required")
 	}
 
 	// Resolve symlinks and normalize path
@@ -374,7 +374,7 @@ type ReadMultipleFilesResult struct {
 // ReadMultipleFiles reads multiple files concurrently
 func ReadMultipleFiles(opts ReadMultipleFilesOptions) (*ReadMultipleFilesResult, error) {
 	if len(opts.Paths) == 0 {
-		return nil, fmt.Errorf("paths is required")
+		return nil, usageErrorf("paths is required")
 	}
 
 	// Determine max total size (0 = use default, -1 = no limit, >0 = custom)
@@ -568,7 +568,7 @@ type ExtractLinesResult struct {
 // ExtractLines extracts specific lines from a file
 func ExtractLines(opts ExtractLinesOptions) (*ExtractLinesResult, error) {
 	if opts.Path == "" {
-		return nil, fmt.Errorf("path is required")
+		return nil, usageErrorf("path is required")
 	}
 
 	// Validate path
