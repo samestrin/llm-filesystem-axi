@@ -225,6 +225,88 @@ func TestAllowedDirsResolvesSymlinks(t *testing.T) {
 			t.Error("exit 0 for a source outside --allowed-dirs")
 		}
 	})
+
+	// Directory inputs holding a link to an outside file. checkTreeLinks
+	// guards these two call sites as it does copy-file's; without these
+	// cases removing either call left the suite green (review of PR #87).
+	treeWithLeak := func(t *testing.T, a, out string) string {
+		t.Helper()
+		tree := filepath.Join(a, "tree")
+		mustWrite(t, filepath.Join(tree, "ok.txt"), "ok")
+		if err := os.Symlink(filepath.Join(out, "secret.txt"), filepath.Join(tree, "leak")); err != nil {
+			t.Fatal(err)
+		}
+		return tree
+	}
+
+	t.Run("compress-files directory holding a link", func(t *testing.T) {
+		a, out := symlinkJail(t)
+		tree := treeWithLeak(t, a, out)
+		_, _, code := runCLI(t, "--allowed-dirs", a, "compress-files", "--paths", tree, "--output", filepath.Join(a, "t.zip"))
+		mustNotExist(t, filepath.Join(a, "t.zip"))
+		if code == -1 {
+			t.Error("exit 0 archiving a tree that links outside --allowed-dirs")
+		}
+	})
+
+	t.Run("sync-directories source holding a link", func(t *testing.T) {
+		a, out := symlinkJail(t)
+		tree := treeWithLeak(t, a, out)
+		_, _, code := runCLI(t, "--allowed-dirs", a, "sync-directories", "--source", tree, "--dest", filepath.Join(a, "s3"))
+		mustNotExist(t, filepath.Join(a, "s3", "leak"))
+		if code == -1 {
+			t.Error("exit 0 syncing a tree that links outside --allowed-dirs")
+		}
+	})
+
+	// A link already inside the DESTINATION tree: the destination root is
+	// inside A, but A/dest/sub leads outside, and the tree copy and sync
+	// wrote through it with exit 0 (review of PR #87).
+	destWithLink := func(t *testing.T, a, out string) (src, dest string) {
+		t.Helper()
+		src, dest = filepath.Join(a, "src"), filepath.Join(a, "dest")
+		mustWrite(t, filepath.Join(src, "sub", "f.txt"), "x")
+		if err := os.MkdirAll(dest, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(out, filepath.Join(dest, "sub")); err != nil {
+			t.Fatal(err)
+		}
+		return
+	}
+
+	t.Run("copy-file into a destination tree holding a link", func(t *testing.T) {
+		a, out := symlinkJail(t)
+		src, dest := destWithLink(t, a, out)
+		_, _, code := runCLI(t, "--allowed-dirs", a, "copy-file", "--source", src, "--dest", dest, "--confirm")
+		mustNotExist(t, filepath.Join(out, "f.txt"))
+		if code == -1 {
+			t.Error("exit 0 copying through a destination link outside --allowed-dirs")
+		}
+	})
+
+	t.Run("sync-directories into a destination tree holding a link", func(t *testing.T) {
+		a, out := symlinkJail(t)
+		src, dest := destWithLink(t, a, out)
+		_, _, code := runCLI(t, "--allowed-dirs", a, "sync-directories", "--source", src, "--dest", dest, "--confirm")
+		mustNotExist(t, filepath.Join(out, "f.txt"))
+		if code == -1 {
+			t.Error("exit 0 syncing through a destination link outside --allowed-dirs")
+		}
+	})
+}
+
+// --allowed-dirs / allows everything. IsWithin's root branch exists because
+// "/" plus a separator is "//", which no path starts with; without it every
+// path was refused (review of PR #87).
+func TestAllowedDirsRootAllowsEverything(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "f.txt")
+	if _, _, code := runCLI(t, "--allowed-dirs", "/", "write-file", "--path", p, "--content", "x"); code != -1 {
+		t.Errorf("exit %d, want success", code)
+	}
+	if got := readString(t, p); got != "x" {
+		t.Errorf("file is %q", got)
+	}
 }
 
 // The known-good side: resolving links must not refuse what is genuinely
