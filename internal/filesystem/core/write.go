@@ -101,6 +101,10 @@ type WriteMultipleFilesResult struct {
 	Success int               `json:"success"`
 	Failed  int               `json:"failed"`
 	Message string            `json:"message"`
+	// FailedEntries numbers the entries that failed, from 1. Not serialized:
+	// a failed entry's message already says why; this lets the caller name
+	// the entries without guessing failure from the result's other fields.
+	FailedEntries []int `json:"-"`
 }
 
 // WriteMultipleFiles writes multiple files sequentially with auto-mkdir
@@ -112,6 +116,7 @@ func WriteMultipleFiles(opts WriteMultipleFilesOptions) (*WriteMultipleFilesResu
 	results := make([]WriteFileResult, len(opts.Files))
 	success := 0
 	failed := 0
+	var failedEntries []int
 
 	for i, entry := range opts.Files {
 		result, err := WriteFile(WriteFileOptions{
@@ -126,6 +131,7 @@ func WriteMultipleFiles(opts WriteMultipleFilesOptions) (*WriteMultipleFilesResu
 				Message: err.Error(),
 			}
 			failed++
+			failedEntries = append(failedEntries, i+1)
 		} else {
 			results[i] = *result
 			success++
@@ -133,10 +139,11 @@ func WriteMultipleFiles(opts WriteMultipleFilesOptions) (*WriteMultipleFilesResu
 	}
 
 	return &WriteMultipleFilesResult{
-		Files:   results,
-		Success: success,
-		Failed:  failed,
-		Message: fmt.Sprintf("Wrote %d files, %d failed", success, failed),
+		Files:         results,
+		Success:       success,
+		Failed:        failed,
+		Message:       fmt.Sprintf("Wrote %d files, %d failed", success, failed),
+		FailedEntries: failedEntries,
 	}, nil
 }
 

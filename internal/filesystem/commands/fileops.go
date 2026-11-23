@@ -52,12 +52,16 @@ func refuseUnconfirmedOverwrite(command, source, destination string, confirm boo
 // a raw stat misses '~/victim.txt' and 'victim.txt/' and lets the overwrite
 // through silently. If normalization fails, it reports false so core reports
 // that error rather than a refusal being invented here.
+//
+// Lstat, not Stat: Stat follows a symlink, so a dangling one read as "nothing
+// there" and was replaced by a regular file with no --confirm. delete-file
+// uses Lstat for the same reason.
 func destinationExists(destination string) (string, bool) {
 	dst, err := core.NormalizePath(destination)
 	if err != nil {
 		return "", false
 	}
-	if _, statErr := os.Stat(dst); statErr != nil {
+	if _, statErr := os.Lstat(dst); statErr != nil {
 		return dst, false
 	}
 	return dst, true
@@ -188,6 +192,34 @@ func deleteFileCmd() *cobra.Command {
 
 const operationsExample = `[{"operation":"copy","source":"a","destination":"b"}]`
 
+// decodeBatchOperations decodes --operations and checks every entry before any
+// runs. Only unknown keys used to be refused up front: an entry with a key
+// missing ran, so a valid entry followed by a copy with no destination made
+// the first change and then failed, and an empty destination normalized to
+// the working directory and drew the wrong "overwrites" refusal.
+func decodeBatchOperations(raw string) ([]core.BatchOperation, error) {
+	ops, err := decodeEntries[core.BatchOperation](raw, "operation")
+	if err != nil {
+		return nil, err
+	}
+	for i, op := range ops {
+		switch op.Operation {
+		case "":
+			return nil, fmt.Errorf("operation %d: operation is required", i+1)
+		case "copy", "move", "delete":
+		default:
+			return nil, fmt.Errorf("operation %d: unknown operation %q (use copy, move or delete)", i+1, op.Operation)
+		}
+		if op.Source == "" {
+			return nil, fmt.Errorf("operation %d: source is required", i+1)
+		}
+		if op.Operation != "delete" && op.Destination == "" {
+			return nil, fmt.Errorf("operation %d: destination is required for %s", i+1, op.Operation)
+		}
+	}
+	return ops, nil
+}
+
 func batchFileOperationsCmd() *cobra.Command {
 	var operationsJSON string
 	var confirm bool
@@ -197,8 +229,8 @@ func batchFileOperationsCmd() *cobra.Command {
 		Short: "Perform batch file operations",
 		Long:  "Performs multiple file operations in a batch. Any entry that destroys something requires --confirm: a delete, or a move or copy onto an existing path.",
 		Run: func(cmd *cobra.Command, args []string) {
-			var operations []core.BatchOperation
-			if err := decodePayload(operationsJSON, &operations); err != nil {
+			operations, err := decodeBatchOperations(operationsJSON)
+			if err != nil {
 				refusePayload("invalid operations JSON", err, operationsExample)
 				return
 			}
@@ -230,9 +262,9 @@ func batchFileOperationsCmd() *cobra.Command {
 					}
 
 					emitDiagnostic(activeFmt, activeCompact,
-						fmt.Errorf("operation %d %s, which requires --confirm", i, why),
+						fmt.Errorf("operation %d %s, which requires --confirm", i+1, why),
 						goaxi.ExitUsage,
-						[]string{"Confirm the batch: re-run the same command with --confirm"})
+						[]string{"Confirm the batch: re-run the same command with --confirm (over MCP, pass confirm: true)"})
 					return
 				}
 			}
@@ -245,7 +277,22 @@ func batchFileOperationsCmd() *cobra.Command {
 				OutputError(err)
 				return
 			}
-			OutputResult(result, func() string {
+			OutputResultAXI(result, nil, func() []string {
+				var nums []int
+				var details []string
+				for i, op := range result.Operations {
+					if op.Success {
+						continue
+					}
+					desc := operations[i].Operation + " " + operations[i].Source
+					if operations[i].Destination != "" {
+						desc += " -> " + operations[i].Destination
+					}
+					nums = append(nums, i+1)
+					details = append(details, fmt.Sprintf("operation %d (%s): %s", i+1, desc, op.Message))
+				}
+				return failedEntrySteps("operations", "operation", "operations", nums, details)
+			}, func() string {
 				return fmt.Sprintf("Batch complete: %d success, %d failed",
 					result.Success, result.Failed)
 			})

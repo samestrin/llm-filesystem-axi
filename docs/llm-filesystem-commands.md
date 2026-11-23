@@ -105,7 +105,7 @@ Search totals are exact. `--max-results` (default 1000) caps what a search lists
 | Command | Description | Example |
 |---------|-------------|---------|
 | `get-disk-usage` | Get disk usage stats | `llm-filesystem get-disk-usage --path /tmp` |
-| `find-large-files` | Find files over a size in bytes | `llm-filesystem find-large-files --path ./src --min-size 1048576` |
+| `find-large-files` | Find files at or above a size in bytes | `llm-filesystem find-large-files --path ./src --min-size 1048576` |
 | `compress-files` | Create archive (type from `--output` extension, or `--archive-format` with `zip`, `tar.gz` or `tgz`) | `llm-filesystem compress-files --paths file1.txt --paths file2.txt --output archive.zip` |
 | `extract-archive` | Extract archive | `llm-filesystem extract-archive --archive file.zip --dest /tmp/extracted` |
 | `sync-directories` | Sync directories | `llm-filesystem sync-directories --source /src --dest /backup --dry-run` |
@@ -128,8 +128,8 @@ Search totals are exact. `--max-results` (default 1000) caps what a search lists
 | Code | Meaning |
 |------|---------|
 | `0` | Success |
-| `1` | The tool failed — the operation was attempted and did not fully work (including a partial run: an archive or sync command that skipped some entries, or a `write-multiple-files`, `batch-file-operations` or `read-multiple-files` entry that failed). `edit-blocks` and `edit-multiple-blocks` are the exception: when some edits applied they exit `0` and count the rest in `unmatched` |
-| `2` | Usage error — unknown subcommand, unknown flag, missing required flag, invalid `--format`, a malformed JSON payload (invalid JSON, or an unknown or missing key), or a refused confirmation |
+| `1` | The tool failed — the operation was attempted and did not fully work (including a partial run: an archive or sync command that skipped some entries, or a `write-multiple-files`, `batch-file-operations` or `read-multiple-files` entry that failed, with a `help[]` line naming the failed entries to retry). `edit-blocks` and `edit-multiple-blocks` are the exception: when some edits applied they exit `0` and count the rest in `unmatched` |
+| `2` | Usage error — unknown subcommand, unknown flag, missing required flag, invalid `--format`, a malformed JSON payload (invalid JSON; an unknown, missing or wrongly cased key, checked for every entry before any runs; or an unknown edit `mode` or batch `operation`), or a refused confirmation |
 
 Errors are structured documents on **stdout** in the active format, each carrying a `help[]` block naming a concrete next command. `--format text` keeps its `Error: <msg>` shape, also on stdout; nothing is written to stderr. The format is read before any other flag is parsed, so `read-file --bogus --format text` still answers in text.
 

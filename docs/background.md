@@ -10,20 +10,20 @@ This page holds the longer explanations that used to sit in the README: where th
 
 LLM agents run tight loops. Starting a Node.js process to read one file takes on the order of a hundred milliseconds or more, which breaks the flow. A static Go binary starts in a few milliseconds.
 
-The measured numbers for the current release, with the version, date, machine and method, are in [`benchmarks/results-performance.md`](../benchmarks/results-performance.md), and the README's Performance section copies that table. An earlier run on 2026-10-31 (`fast-filesystem-mcp` 3.5.2, Node 24, the same machine) published speedup ratios for cold start, file read and directory tree. The `v1.0.2` run did not reproduce those ratios, so they are superseded and not repeated here. The current table is measured on `v1.1.0`, on a Linux x86_64 machine rather than the Apple M4 Pro the `v1.0.2` table used, so compare the two tools within one table, not one table's figures with the other's.
+The numbers measured on `v1.1.0`, with the version, date, machine and method, are in [`benchmarks/results-performance.md`](../benchmarks/results-performance.md), and the README's Performance section copies that table. An earlier run on 2026-10-31 (`fast-filesystem-mcp` 3.5.2, Node 24, the same machine) published speedup ratios for cold start, file read and directory tree. The `v1.0.2` run did not reproduce those ratios, so they are superseded and not repeated here. The current table is measured on `v1.1.0`, on a Linux x86_64 machine rather than the Apple M4 Pro the `v1.0.2` table used, so compare the two tools within one table, not one table's figures with the other's.
 
 ## Token cost of the default output
 
 Output defaults to TOON (Token-Oriented Object Notation) with a minimal field set.
 
-Measured against `--full --format json`, which is byte-identical to the pre-AXI output for every command this benchmark runs, using tiktoken `o200k_base` on the v1.1.2 release candidate ([`benchmarks/tokens.sh`](../benchmarks/tokens.sh), full results in [`benchmarks/results-tokens.md`](../benchmarks/results-tokens.md)):
+Measured against `--full --format json`, which is byte-identical to the pre-AXI output for every command this benchmark runs, using tiktoken `o200k_base` on the v1.1.2 tree ([`benchmarks/tokens.sh`](../benchmarks/tokens.sh), full results in [`benchmarks/results-tokens.md`](../benchmarks/results-tokens.md)):
 
 | Command | Baseline tokens | Default tokens | Reduction |
 |---------|-----------------|----------------|-----------|
 | `list-directory` (`/usr/bin`, 557 entries) | 83,926 | 5,599 | 93.3% |
 | `list-directory` (`/usr/share`, 60 entries) | 9,050 | 781 | 91.4% |
 | `get-directory-tree` (`/usr/share`) | 25,580 | 11,298 | 55.8% |
-| `search-code` (this repo's `internal/`, 1,093 matches) | 51,957 | 34,477 | 33.6% |
+| `search-code` (this repo's `internal/`, 1,124 matches) | 53,507 | 35,531 | 33.6% |
 | `read-file` (this repo's `go.mod`) | 251 | 240 | 4.4% |
 
 Listings are where it pays, because most of a listing is repeated field names. Commands whose output is mostly file content save far less: no schema choice shrinks the bytes of the file you asked for. The reduction also scales with result count: on a directory of only a handful of entries it drops to about 60%, since the fixed part of the document stops being a rounding error. And the tree row needs subdirectories to pay off: the benchmark does not pass `--include-files`, so on a flat directory like `/usr/bin` the tree is a single node and every mode prints the same small document (0%).

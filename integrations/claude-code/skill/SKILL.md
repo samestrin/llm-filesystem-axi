@@ -29,9 +29,15 @@ curl -fsSL https://raw.githubusercontent.com/samestrin/llm-filesystem-axi/main/i
 ## JSON-valued flags
 
 These four take a JSON array, and the field names are **not** interchangeable
-with the obvious guesses. An unknown or missing key is refused before anything
-runs: exit `2`, a message naming the entry, and the expected shape. A run where
-no edit matches is an error (exit `1`) and leaves the file untouched.
+with the obvious guesses. Keys are case-sensitive. An unknown or missing key is
+refused before anything runs: exit `2`, a message naming the entry, and the
+expected shape. That includes the replacement: an edit without `new_string` /
+`new_text` is refused, so to delete text pass `""` explicitly. A run where no
+edit matches is an error (exit `1`) and leaves the file untouched.
+
+`write-multiple-files`, `read-multiple-files` and `batch-file-operations` apply
+the entries that work, then exit `1` if any failed. The entries that worked are
+done: `help` names the failed ones, so fix the cause and re-run **only those**.
 
 Every edit's old string must match **exactly once** (on the batch commands,
 in the content the earlier edits leave). One that matches more often is
@@ -58,7 +64,10 @@ llm-filesystem edit-multiple-blocks --path file.go \
 ```
 
 Edits apply in order, so a later `line_number` counts lines after the earlier
-edits. An edit that finds no target is reported per edit (`not_found`,
+edits. `edit-multiple-blocks` (like `safe-edit`) first writes a backup beside
+the file, `<file>.bak.<timestamp>`, named in `backup_created`. Pass
+`--backup=false` to skip it, or delete the backup when you are done, so the
+working tree is not left with stray `.bak` files. An edit that finds no target is reported per edit (`not_found`,
 `line_out_of_range`) in `edit_results`; when some edits applied the command
 still exits `0`, so check `unmatched`.
 

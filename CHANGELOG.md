@@ -10,6 +10,34 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **An edit without a replacement no longer deletes text.** `edit-blocks
+  --edits '[{"old_string":"src"}]'` decoded the missing `new_string` to `""`,
+  removed the matched text and exited `0`; `edit-multiple-blocks` did the same
+  for `new_text`, and inserted an empty line for an `insert_before` or
+  `insert_after` without it. The replacement key is now required (exit `2`,
+  file untouched); `""` still works when given by name. An unknown edit `mode`
+  is a usage error (exit `2`) rather than "none of 1 edits applied" (exit `1`).
+- **`batch-file-operations` checks every entry before running any.** A
+  missing key was not refused up front: a valid entry followed by a copy with
+  no `destination` ran the first entry and then failed, an entry with no
+  `operation` failed as `unknown operation:`, and a copy with no destination
+  drew the wrong "overwrites an existing file" refusal. Each entry now needs
+  `operation` (`copy`, `move` or `delete`), `source`, and for a move or copy
+  `destination`, or the batch exits `2` with nothing run. Operations are
+  numbered from 1 in messages, as edits are.
+- **A dangling symlink at a move or copy destination needs `--confirm`.** The
+  destination check followed the link, saw nothing, and let `copy-file`,
+  `move-file` or a batch entry replace the link with a regular file, exit `0`.
+  It now checks the link itself, as `delete-file` does.
+- **A partial run names the failed entries and how to retry them.**
+  `read-multiple-files`, `write-multiple-files` and `batch-file-operations`
+  exited `1` with no `help[]`; they now list each failed entry with its reason
+  and give a retry of only those, as `compress-files` does.
+- **A bad key in a JSON payload names its entry.** `--edits`, `--files` and
+  `--operations` printed the decoder's `json: unknown field "x"`; the message
+  is now `edit 2: unknown key "x"`. Keys are matched case-sensitively, so
+  `{"Path","Content"}` is refused with the expected spelling rather than
+  silently accepted.
 - **`write-multiple-files` no longer truncates a file on a wrong key.** An
   entry keyed `{"path","text"}` decoded to empty content, so the file it named
   was cut to 0 bytes and the command reported success with exit `0`. The JSON
@@ -42,6 +70,17 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Every command's `--help` has an Examples block** of two or three
+  invocations (AXI principle 10; only `setup` had one), each checked by a test
+  against the command's flags and payload decoder. The skill says which
+  commands apply the entries that work and then exit `1`, and that
+  `edit-multiple-blocks` leaves a `<file>.bak.<timestamp>` backup unless
+  passed `--backup=false`. The batch `--confirm` refusal tells an MCP caller
+  to pass `confirm: true`. `make lint` now fails when `gofmt` would change a
+  file; it printed the list and passed. The catalog entry's description is
+  shortened and says "size-capped" (the budget is in characters), and its
+  `write-file` exception is labelled principle 6. The token table is
+  re-measured on this release's final tree.
 - **Docs from the first axi.md review round.** The skill documents
   `line_number` for the line modes of `edit-multiple-blocks`, links the routing
   guide by URL, and gives an install line for when the binary is not on

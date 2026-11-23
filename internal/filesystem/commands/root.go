@@ -243,6 +243,8 @@ Output defaults to token-efficient TOON; use --format json for machine parsing.`
 			c.Annotations[listAnnotation] = key
 		}
 	}
+	applyExamples(rootCmd)
+
 	// The landing view lists the working directory.
 	rootCmd.Annotations = map[string]string{listAnnotation: "items"}
 

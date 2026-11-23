@@ -80,10 +80,12 @@ func TestKnownGapStatementsAreTrue(t *testing.T) {
 			t.Error("the principle 7 gap must say setup also registers Codex in .codex/hooks.json")
 		}
 		// Epic 10 T3: errors go to stdout in every format
-		// (TestErrorsGoToStdoutInTheActiveFormat), so a principle 6 gap is now
-		// false.
-		if strings.Contains(joined, "Principle 6") || strings.Contains(joined, "stderr") {
-			t.Error("a principle 6 gap remains, but errors now go to stdout in every format")
+		// (TestErrorsGoToStdoutInTheActiveFormat), so the principle 6 stderr
+		// gap is now false. This once banned "Principle 6" outright; review
+		// round 2 labelled the write-file item as the principle 6 exception it
+		// is (docs/axi-audit.md), so only the stderr claim is refused now.
+		if strings.Contains(joined, "stderr") {
+			t.Error("a principle 6 stderr gap remains, but errors now go to stdout in every format")
 		}
 		// Epic 10 T4: a capped search reports the exact total, truncated: true
 		// and a --max-results hint (TestSearchCappedShowsExactTotalMarkerAndHint),

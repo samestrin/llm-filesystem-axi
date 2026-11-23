@@ -47,7 +47,7 @@ vet:
 	go vet ./...
 
 fmt:
-	gofmt -s -l .
+	@out=$$(gofmt -s -l .); if [ -n "$$out" ]; then echo "gofmt needed:"; echo "$$out"; exit 1; fi
 
 install: build
 	@echo "Installing to /usr/local/bin (may require sudo)..."

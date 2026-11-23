@@ -157,7 +157,8 @@ func TestBatchRejectsUnknownOperationKeys(t *testing.T) {
 			if code != int(goaxi.ExitUsage) {
 				t.Errorf("exit = %d, want ExitUsage (%d): %q", code, goaxi.ExitUsage, stdout)
 			}
-			if !strings.Contains(stdout, "invalid operations JSON") || !strings.Contains(stdout, "unknown field") {
+			// "unknown key" since review round 2, which also names the entry.
+			if !strings.Contains(stdout, "invalid operations JSON") || !strings.Contains(stdout, "operation 1: unknown key") {
 				t.Errorf("stdout = %q, want the payload refusal naming the unknown field", stdout)
 			}
 			if _, err := os.Stat(dst); err == nil {
@@ -192,14 +193,18 @@ func TestFailedEntriesExitOne(t *testing.T) {
 		}
 	})
 
-	t.Run("batch-file-operations unknown op", func(t *testing.T) {
+	// This used an unknown operation until review round 2 made that a usage
+	// refusal (exit 2, checked before any entry runs). A missing source is an
+	// entry that is well formed and still fails when attempted.
+	t.Run("batch-file-operations missing source", func(t *testing.T) {
+		dir := t.TempDir()
 		stdout, _, code := runCLI(t, "batch-file-operations", "--operations",
-			`[{"operation":"frobnicate","source":"x"}]`)
+			`[{"operation":"copy","source":"`+filepath.Join(dir, "missing.txt")+`","destination":"`+filepath.Join(dir, "out.txt")+`"}]`)
 
 		if code != int(goaxi.ExitError) {
 			t.Errorf("exit = %d, want ExitError (%d): %q", code, goaxi.ExitError, stdout)
 		}
-		if !strings.Contains(stdout, "unknown operation") {
+		if !strings.Contains(stdout, "source does not exist") {
 			t.Errorf("stdout = %q, want the failed entry named", stdout)
 		}
 	})

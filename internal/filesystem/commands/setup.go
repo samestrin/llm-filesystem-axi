@@ -131,11 +131,7 @@ as untrusted until you review it. OpenCode (checked on 1.19.5) runs the
 plugin's home view once when it loads the plugin. Session-end capture is not
 set up: this CLI keeps no session history, so there is nothing to capture.
 
-Safe to run again: a second run changes no bytes and says so. Never prompts.
-
-Examples:
-  llm-filesystem setup --dry-run
-  llm-filesystem setup`,
+Safe to run again: a second run changes no bytes and says so. Never prompts.`,
 		Args: cobra.NoArgs,
 		Run: func(cmd *cobra.Command, args []string) {
 			cwd, err := getwd()
