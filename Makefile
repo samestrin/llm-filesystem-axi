@@ -13,10 +13,13 @@ CLI_LDFLAGS := -ldflags "-s -w -X github.com/samestrin/llm-filesystem-axi/intern
 
 PLATFORMS := darwin/amd64 darwin/arm64 linux/amd64 linux/arm64 windows/amd64
 
+# CGO_ENABLED=0 on each build makes the binaries static: the CLI imports net
+# and os/user, which link libc when cgo is available. It is set per recipe
+# rather than exported, because test-race needs cgo.
 build:
 	@mkdir -p $(BUILD_DIR)
-	go build $(CLI_LDFLAGS) -o $(BUILD_DIR)/$(CLI_BINARY) ./cmd/llm-filesystem
-	go build $(CLI_LDFLAGS) -o $(BUILD_DIR)/$(MCP_BINARY) ./cmd/llm-filesystem-mcp
+	CGO_ENABLED=0 go build $(CLI_LDFLAGS) -o $(BUILD_DIR)/$(CLI_BINARY) ./cmd/llm-filesystem
+	CGO_ENABLED=0 go build $(CLI_LDFLAGS) -o $(BUILD_DIR)/$(MCP_BINARY) ./cmd/llm-filesystem-mcp
 
 build-all:
 	@mkdir -p $(DIST_DIR)
@@ -24,8 +27,8 @@ build-all:
 		os=$${platform%/*}; arch=$${platform#*/}; \
 		ext=""; [ "$$os" = "windows" ] && ext=".exe"; \
 		echo "Building $$os/$$arch..."; \
-		GOOS=$$os GOARCH=$$arch go build $(CLI_LDFLAGS) -o $(DIST_DIR)/$(CLI_BINARY)-$$os-$$arch$$ext ./cmd/llm-filesystem; \
-		GOOS=$$os GOARCH=$$arch go build $(CLI_LDFLAGS) -o $(DIST_DIR)/$(MCP_BINARY)-$$os-$$arch$$ext ./cmd/llm-filesystem-mcp; \
+		CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch go build $(CLI_LDFLAGS) -o $(DIST_DIR)/$(CLI_BINARY)-$$os-$$arch$$ext ./cmd/llm-filesystem; \
+		CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch go build $(CLI_LDFLAGS) -o $(DIST_DIR)/$(MCP_BINARY)-$$os-$$arch$$ext ./cmd/llm-filesystem-mcp; \
 	done
 
 test:
