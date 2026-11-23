@@ -6,6 +6,18 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- **AXI catalog entry and audit re-pinned to v1.1.2.** The catalog entry's
+  `reviewed_revision` now names the commit tag v1.1.2 points at, every
+  `file:line` it cites is moved to where that code sits at the tag, and it
+  cites `delete-file`'s refusal of the root, HOME and the working directory.
+  `docs/axi-audit.md` states its verdicts at v1.1.2: principle 6 lists
+  `write-multiple-files`, `read-multiple-files` and `batch-file-operations`
+  among the commands that exit `1` on a partial run, with the new
+  `--confirm` gates, and principles 9 and 10 say what v1.1.2 added. Every
+  observation was re-run on a build of the tag.
+
 ## [1.1.2] - 2026-11-23
 
 ### Fixed
