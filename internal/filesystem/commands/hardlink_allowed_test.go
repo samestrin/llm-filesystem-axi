@@ -28,17 +28,21 @@ func TestAllowedDirsRefusesWriteThroughHardLink(t *testing.T) {
 	cases := []struct {
 		name string
 		args func(a, link string) []string
+		// write-file refuses the request (2); write-multiple-files reports
+		// the entry failed and exits 1 like any failed entry (review round 2:
+		// the docs claimed 2 for both).
+		want int
 	}{
 		{"write-file", func(a, link string) []string {
 			return []string{"--allowed-dirs", a, "write-file", "--path", link, "--content", "clobbered"}
-		}},
+		}, 2},
 		{"write-file --append", func(a, link string) []string {
 			return []string{"--allowed-dirs", a, "write-file", "--path", link, "--content", "appended", "--append"}
-		}},
+		}, 2},
 		{"write-multiple-files", func(a, link string) []string {
 			files := `[{"path":` + string(jsonString(link)) + `,"content":"clobbered"}]`
 			return []string{"--allowed-dirs", a, "write-multiple-files", "--files", files}
-		}},
+		}, 1},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -47,8 +51,8 @@ func TestAllowedDirsRefusesWriteThroughHardLink(t *testing.T) {
 			if got := readString(t, secret); got != "outside data" {
 				t.Errorf("outside file now holds %q", got)
 			}
-			if code == -1 {
-				t.Error("exit 0 for a write through a hard link under --allowed-dirs")
+			if code != c.want {
+				t.Errorf("exit %d, want %d", code, c.want)
 			}
 		})
 	}
