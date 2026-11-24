@@ -18,6 +18,18 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `--confirm` gates, and principles 9 and 10 say what v1.1.2 added. Every
   observation was re-run on a build of the tag.
 
+### Fixed
+
+- **`write-file` no longer writes through a hard link under `--allowed-dirs`.**
+  With `A` allowed and `A/hl` a hard link to a file outside it, `write-file`
+  (with or without `--append`) and `write-multiple-files` changed the outside
+  file and exited `0`: a hard link has no target to resolve, so the
+  allowed-dirs check passed it. Under `--allowed-dirs`, an existing file with
+  more than one hard link is now left unchanged: `write-file` refuses it with
+  exit `2`, and `write-multiple-files` reports the entry as failed and exits
+  `1`, like any failed entry.
+  Without `--allowed-dirs`, writes through hard links work as before.
+
 ## [1.1.2] - 2026-11-23
 
 ### Fixed

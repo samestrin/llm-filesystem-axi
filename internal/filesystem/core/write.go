@@ -55,8 +55,19 @@ func WriteFile(opts WriteFileOptions) (*WriteFileResult, error) {
 	}
 
 	// Determine if file exists (for created flag)
-	_, err = os.Stat(normalizedPath)
+	info, err := os.Stat(normalizedPath)
 	created := os.IsNotExist(err)
+
+	// A hard link has no target to resolve, so with A allowed and A/hl a
+	// second name for a file outside A, the check above passed and the write
+	// below truncated or appended to the outside file in place (EST-8338).
+	// The other names cannot be found, so a file with more than one is
+	// refused rather than written through or silently unlinked.
+	if err == nil && len(opts.AllowedDirs) > 0 && info.Mode().IsRegular() {
+		if n := linkCount(normalizedPath, info); n > 1 {
+			return nil, usageErrorf("path %q has %d hard links, and the others may be outside the allowed directories; writing would change them too", opts.Path, n)
+		}
+	}
 
 	// Set file flags based on mode
 	flags := os.O_WRONLY | os.O_CREATE
