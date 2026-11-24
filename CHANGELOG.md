@@ -25,7 +25,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   (with or without `--append`) and `write-multiple-files` changed the outside
   file and exited `0`: a hard link has no target to resolve, so the
   allowed-dirs check passed it. Under `--allowed-dirs`, an existing file with
-  more than one hard link is now refused with exit `2` and left unchanged.
+  more than one hard link is now left unchanged: `write-file` refuses it with
+  exit `2`, and `write-multiple-files` reports the entry as failed and exits
+  `1`, like any failed entry.
   Without `--allowed-dirs`, writes through hard links work as before.
 
 ## [1.1.2] - 2026-11-23
