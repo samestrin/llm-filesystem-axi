@@ -191,7 +191,7 @@ func TestEditInAnUnwritableDirectoryWritesInPlaceAndSaysSo(t *testing.T) {
 func TestAFailedInPlaceWriteKeepsTheTempCopyAndNamesIt(t *testing.T) {
 	_, a, _ := linkedPair(t)
 	prev := writeInPlace
-	writeInPlace = func(string, []byte) error { return errors.New("injected: disk full") }
+	writeInPlace = func(string, []byte) (bool, error) { return true, errors.New("injected: disk full") }
 	t.Cleanup(func() { writeInPlace = prev })
 
 	_, err := SafeEdit(SafeEditOptions{Path: a, OldString: "alpha", NewString: "ALPHA"})
@@ -206,5 +206,66 @@ func TestAFailedInPlaceWriteKeepsTheTempCopyAndNamesIt(t *testing.T) {
 	t.Cleanup(func() { _ = os.Remove(kept) })
 	if got, rerr := os.ReadFile(kept); rerr != nil || string(got) != "ALPHA\nbeta\n" {
 		t.Errorf("temp copy %s = %q (%v), want the new content", kept, got, rerr)
+	}
+}
+
+// If the in-place write cannot even open the file, nothing was truncated: the
+// error must not claim the file may be partial, and no temp copy is left.
+func TestAnInPlaceWriteThatCannotOpenLeavesNoTempCopy(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root opens a read-only file for writing")
+	}
+	dir, a, b := linkedPair(t)
+	if err := os.Chmod(a, 0o444); err != nil {
+		t.Fatal(err)
+	}
+	_, err := SafeEdit(SafeEditOptions{Path: a, OldString: "alpha", NewString: "ALPHA"})
+	if err == nil {
+		t.Fatal("an edit of a read-only file reported success")
+	}
+	if strings.Contains(err.Error(), "partial") {
+		t.Errorf("error claims a partial file when nothing was written: %v", err)
+	}
+	bothNamesHold(t, a, b, "alpha\nbeta\n")
+	if entries, _ := os.ReadDir(dir); len(entries) != 2 {
+		t.Errorf("a refused write left files behind: %v", entries)
+	}
+}
+
+// The owner half of the fix cannot be proven unprivileged: only root may chown
+// to another uid. What can be proven is that the temp file is chowned to the
+// original's uid and gid before the rename, and that a refused chown, which is
+// the normal case for an unprivileged edit of someone else's file, does not
+// fail the edit.
+func TestTheTempFileIsChownedToTheOriginalOwnerBestEffort(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "f")
+	if err := os.WriteFile(p, []byte("alpha\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	info, _ := os.Stat(p)
+	wantUID, wantGID, ok := fileOwner(info)
+	if !ok {
+		t.Skip("the platform reports no owner")
+	}
+	called := false
+	prev := chownTempFile
+	chownTempFile = func(_ *os.File, uid, gid int) error {
+		called = true
+		if uid != wantUID || gid != wantGID {
+			t.Errorf("chown(%d, %d), want the original's (%d, %d)", uid, gid, wantUID, wantGID)
+		}
+		return errors.New("injected: operation not permitted")
+	}
+	t.Cleanup(func() { chownTempFile = prev })
+
+	if _, err := SafeEdit(SafeEditOptions{Path: p, OldString: "alpha", NewString: "ALPHA"}); err != nil {
+		t.Fatalf("a refused chown failed the edit: %v", err)
+	}
+	if !called {
+		t.Error("the temp file was never chowned")
+	}
+	if got, _ := os.ReadFile(p); string(got) != "ALPHA\n" {
+		t.Errorf("file = %q, want the edit", got)
 	}
 }

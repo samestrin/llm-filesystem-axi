@@ -226,7 +226,7 @@ func TestWriteFileAtomicFailuresLeaveTheOriginal(t *testing.T) {
 			}
 			t.Cleanup(s.inject())
 
-			if err := replaceFile(path, []byte("new")); !errors.Is(err, injected) {
+			if _, err := replaceFile(path, []byte("new")); !errors.Is(err, injected) {
 				t.Errorf("err = %v, want the injected %s failure", err, s.name)
 			}
 			if got, _ := os.ReadFile(path); string(got) != "original" {
@@ -243,7 +243,7 @@ func TestWriteFileAtomicFailuresLeaveTheOriginal(t *testing.T) {
 // error is returned rather than swallowed.
 func TestWriteFileAtomicReportsAnUncreatableTempFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "missing-dir", "f")
-	if err := writeFileAtomic(path, []byte("x"), 0o644); err == nil {
+	if _, err := writeFileAtomic(path, []byte("x"), 0o644); err == nil {
 		t.Error("a write into a missing directory reported success")
 	}
 }
@@ -252,7 +252,7 @@ func TestWriteFileAtomicReportsAnUncreatableTempFile(t *testing.T) {
 // error, not a new 0000 file.
 func TestReplaceFileRefusesAMissingFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "absent")
-	if err := replaceFile(path, []byte("x")); err == nil {
+	if _, err := replaceFile(path, []byte("x")); err == nil {
 		t.Error("replaceFile created a file that did not exist")
 	}
 	if _, err := os.Stat(path); !os.IsNotExist(err) {

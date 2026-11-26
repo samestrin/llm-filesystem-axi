@@ -3,6 +3,7 @@ package commands
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -85,5 +86,73 @@ func TestHardLinkGateLeavesOrdinaryWritesAlone(t *testing.T) {
 	}
 	if got := readString(t, secret); got != "shared" {
 		t.Errorf("linked file is %q", got)
+	}
+}
+
+// An edit renamed a temp file over its target, which split a hard link: the
+// other name kept the old bytes and the edit exited 0. It now writes in place
+// and says so in a field, in TOON and JSON, and in the TEXT summary (EST-8805).
+func TestEditThroughHardLinkReportsInPlace(t *testing.T) {
+	cases := []struct {
+		name string
+		args func(p string) []string
+	}{
+		{"safe-edit", func(p string) []string {
+			return []string{"safe-edit", "--path", p, "--old", "outside", "--new", "edited", "--backup=false"}
+		}},
+		{"edit-multiple-blocks", func(p string) []string {
+			return []string{"edit-multiple-blocks", "--path", p, "--edits", `[{"old_text":"outside","new_text":"edited"}]`, "--backup=false"}
+		}},
+	}
+	for _, c := range cases {
+		for _, format := range []string{"toon", "json", "text"} {
+			t.Run(c.name+"/"+format, func(t *testing.T) {
+				_, secret, link := hardLinkJail(t)
+				out, stderr, code := runCLI(t, append([]string{"--format", format}, c.args(link)...)...)
+				if code != -1 {
+					t.Fatalf("exit %d: %s", code, stderr)
+				}
+				for _, p := range []string{secret, link} {
+					if got := readString(t, p); got != "edited data" {
+						t.Errorf("%s holds %q, want the edit through both names", p, got)
+					}
+				}
+				var says bool
+				switch format {
+				case "toon":
+					says = hasTOONField(out, "in_place")
+				case "json":
+					says = strings.Contains(out, `"in_place": true`) || strings.Contains(out, `"in_place":true`)
+				default:
+					says = strings.Contains(out, "written in place, not atomically, because the file has 2 hard links")
+				}
+				if !says {
+					t.Errorf("output does not say the write was in place:\n%s", out)
+				}
+			})
+		}
+	}
+}
+
+// Under --allowed-dirs the other name may be outside, so the edit is refused
+// as write-file refuses it: exit 2, and the outside file keeps its bytes.
+func TestAllowedDirsRefusesEditThroughHardLink(t *testing.T) {
+	for _, args := range [][]string{
+		{"safe-edit", "--old", "outside", "--new", "edited"},
+		{"edit-multiple-blocks", "--edits", `[{"old_text":"outside","new_text":"edited"}]`},
+	} {
+		t.Run(args[0], func(t *testing.T) {
+			a, secret, link := hardLinkJail(t)
+			full := append([]string{"--allowed-dirs", a, args[0], "--path", link}, args[1:]...)
+			out, stderr, code := runCLI(t, full...)
+			for _, p := range []string{secret, link} {
+				if got := readString(t, p); got != "outside data" {
+					t.Errorf("%s now holds %q", p, got)
+				}
+			}
+			if code != 2 || !strings.Contains(out+stderr, "hard links") {
+				t.Errorf("exit %d, want 2 with the hard-link refusal: %s%s", code, out, stderr)
+			}
+		})
 	}
 }

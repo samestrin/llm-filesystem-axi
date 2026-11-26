@@ -58,14 +58,9 @@ func WriteFile(opts WriteFileOptions) (*WriteFileResult, error) {
 	info, err := os.Stat(normalizedPath)
 	created := os.IsNotExist(err)
 
-	// A hard link has no target to resolve, so with A allowed and A/hl a
-	// second name for a file outside A, the check above passed and the write
-	// below truncated or appended to the outside file in place (EST-8338).
-	// The other names cannot be found, so a file with more than one is
-	// refused rather than written through or silently unlinked.
-	if err == nil && len(opts.AllowedDirs) > 0 && info.Mode().IsRegular() {
-		if n := linkCount(normalizedPath, info); n > 1 {
-			return nil, usageErrorf("path %q has %d hard links, and the others may be outside the allowed directories; writing would change them too", opts.Path, n)
+	if err == nil {
+		if err := refuseHardLinks(normalizedPath, opts.Path, info, opts.AllowedDirs); err != nil {
+			return nil, err
 		}
 	}
 
@@ -95,6 +90,24 @@ func WriteFile(opts WriteFileOptions) (*WriteFileResult, error) {
 		Created: created,
 		Message: "File written successfully",
 	}, nil
+}
+
+// refuseHardLinks refuses a write to a file with more than one name when
+// --allowed-dirs is set. A hard link has no target to resolve, so with A
+// allowed and A/hl a second name for a file outside A, the allowed-dirs check
+// passed and write-file truncated or appended to the outside file in place
+// (EST-8338). The other names cannot be found, so a file with more than one is
+// refused rather than written through or silently unlinked. Edits write a
+// linked file in place too (EST-8805), so they share this refusal. shown is
+// the path as the caller gave it.
+func refuseHardLinks(path, shown string, info os.FileInfo, allowedDirs []string) error {
+	if len(allowedDirs) == 0 || !info.Mode().IsRegular() {
+		return nil
+	}
+	if n := linkCount(path, info); n > 1 {
+		return usageErrorf("path %q has %d hard links, and the others may be outside the allowed directories; writing would change them too", shown, n)
+	}
+	return nil
 }
 
 // EndsInSeparator reports whether a path ends in a separator. Such a path
