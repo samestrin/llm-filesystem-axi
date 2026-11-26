@@ -103,6 +103,10 @@ func TestEditThroughHardLinkReportsInPlace(t *testing.T) {
 		{"edit-multiple-blocks", func(p string) []string {
 			return []string{"edit-multiple-blocks", "--path", p, "--edits", `[{"old_text":"outside","new_text":"edited"}]`, "--backup=false"}
 		}},
+		// large-write-file replaced the linked name and kept quiet (EST-8806).
+		{"large-write-file", func(p string) []string {
+			return []string{"large-write-file", "--path", p, "--content", "edited data", "--backup=false"}
+		}},
 	}
 	for _, c := range cases {
 		for _, format := range []string{"toon", "json", "text"} {
@@ -140,6 +144,7 @@ func TestAllowedDirsRefusesEditThroughHardLink(t *testing.T) {
 	for _, args := range [][]string{
 		{"safe-edit", "--old", "outside", "--new", "edited"},
 		{"edit-multiple-blocks", "--edits", `[{"old_text":"outside","new_text":"edited"}]`},
+		{"large-write-file", "--content", "edited data"},
 	} {
 		t.Run(args[0], func(t *testing.T) {
 			a, secret, link := hardLinkJail(t)

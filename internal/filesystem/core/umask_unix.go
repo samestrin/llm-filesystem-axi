@@ -30,6 +30,12 @@ func processUmask() fs.FileMode {
 			}
 		}
 	}
+	return umaskBySetting()
+}
+
+// umaskBySetting reads the umask by setting it and putting it back, for
+// platforms with no /proc/self/status.
+func umaskBySetting() fs.FileMode {
 	umaskMu.Lock()
 	defer umaskMu.Unlock()
 	m := syscall.Umask(0)

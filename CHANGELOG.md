@@ -31,7 +31,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   backup that cannot be written now refuses the write with exit `1` and leaves
   the file unchanged, and a backup keeps the original's mode. A write that
   cannot be atomic (a hard-linked file, or a directory that is not writable)
-  is written in place and reported as `in_place`.
+  is written in place and reported as `in_place`. `--verify` now reads the
+  file back after the write; a mismatch exits `1` and names the backup that
+  holds the previous content.
 - **`safe-edit` and `edit-multiple-blocks` refuse an edit when a requested
   backup cannot be written.** Both commands exit `1` with the backup error and
   leave the original file unchanged instead of discarding the error, applying

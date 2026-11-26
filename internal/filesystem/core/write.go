@@ -1,6 +1,7 @@
 package core
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -193,6 +194,10 @@ type LargeWriteFileOptions struct {
 	AllowedDirs []string
 }
 
+// readBackWritten is --verify's read of the written file, a variable so a test
+// can make it disagree with what was written, which no real filesystem does.
+var readBackWritten = os.ReadFile
+
 // LargeWriteFile writes large files with backup and verification
 func LargeWriteFile(opts LargeWriteFileOptions) (*WriteFileResult, error) {
 	if opts.Path == "" {
@@ -257,11 +262,16 @@ func LargeWriteFile(opts LargeWriteFileOptions) (*WriteFileResult, error) {
 		return nil, fmt.Errorf("failed to write file: %w", err)
 	}
 
-	// The file is already replaced, so a mismatch is reported, not undone.
+	// The file is already replaced, so a mismatch is reported, not undone,
+	// and the error names the backup that still holds the old bytes.
 	if opts.VerifyWrite {
-		written, err := os.ReadFile(normalizedPath)
+		written, err := readBackWritten(normalizedPath)
 		if err != nil || string(written) != string(data) {
-			return nil, fmt.Errorf("write verification failed: %s does not hold the content written", normalizedPath)
+			msg := fmt.Sprintf("write verification failed: %s does not hold the content written", normalizedPath)
+			if backupPath != "" {
+				msg += "; the previous content is in " + backupPath
+			}
+			return nil, errors.New(msg)
 		}
 	}
 
