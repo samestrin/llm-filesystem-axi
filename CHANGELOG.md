@@ -20,6 +20,20 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **`large-write-file` keeps the file it replaces.** An overwrite reset the
+  file to `0644`, so a `0600` file became world-readable and a `0755` script
+  lost its execute bits; it now keeps the original's mode, and a new file gets
+  `0666` less the umask. `--append` replaced the file with the new content and
+  exited `0`; it now keeps the existing bytes. Every write went through one
+  fixed `<path>.tmp`, so two writes to one path could fail or collide; each
+  now uses its own temp file. Under `--allowed-dirs`, a file with more than
+  one hard link is refused with exit `2`, as `write-file` does. A requested
+  backup that cannot be written now refuses the write with exit `1` and leaves
+  the file unchanged, and a backup keeps the original's mode. A write that
+  cannot be atomic (a hard-linked file, or a directory that is not writable)
+  is written in place and reported as `in_place`. `--verify` now reads the
+  file back after the write; a mismatch exits `1` and names the backup that
+  holds the previous content.
 - **`safe-edit` and `edit-multiple-blocks` refuse an edit when a requested
   backup cannot be written.** Both commands exit `1` with the backup error and
   leave the original file unchanged instead of discarding the error, applying

@@ -71,7 +71,7 @@ A read larger than the size budget is **truncated, not refused**. The result car
 
 `safe-edit --dry-run` and `search-and-replace --dry-run` write nothing, and their output carries `dry_run: true` in every format, not only in the human text. A real run omits the field.
 
-An edit of a file with more than one hard link, or in a directory you cannot write, is written in place rather than renamed into place, so the other names see the change. The result then carries `in_place: true` and says why in `message`. With `--allowed-dirs` set, `edit-block`, `edit-blocks`, `safe-edit`, `edit-file` and `edit-multiple-blocks` refuse a hard-linked file with exit `2` and write nothing, as `write-file` does, because the other names may be outside the allowed directories; `search-and-replace` skips it.
+An edit or a `large-write-file` of a file with more than one hard link, or in a directory you cannot write, is written in place rather than renamed into place, so the other names see the change. The result then carries `in_place: true` and says why in `message`. With `--allowed-dirs` set, `edit-block`, `edit-blocks`, `safe-edit`, `edit-file`, `edit-multiple-blocks` and `large-write-file` refuse a hard-linked file with exit `2` and write nothing, as `write-file` does, because the other names may be outside the allowed directories; `search-and-replace` skips it.
 
 ### Directory Operations
 

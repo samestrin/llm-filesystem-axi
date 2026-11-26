@@ -1,8 +1,8 @@
 package core
 
 import (
+	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"time"
@@ -25,6 +25,8 @@ type WriteFileResult struct {
 	Size    int64  `json:"size"`
 	Created bool   `json:"created"`
 	Backup  string `json:"backup,omitempty"`
+	// InPlace is set when the write was not atomic; Message says why.
+	InPlace bool   `json:"in_place,omitempty"`
 	Message string `json:"message"`
 }
 
@@ -192,6 +194,10 @@ type LargeWriteFileOptions struct {
 	AllowedDirs []string
 }
 
+// readBackWritten is --verify's read of the written file, a variable so a test
+// can make it disagree with what was written, which no real filesystem does.
+var readBackWritten = os.ReadFile
+
 // LargeWriteFile writes large files with backup and verification
 func LargeWriteFile(opts LargeWriteFileOptions) (*WriteFileResult, error) {
 	if opts.Path == "" {
@@ -218,84 +224,69 @@ func LargeWriteFile(opts LargeWriteFileOptions) (*WriteFileResult, error) {
 		}
 	}
 
-	var backupPath string
-	_, err = os.Stat(normalizedPath)
+	// An existing file keeps its mode; a new one gets what os.Create would
+	// have given it. The fixed path+".tmp" this wrote through made every
+	// overwrite 0644 and let two writers to one path collide (EST-8806).
+	data := []byte(opts.Content)
+	mode := 0o666 &^ processUmask()
+	info, err := os.Stat(normalizedPath)
 	fileExists := err == nil
-
-	// Create backup if file exists and backup requested
-	if fileExists && opts.Backup && !opts.Append {
-		backupPath = createBackupFile(normalizedPath)
-	}
-
-	// Write to temp file first (atomic write)
-	tempPath := normalizedPath + ".tmp"
-	tempFile, err := os.Create(tempPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create temp file: %w", err)
-	}
-
-	n, err := tempFile.WriteString(opts.Content)
-	if err != nil {
-		tempFile.Close()
-		os.Remove(tempPath)
-		return nil, fmt.Errorf("failed to write: %w", err)
-	}
-
-	// Sync to disk
-	if err := tempFile.Sync(); err != nil {
-		tempFile.Close()
-		os.Remove(tempPath)
-		return nil, fmt.Errorf("failed to sync: %w", err)
-	}
-	tempFile.Close()
-
-	// Verify write if requested
-	if opts.VerifyWrite {
-		written, err := os.ReadFile(tempPath)
-		if err != nil || string(written) != opts.Content {
-			os.Remove(tempPath)
-			return nil, fmt.Errorf("write verification failed")
+	if fileExists {
+		if err := refuseHardLinks(normalizedPath, opts.Path, info, opts.AllowedDirs); err != nil {
+			return nil, err
+		}
+		mode = fileMode(info)
+		// The temp file held only the new content, so --append replaced
+		// the file and reported success.
+		if opts.Append {
+			existing, err := os.ReadFile(normalizedPath)
+			if err != nil {
+				return nil, fmt.Errorf("failed to read file to append to: %w", err)
+			}
+			data = append(existing, data...)
 		}
 	}
 
-	// Atomic rename
-	if err := os.Rename(tempPath, normalizedPath); err != nil {
-		os.Remove(tempPath)
-		return nil, fmt.Errorf("failed to rename temp file: %w", err)
+	// A requested backup that cannot be written refuses the write: writing
+	// anyway left the caller without the copy they asked for.
+	var backupPath string
+	if fileExists && opts.Backup && !opts.Append {
+		backupPath, err = createEditBackup(normalizedPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create backup: %w", err)
+		}
 	}
 
-	return &WriteFileResult{
+	inPlace, err := writeFileAtomic(normalizedPath, data, mode)
+	if err != nil {
+		return nil, fmt.Errorf("failed to write file: %w", err)
+	}
+
+	// The file is already replaced, so a mismatch is reported, not undone,
+	// and the error names the backup that still holds the old bytes.
+	if opts.VerifyWrite {
+		written, err := readBackWritten(normalizedPath)
+		if err != nil || string(written) != string(data) {
+			msg := fmt.Sprintf("write verification failed: %s does not hold the content written", normalizedPath)
+			if backupPath != "" {
+				msg += "; the previous content is in " + backupPath
+			}
+			return nil, errors.New(msg)
+		}
+	}
+
+	result := &WriteFileResult{
 		Path:    normalizedPath,
-		Size:    int64(n),
+		Size:    int64(len(opts.Content)),
 		Created: !fileExists,
 		Backup:  backupPath,
 		Message: "File written successfully",
-	}, nil
-}
-
-func createBackupFile(path string) string {
-	timestamp := time.Now().Format("20060102_150405")
-	backupPath := fmt.Sprintf("%s.bak.%s", path, timestamp)
-
-	// Copy original to backup
-	src, err := os.Open(path)
-	if err != nil {
-		return ""
 	}
-	defer src.Close()
-
-	dst, err := os.Create(backupPath)
-	if err != nil {
-		return ""
+	if inPlace != "" {
+		result.InPlace = true
+		result.Message += inPlaceNote(inPlace)
 	}
-	defer dst.Close()
-
-	if _, err := io.Copy(dst, src); err != nil {
-		os.Remove(backupPath)
-		return ""
-	}
-
-	return backupPath
+	return result, nil
 }
 
 // GetFileInfoOptions contains input parameters for GetFileInfo
