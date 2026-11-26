@@ -87,6 +87,11 @@ func largeWriteFileCmd() *cobra.Command {
 				if result.Backup != "" {
 					msg += fmt.Sprintf("\nBackup: %s", result.Backup)
 				}
+				// TEXT prints neither in_place nor message, so without this a
+				// reader could not tell the write was not atomic, or why.
+				if result.InPlace {
+					msg += "\n" + result.Message
+				}
 				return msg
 			})
 		},

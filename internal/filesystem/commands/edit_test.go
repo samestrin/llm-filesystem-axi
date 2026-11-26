@@ -50,6 +50,10 @@ func TestBackupFailureRefusesEdit(t *testing.T) {
 		{"edit-multiple-blocks", func(file string) []string {
 			return []string{"edit-multiple-blocks", "--path", file, "--edits", `[{"old_text":"alpha","new_text":"ALPHA"}]`, "--backup"}
 		}},
+		// large-write-file discarded the failure the same way (EST-8806).
+		{"large-write-file", func(file string) []string {
+			return []string{"large-write-file", "--path", file, "--content", "ALPHA\n", "--backup"}
+		}},
 	}
 	for _, command := range commands {
 		t.Run(command.name, func(t *testing.T) {
