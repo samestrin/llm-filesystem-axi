@@ -252,13 +252,18 @@ func TestReplaceFileRefusesAMissingFile(t *testing.T) {
 	}
 }
 
-// A backup that cannot be taken is reported as no backup (""), not a path to a
-// file that does not exist: a missing source fails the stat, a directory the read.
-func TestCreateEditBackupReportsNoBackupWhenItCannotRead(t *testing.T) {
+// A backup that cannot be taken must return its error and no path to a file
+// that does not exist: a missing source fails the stat, a directory the read.
+// Returning "" without the error let both edit callers apply the edit anyway.
+func TestCreateEditBackupReportsAnErrorWhenItCannotRead(t *testing.T) {
 	dir := t.TempDir()
 	for _, p := range []string{filepath.Join(dir, "absent"), dir} {
-		if got := createEditBackup(p); got != "" {
-			t.Errorf("createEditBackup(%s) = %q, want no backup", p, got)
+		backupPath, err := createEditBackup(p)
+		if err == nil {
+			t.Errorf("createEditBackup(%s) reported success", p)
+		}
+		if backupPath != "" {
+			t.Errorf("createEditBackup(%s) = %q, want no backup path", p, backupPath)
 		}
 	}
 }
