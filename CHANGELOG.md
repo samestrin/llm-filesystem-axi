@@ -31,13 +31,17 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   backup that cannot be written now refuses the write with exit `1` and leaves
   the file unchanged, and a backup keeps the original's mode. A write that
   cannot be atomic (a hard-linked file, or a directory that is not writable)
-  is written in place and reported as `in_place`. `--verify` now reads the
+  is written in place and reported as `in_place`. A path that is a symlink
+  is written through to its target, leaving the link in place rather than
+  replacing it with a regular file. `--verify` now reads the
   file back after the write; a mismatch exits `1` and names the backup that
   holds the previous content.
 - **`safe-edit` and `edit-multiple-blocks` refuse an edit when a requested
   backup cannot be written.** Both commands exit `1` with the backup error and
   leave the original file unchanged instead of discarding the error, applying
-  the edit and implying that the requested safety copy exists.
+  the edit and implying that the requested safety copy exists. When an atomic
+  replacement is not possible, an edit is written in place and reported as
+  `in_place` instead of appearing to be atomic.
 - **`write-file` no longer writes through a hard link under `--allowed-dirs`.**
   With `A` allowed and `A/hl` a hard link to a file outside it, `write-file`
   (with or without `--append`) and `write-multiple-files` changed the outside
