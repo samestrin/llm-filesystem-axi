@@ -269,3 +269,46 @@ func TestTheTempFileIsChownedToTheOriginalOwnerBestEffort(t *testing.T) {
 		t.Errorf("file = %q, want the edit", got)
 	}
 }
+
+// The real writeInPlace, not a stub: a write that fails after the O_TRUNC
+// open must report truncated, or writeFileAtomic deletes the only fsynced copy
+// of the new content and never says the file may be partial (review of PR
+// #91). /dev/full opens for writing and fails every write with ENOSPC.
+func TestWriteInPlaceReportsTruncatedWhenTheWriteFails(t *testing.T) {
+	if _, err := os.Stat("/dev/full"); err != nil {
+		t.Skip("/dev/full unavailable")
+	}
+	truncated, err := writeInPlace("/dev/full", []byte("new"))
+	if err == nil {
+		t.Fatal("a write to /dev/full reported success")
+	}
+	if !truncated {
+		t.Error("a write that failed after the truncating open reported the file untouched")
+	}
+}
+
+// The same for a failed fsync, end to end: the edit errors, says the file may
+// be partial, and keeps the temp copy holding the new content.
+func TestAFailedInPlaceSyncReportsAPartialFileAndKeepsTheCopy(t *testing.T) {
+	_, a, _ := linkedPair(t)
+	prev := syncInPlaceFile
+	syncInPlaceFile = func(*os.File) error { return errors.New("injected: I/O error") }
+	t.Cleanup(func() { syncInPlaceFile = prev })
+
+	_, err := SafeEdit(SafeEditOptions{Path: a, OldString: "alpha", NewString: "ALPHA"})
+	if err == nil {
+		t.Fatal("a failed in-place sync reported success")
+	}
+	if !strings.Contains(err.Error(), "may be partial") {
+		t.Errorf("error does not say the file may be partial: %v", err)
+	}
+	i := strings.LastIndex(err.Error(), " is in ")
+	if i < 0 {
+		t.Fatalf("error does not name the temp copy: %v", err)
+	}
+	kept := strings.TrimSpace(err.Error()[i+len(" is in "):])
+	t.Cleanup(func() { _ = os.Remove(kept) })
+	if got, rerr := os.ReadFile(kept); rerr != nil || string(got) != "ALPHA\nbeta\n" {
+		t.Errorf("temp copy %s = %q (%v), want the new content", kept, got, rerr)
+	}
+}

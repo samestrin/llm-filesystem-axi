@@ -88,6 +88,9 @@ var (
 	chownTempFile = func(f *os.File, uid, gid int) error { return f.Chown(uid, gid) }
 	chmodTempFile = func(f *os.File, mode fs.FileMode) error { return f.Chmod(mode) }
 	closeTempFile = func(f *os.File) error { return f.Close() }
+	// syncInPlaceFile is the in-place write's fsync, separate so a test can
+	// fail it after the file has been truncated and rewritten.
+	syncInPlaceFile = func(f *os.File) error { return f.Sync() }
 	// writeInPlace reports whether it truncated the file before failing.
 	writeInPlace = func(path string, data []byte) (truncated bool, err error) {
 		f, err := os.OpenFile(path, os.O_WRONLY|os.O_TRUNC, 0)
@@ -98,7 +101,7 @@ var (
 			_ = f.Close()
 			return true, err
 		}
-		if err := f.Sync(); err != nil {
+		if err := syncInPlaceFile(f); err != nil {
 			_ = f.Close()
 			return true, err
 		}
