@@ -361,9 +361,13 @@ func SafeEdit(opts SafeEditOptions) (*EditResult, error) {
 		return result, nil
 	}
 
-	// Create backup if requested
+	// Create backup if requested. A requested backup that failed must refuse
+	// the edit: applying it would leave the caller without their safety copy.
 	if opts.Backup {
-		backupPath := createEditBackup(normalizedPath)
+		backupPath, err := createEditBackup(normalizedPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create backup: %w", err)
+		}
 		result.Backup = backupPath
 	}
 
@@ -375,25 +379,25 @@ func SafeEdit(opts SafeEditOptions) (*EditResult, error) {
 	return result, nil
 }
 
-func createEditBackup(path string) string {
+func createEditBackup(path string) (string, error) {
 	timestamp := time.Now().Format("20060102_150405")
 	backupPath := fmt.Sprintf("%s.bak.%s", path, timestamp)
 
 	info, err := os.Stat(path)
 	if err != nil {
-		return ""
+		return "", err
 	}
 	content, err := os.ReadFile(path)
 	if err != nil {
-		return ""
+		return "", err
 	}
 
 	// The original's mode, not 0644: a 0600 secret's backup was world-readable.
 	if err := writeFileAtomic(backupPath, content, fileMode(info)); err != nil {
-		return ""
+		return "", err
 	}
 
-	return backupPath
+	return backupPath, nil
 }
 
 // EditFileOptions contains input parameters for EditFile
@@ -830,10 +834,11 @@ func EditMultipleBlocks(opts EditMultipleBlocksOptions) (*MultiEditResult, error
 
 	var backupPath *string
 	if opts.Backup {
-		bp := createEditBackup(normalizedPath)
-		if bp != "" {
-			backupPath = &bp
+		bp, err := createEditBackup(normalizedPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create backup: %w", err)
 		}
+		backupPath = &bp
 	}
 
 	if err := replaceFile(normalizedPath, []byte(contentStr)); err != nil {

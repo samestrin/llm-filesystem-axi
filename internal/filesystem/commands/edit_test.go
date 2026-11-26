@@ -32,6 +32,53 @@ func assertFileContent(t *testing.T, file, want string) {
 	}
 }
 
+// Asking for a backup is a safety requirement, not an optional best effort.
+// Both commands used to discard createEditBackup's failure; this test defends
+// the refusal and, critically, checks the file rather than trusting exit 1.
+func TestBackupFailureRefusesEdit(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("directory permissions do not make a backup unwritable for root")
+	}
+
+	commands := []struct {
+		name string
+		args func(file string) []string
+	}{
+		{"safe-edit", func(file string) []string {
+			return []string{"safe-edit", "--path", file, "--old", "alpha", "--new", "ALPHA", "--backup"}
+		}},
+		{"edit-multiple-blocks", func(file string) []string {
+			return []string{"edit-multiple-blocks", "--path", file, "--edits", `[{"old_text":"alpha","new_text":"ALPHA"}]`, "--backup"}
+		}},
+	}
+	for _, command := range commands {
+		t.Run(command.name, func(t *testing.T) {
+			dir := t.TempDir()
+			file := filepath.Join(dir, "f")
+			if err := os.WriteFile(file, []byte("alpha\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Chmod(dir, 0o500); err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() {
+				if err := os.Chmod(dir, 0o700); err != nil {
+					t.Errorf("restore test directory permissions: %v", err)
+				}
+			})
+
+			stdout, _, code := runCLI(t, command.args(file)...)
+			if code != 1 {
+				t.Errorf("exit = %d, want 1: %q", code, stdout)
+			}
+			if !strings.Contains(stdout, "failed to create backup") {
+				t.Errorf("backup failure was not reported: %q", stdout)
+			}
+			assertFileContent(t, file, "alpha\n")
+		})
+	}
+}
+
 // TD #3: safe-edit and search-and-replace marked a preview only in their TEXT
 // renderer. In TOON and JSON — the default and the machine format — a dry run of
 // search-and-replace was byte-identical to a real one, and safe-edit differed

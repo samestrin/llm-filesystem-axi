@@ -20,6 +20,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **`safe-edit` and `edit-multiple-blocks` refuse an edit when a requested
+  backup cannot be written.** Both commands exit `1` with the backup error and
+  leave the original file unchanged instead of discarding the error, applying
+  the edit and implying that the requested safety copy exists.
 - **`write-file` no longer writes through a hard link under `--allowed-dirs`.**
   With `A` allowed and `A/hl` a hard link to a file outside it, `write-file`
   (with or without `--append`) and `write-multiple-files` changed the outside
