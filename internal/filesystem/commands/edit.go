@@ -234,6 +234,11 @@ func editMultipleBlocksCmd() *cobra.Command {
 				if result.BackupCreated != nil {
 					msg += fmt.Sprintf("\nBackup: %s", *result.BackupCreated)
 				}
+				// TEXT prints neither in_place nor message, so without this a
+				// reader could not tell the write was not atomic, or why.
+				if result.InPlace {
+					msg += "\n" + result.Message
+				}
 				return msg
 			})
 		},
@@ -275,6 +280,11 @@ func safeEditCmd() *cobra.Command {
 				msg := fmt.Sprintf("Edited %s: %d change(s)", result.Path, result.Changes)
 				if result.Backup != "" {
 					msg += fmt.Sprintf("\nBackup: %s", result.Backup)
+				}
+				// TEXT prints neither in_place nor message, so without this a
+				// reader could not tell the write was not atomic, or why.
+				if result.InPlace {
+					msg += "\n" + result.Message
 				}
 				if dryRun {
 					msg = "[DRY RUN] " + msg

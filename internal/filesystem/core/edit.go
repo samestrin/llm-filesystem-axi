@@ -29,6 +29,7 @@ type EditResult struct {
 	NewContent   string `json:"new_content,omitempty"`
 	DryRun       bool   `json:"dry_run,omitempty"`
 	Replacements int    `json:"replacements,omitempty"`
+	InPlace      bool   `json:"in_place,omitempty"`
 }
 
 // AmbiguousMatchError refuses an edit whose old string occurs more than once.
@@ -78,62 +79,152 @@ func replaceMatches(content, old, new string, replaceAll bool, edit int, field s
 	return strings.ReplaceAll(content, old, new), n, nil
 }
 
-// The temp file's write, sync, chmod and close are variables so a test can make
-// each fail after the temp file exists, which no real test filesystem does.
+// The temp file's write, sync, chown, chmod and close, and the in-place write,
+// are variables so a test can make each fail after the temp file exists, which
+// no real test filesystem does.
 var (
 	writeTempFile = func(f *os.File, b []byte) (int, error) { return f.Write(b) }
 	syncTempFile  = func(f *os.File) error { return f.Sync() }
+	chownTempFile = func(f *os.File, uid, gid int) error { return f.Chown(uid, gid) }
 	chmodTempFile = func(f *os.File, mode fs.FileMode) error { return f.Chmod(mode) }
 	closeTempFile = func(f *os.File) error { return f.Close() }
+	// syncInPlaceFile is the in-place write's fsync, separate so a test can
+	// fail it after the file has been truncated and rewritten.
+	syncInPlaceFile = func(f *os.File) error { return f.Sync() }
+	// writeInPlace reports whether it truncated the file before failing.
+	writeInPlace = func(path string, data []byte) (truncated bool, err error) {
+		f, err := os.OpenFile(path, os.O_WRONLY|os.O_TRUNC, 0)
+		if err != nil {
+			return false, err
+		}
+		if _, err := f.Write(data); err != nil {
+			_ = f.Close()
+			return true, err
+		}
+		if err := syncInPlaceFile(f); err != nil {
+			_ = f.Close()
+			return true, err
+		}
+		return true, f.Close()
+	}
 )
 
-// writeFileAtomic replaces path with data, keeping mode.
+// writeFileAtomic replaces path with data, keeping mode and, where permitted,
+// owner. inPlace is empty when the write was atomic, and otherwise says why it
+// was not.
 //
 // Every edit used os.WriteFile, which truncates first and writes second: a
 // crash or a full disk part-way left a truncated file where the original was.
-// This writes a temp file beside the target, fsyncs it, sets the mode and
-// renames it into place, so a reader sees the old bytes or the new ones and
-// never a mix. A symlink is resolved first: renaming over the link itself
-// would replace it with a regular file and leave its target unedited.
-func writeFileAtomic(path string, data []byte, mode fs.FileMode) (err error) {
+// This writes a temp file beside the target, fsyncs it, sets the owner and
+// mode and renames it into place, so a reader sees the old bytes or the new
+// ones and never a mix. A symlink is resolved first: renaming over the link
+// itself would replace it with a regular file and leave its target unedited.
+//
+// Renaming cannot keep a hard link: the edited name gets a new file and every
+// other name keeps the old bytes. Nor can it work in a directory the caller
+// cannot write, though the file itself is writable. In both cases the new
+// bytes are still written to a temp file and fsynced first, then written over
+// the original in place, and the reason is returned so the caller can say the
+// write was not atomic (EST-8805). If that in-place write fails, the temp copy
+// is kept and named in the error, since the original may now be partial.
+func writeFileAtomic(path string, data []byte, mode fs.FileMode) (inPlace string, err error) {
 	if resolved, rerr := filepath.EvalSymlinks(path); rerr == nil {
 		path = resolved
 	}
+	info, statErr := os.Stat(path)
+	exists := statErr == nil && info.Mode().IsRegular()
+	if exists {
+		if n := linkCount(path, info); n > 1 {
+			inPlace = fmt.Sprintf("the file has %d hard links", n)
+		}
+	}
+
 	tmp, err := os.CreateTemp(filepath.Dir(path), ".llmfs-edit-*")
+	if err != nil && exists && errors.Is(err, fs.ErrPermission) {
+		if inPlace == "" {
+			inPlace = "its directory is not writable"
+		}
+		tmp, err = os.CreateTemp("", ".llmfs-edit-*")
+	}
 	if err != nil {
-		return err
+		return "", err
 	}
 	tmpName := tmp.Name()
+	keepTemp := false
 	defer func() {
 		if err != nil {
 			_ = tmp.Close()
-			_ = os.Remove(tmpName)
+			if !keepTemp {
+				_ = os.Remove(tmpName)
+			}
 		}
 	}()
 	if _, err = writeTempFile(tmp, data); err != nil {
-		return err
+		return "", err
 	}
 	if err = syncTempFile(tmp); err != nil {
-		return err
+		return "", err
+	}
+
+	if inPlace != "" {
+		if err = closeTempFile(tmp); err != nil {
+			return "", err
+		}
+		var truncated bool
+		if truncated, err = writeInPlace(path, data); err != nil {
+			if !truncated {
+				return "", fmt.Errorf("writing in place because %s: %w", inPlace, err)
+			}
+			keepTemp = true
+			return "", fmt.Errorf("writing in place because %s: %w; %s may be partial, and the new content is in %s", inPlace, err, path, tmpName)
+		}
+		_ = os.Remove(tmpName)
+		return inPlace, nil
+	}
+
+	// Best effort: only root may give a file away, so an unprivileged edit of
+	// someone else's file ends up owned by the editor, as a rename always made
+	// it. Chown comes before Chmod because it clears setuid and setgid.
+	if exists {
+		if uid, gid, ok := fileOwner(info); ok {
+			_ = chownTempFile(tmp, uid, gid)
+		}
 	}
 	// CreateTemp makes the file 0600; Chmod is not narrowed by umask, so the
 	// result has exactly the original's mode.
 	if err = chmodTempFile(tmp, mode); err != nil {
-		return err
+		return "", err
 	}
 	if err = closeTempFile(tmp); err != nil {
-		return err
+		return "", err
 	}
-	return os.Rename(tmpName, path)
+	return "", os.Rename(tmpName, path)
 }
 
-// replaceFile rewrites an existing file atomically, keeping its mode.
-func replaceFile(path string, data []byte) error {
+// replaceFile rewrites an existing file atomically, keeping its mode. It
+// returns why the write went in place, or "" when it was atomic.
+func replaceFile(path string, data []byte) (string, error) {
 	info, err := os.Stat(path)
 	if err != nil {
-		return err
+		return "", err
 	}
 	return writeFileAtomic(path, data, fileMode(info))
+}
+
+// refuseEditThroughHardLinks is refuseHardLinks for an edit, which has the
+// file's path but not its info.
+func refuseEditThroughHardLinks(path, shown string, allowedDirs []string) error {
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil
+	}
+	return refuseHardLinks(path, shown, info, allowedDirs)
+}
+
+// inPlaceNote is the sentence an edit's message carries when its write was not
+// atomic.
+func inPlaceNote(reason string) string {
+	return fmt.Sprintf("; written in place, not atomically, because %s", reason)
 }
 
 // fileMode is the part of a file's mode a rewrite must carry over.
@@ -168,6 +259,9 @@ func EditBlock(opts EditBlockOptions) (*EditResult, error) {
 	if err := ValidatePath(normalizedPath, opts.AllowedDirs); err != nil {
 		return nil, err
 	}
+	if err := refuseEditThroughHardLinks(normalizedPath, opts.Path, opts.AllowedDirs); err != nil {
+		return nil, err
+	}
 
 	// Read file content
 	content, err := os.ReadFile(normalizedPath)
@@ -183,17 +277,23 @@ func EditBlock(opts EditBlockOptions) (*EditResult, error) {
 		return nil, noMatch("old_string not found in file")
 	}
 
-	if err := replaceFile(normalizedPath, []byte(newContent)); err != nil {
+	inPlace, err := replaceFile(normalizedPath, []byte(newContent))
+	if err != nil {
 		return nil, fmt.Errorf("failed to write file: %w", err)
 	}
 
-	return &EditResult{
+	result := &EditResult{
 		Path:         normalizedPath,
 		Success:      true,
 		Changes:      1,
 		Replacements: n,
 		Message:      "Edit completed successfully",
-	}, nil
+	}
+	if inPlace != "" {
+		result.InPlace = true
+		result.Message += inPlaceNote(inPlace)
+	}
+	return result, nil
 }
 
 // EditBlocksOptions contains input parameters for EditBlocks
@@ -223,6 +323,9 @@ func EditBlocks(opts EditBlocksOptions) (*EditResult, error) {
 	}
 
 	if err := ValidatePath(normalizedPath, opts.AllowedDirs); err != nil {
+		return nil, err
+	}
+	if err := refuseEditThroughHardLinks(normalizedPath, opts.Path, opts.AllowedDirs); err != nil {
 		return nil, err
 	}
 
@@ -276,7 +379,8 @@ func EditBlocks(opts EditBlocksOptions) (*EditResult, error) {
 
 	// Only write when something changed. The previous version rewrote the file
 	// even on a zero-change run, bumping its mtime for no reason.
-	if err := replaceFile(normalizedPath, []byte(contentStr)); err != nil {
+	inPlace, err := replaceFile(normalizedPath, []byte(contentStr))
+	if err != nil {
 		return nil, fmt.Errorf("failed to write file: %w", err)
 	}
 
@@ -287,6 +391,9 @@ func EditBlocks(opts EditBlocksOptions) (*EditResult, error) {
 	if unmatched > 0 {
 		message += fmt.Sprintf("; %d did not match", unmatched)
 	}
+	if inPlace != "" {
+		message += inPlaceNote(inPlace)
+	}
 
 	return &EditResult{
 		Path:         normalizedPath,
@@ -295,6 +402,7 @@ func EditBlocks(opts EditBlocksOptions) (*EditResult, error) {
 		Unmatched:    unmatched,
 		Replacements: replacements,
 		Message:      message,
+		InPlace:      inPlace != "",
 	}, nil
 }
 
@@ -325,6 +433,9 @@ func SafeEdit(opts SafeEditOptions) (*EditResult, error) {
 	}
 
 	if err := ValidatePath(normalizedPath, opts.AllowedDirs); err != nil {
+		return nil, err
+	}
+	if err := refuseEditThroughHardLinks(normalizedPath, opts.Path, opts.AllowedDirs); err != nil {
 		return nil, err
 	}
 
@@ -371,11 +482,16 @@ func SafeEdit(opts SafeEditOptions) (*EditResult, error) {
 		result.Backup = backupPath
 	}
 
-	if err := replaceFile(normalizedPath, []byte(newContent)); err != nil {
+	inPlace, err := replaceFile(normalizedPath, []byte(newContent))
+	if err != nil {
 		return nil, fmt.Errorf("failed to write file: %w", err)
 	}
 
 	result.Message = "Edit completed successfully"
+	if inPlace != "" {
+		result.InPlace = true
+		result.Message += inPlaceNote(inPlace)
+	}
 	return result, nil
 }
 
@@ -393,7 +509,7 @@ func createEditBackup(path string) (string, error) {
 	}
 
 	// The original's mode, not 0644: a 0600 secret's backup was world-readable.
-	if err := writeFileAtomic(backupPath, content, fileMode(info)); err != nil {
+	if _, err := writeFileAtomic(backupPath, content, fileMode(info)); err != nil {
 		return "", err
 	}
 
@@ -425,6 +541,9 @@ func EditFile(opts EditFileOptions) (*EditResult, error) {
 	}
 
 	if err := ValidatePath(normalizedPath, opts.AllowedDirs); err != nil {
+		return nil, err
+	}
+	if err := refuseEditThroughHardLinks(normalizedPath, opts.Path, opts.AllowedDirs); err != nil {
 		return nil, err
 	}
 
@@ -465,16 +584,22 @@ func EditFile(opts EditFileOptions) (*EditResult, error) {
 
 	newContent := strings.Join(lines, "\n")
 
-	if err := replaceFile(normalizedPath, []byte(newContent)); err != nil {
+	inPlace, err := replaceFile(normalizedPath, []byte(newContent))
+	if err != nil {
 		return nil, fmt.Errorf("failed to write file: %w", err)
 	}
 
-	return &EditResult{
+	result := &EditResult{
 		Path:    normalizedPath,
 		Success: true,
 		Changes: 1,
 		Message: fmt.Sprintf("Operation '%s' completed successfully", opts.Operation),
-	}, nil
+	}
+	if inPlace != "" {
+		result.InPlace = true
+		result.Message += inPlaceNote(inPlace)
+	}
+	return result, nil
 }
 
 // SearchReplaceOptions contains input parameters for SearchAndReplace
@@ -569,6 +694,12 @@ func SearchAndReplace(opts SearchReplaceOptions) (*SearchReplaceResult, error) {
 			return nil
 		}
 
+		// A file with another name, which may be outside the allowed
+		// directories, is skipped like any file it cannot write (EST-8805).
+		if refuseEditThroughHardLinks(filePath, filePath, opts.AllowedDirs) != nil {
+			return nil
+		}
+
 		// Read file
 		content, err := os.ReadFile(filePath)
 		if err != nil {
@@ -585,11 +716,12 @@ func SearchAndReplace(opts SearchReplaceOptions) (*SearchReplaceResult, error) {
 		changes := countChanges(contentStr, newContent, opts.Pattern, opts.Regex)
 		totalChanges += changes
 
+		inPlace := ""
 		if !opts.DryRun {
 			// replaceFile stats through a symlink. Walk's info is the link's
 			// own Lstat (mode 0777), and keeping that mode chmodded the
 			// target behind the link to rwxrwxrwx.
-			if err := replaceFile(filePath, []byte(newContent)); err != nil {
+			if inPlace, err = replaceFile(filePath, []byte(newContent)); err != nil {
 				return nil
 			}
 		}
@@ -601,12 +733,16 @@ func SearchAndReplace(opts SearchReplaceOptions) (*SearchReplaceResult, error) {
 		if opts.DryRun {
 			message = "Would modify"
 		}
+		if inPlace != "" {
+			message += inPlaceNote(inPlace)
+		}
 
 		results = append(results, EditResult{
 			Path:    filePath,
 			Success: true,
 			Changes: changes,
 			Message: message,
+			InPlace: inPlace != "",
 		})
 
 		return nil
@@ -658,6 +794,7 @@ type MultiEditResult struct {
 	SizeReadable    string         `json:"size_readable"`
 	Timestamp       string         `json:"timestamp"`
 	Replacements    int            `json:"replacements,omitempty"`
+	InPlace         bool           `json:"in_place,omitempty"`
 }
 
 // EditOpResult represents the result of a single edit operation
@@ -696,6 +833,9 @@ func EditMultipleBlocks(opts EditMultipleBlocksOptions) (*MultiEditResult, error
 	}
 
 	if err := ValidatePath(normalizedPath, opts.AllowedDirs); err != nil {
+		return nil, err
+	}
+	if err := refuseEditThroughHardLinks(normalizedPath, opts.Path, opts.AllowedDirs); err != nil {
 		return nil, err
 	}
 
@@ -841,7 +981,8 @@ func EditMultipleBlocks(opts EditMultipleBlocksOptions) (*MultiEditResult, error
 		backupPath = &bp
 	}
 
-	if err := replaceFile(normalizedPath, []byte(contentStr)); err != nil {
+	inPlace, err := replaceFile(normalizedPath, []byte(contentStr))
+	if err != nil {
 		return nil, fmt.Errorf("failed to write file: %w", err)
 	}
 
@@ -860,6 +1001,9 @@ func EditMultipleBlocks(opts EditMultipleBlocksOptions) (*MultiEditResult, error
 	if unmatched > 0 {
 		message += fmt.Sprintf("; %d did not apply", unmatched)
 	}
+	if inPlace != "" {
+		message += inPlaceNote(inPlace)
+	}
 
 	return &MultiEditResult{
 		Message:         message,
@@ -877,6 +1021,7 @@ func EditMultipleBlocks(opts EditMultipleBlocksOptions) (*MultiEditResult, error
 		SizeReadable:    formatBytes(finalSize),
 		Timestamp:       time.Now().UTC().Format(time.RFC3339),
 		Replacements:    replacements,
+		InPlace:         inPlace != "",
 	}, nil
 }
 
