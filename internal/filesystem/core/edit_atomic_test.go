@@ -21,32 +21,40 @@ type editRun struct {
 	run  func(path, dir string) error
 }
 
+// allowedDirs is the --allowed-dirs list for d, and none when d is empty.
+func allowedDirs(d string) []string {
+	if d == "" {
+		return nil
+	}
+	return []string{d}
+}
+
 // editRuns makes one real change to a file holding "alpha\nbeta\n" through
 // every edit command that rewrites a file.
 func editRuns() []editRun {
 	return []editRun{
 		{"edit-block", func(p, d string) error {
-			_, err := EditBlock(EditBlockOptions{Path: p, OldString: "alpha", NewString: "ALPHA", AllowedDirs: []string{d}})
+			_, err := EditBlock(EditBlockOptions{Path: p, OldString: "alpha", NewString: "ALPHA", AllowedDirs: allowedDirs(d)})
 			return err
 		}},
 		{"edit-blocks", func(p, d string) error {
-			_, err := EditBlocks(EditBlocksOptions{Path: p, Edits: []EditPair{{OldString: "alpha", NewString: "ALPHA"}}, AllowedDirs: []string{d}})
+			_, err := EditBlocks(EditBlocksOptions{Path: p, Edits: []EditPair{{OldString: "alpha", NewString: "ALPHA"}}, AllowedDirs: allowedDirs(d)})
 			return err
 		}},
 		{"safe-edit", func(p, d string) error {
-			_, err := SafeEdit(SafeEditOptions{Path: p, OldString: "alpha", NewString: "ALPHA", Backup: true, AllowedDirs: []string{d}})
+			_, err := SafeEdit(SafeEditOptions{Path: p, OldString: "alpha", NewString: "ALPHA", Backup: true, AllowedDirs: allowedDirs(d)})
 			return err
 		}},
 		{"edit-file", func(p, d string) error {
-			_, err := EditFile(EditFileOptions{Path: p, Operation: "replace", Line: 1, Content: "ALPHA", AllowedDirs: []string{d}})
+			_, err := EditFile(EditFileOptions{Path: p, Operation: "replace", Line: 1, Content: "ALPHA", AllowedDirs: allowedDirs(d)})
 			return err
 		}},
 		{"edit-multiple-blocks", func(p, d string) error {
-			_, err := EditMultipleBlocks(EditMultipleBlocksOptions{Path: p, Edits: []MultiEditOperation{{OldText: "alpha", NewText: "ALPHA"}}, Backup: true, AllowedDirs: []string{d}})
+			_, err := EditMultipleBlocks(EditMultipleBlocksOptions{Path: p, Edits: []MultiEditOperation{{OldText: "alpha", NewText: "ALPHA"}}, Backup: true, AllowedDirs: allowedDirs(d)})
 			return err
 		}},
 		{"search-and-replace", func(p, d string) error {
-			_, err := SearchAndReplace(SearchReplaceOptions{Path: p, Pattern: "alpha", Replacement: "ALPHA", AllowedDirs: []string{d}})
+			_, err := SearchAndReplace(SearchReplaceOptions{Path: p, Pattern: "alpha", Replacement: "ALPHA", AllowedDirs: allowedDirs(d)})
 			return err
 		}},
 	}

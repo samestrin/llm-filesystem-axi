@@ -29,6 +29,7 @@ type EditResult struct {
 	NewContent   string `json:"new_content,omitempty"`
 	DryRun       bool   `json:"dry_run,omitempty"`
 	Replacements int    `json:"replacements,omitempty"`
+	InPlace      bool   `json:"in_place,omitempty"`
 }
 
 // AmbiguousMatchError refuses an edit whose old string occurs more than once.
@@ -85,6 +86,21 @@ var (
 	syncTempFile  = func(f *os.File) error { return f.Sync() }
 	chmodTempFile = func(f *os.File, mode fs.FileMode) error { return f.Chmod(mode) }
 	closeTempFile = func(f *os.File) error { return f.Close() }
+	writeInPlace  = func(path string, data []byte) error {
+		f, err := os.OpenFile(path, os.O_WRONLY|os.O_TRUNC, 0)
+		if err != nil {
+			return err
+		}
+		if _, err := f.Write(data); err != nil {
+			_ = f.Close()
+			return err
+		}
+		if err := f.Sync(); err != nil {
+			_ = f.Close()
+			return err
+		}
+		return f.Close()
+	}
 )
 
 // writeFileAtomic replaces path with data, keeping mode.
@@ -658,6 +674,7 @@ type MultiEditResult struct {
 	SizeReadable    string         `json:"size_readable"`
 	Timestamp       string         `json:"timestamp"`
 	Replacements    int            `json:"replacements,omitempty"`
+	InPlace         bool           `json:"in_place,omitempty"`
 }
 
 // EditOpResult represents the result of a single edit operation
