@@ -257,6 +257,73 @@ func TestSearchUnderTheCapHasNoMarkerOrHint(t *testing.T) {
 	}
 }
 
+// Epic 14 T1 at the CLI, the task's "done when": a tree with more than 1000
+// matches searched with --max-results -1 must list every match, with no
+// truncation marker and no cap hint, in every format. Before the fix the flag
+// was accepted and printed matches[0] with truncated: true — exit 0 having
+// listed nothing.
+func TestSearchMaxResultsMinusOneListsEveryMatch(t *testing.T) {
+	dir := capFixture(t, 1500)
+
+	for _, c := range []struct {
+		name, totalField string
+		args             []string
+	}{
+		{"search-code", "total_matches", []string{"search-code", "--path", dir, "--pattern", "needle", "--max-results", "-1"}},
+		{"search-files", "total", []string{"search-files", "--path", dir, "--pattern", "*.hit", "--max-results", "-1"}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			out, _, code := runCLI(t, c.args...)
+			if code != int(goaxi.ExitOK) && code != -1 {
+				t.Fatalf("exit = %d\n%s", code, out)
+			}
+			if !hasTOONLine(out, c.totalField+": 1500") {
+				t.Errorf("missing exact total of 1500:\n%s", firstLines(out, 8))
+			}
+			for _, bad := range []string{"truncated", "shown"} {
+				if hasTOONField(out, bad) {
+					t.Errorf("--max-results -1 carried a %s marker with nothing cut:\n%s", bad, firstLines(out, 8))
+				}
+			}
+			if helpNames(out, "--max-results") {
+				t.Errorf("--max-results -1 emitted a cap hint although nothing was cut:\n%s", tail(out, 6))
+			}
+
+			js, _, _ := runCLI(t, append(c.args, "--format", "json")...)
+			var payload map[string]interface{}
+			if err := json.Unmarshal([]byte(js), &payload); err != nil {
+				t.Fatalf("json: %v\n%s", err, js)
+			}
+			if payload[c.totalField] != float64(1500) {
+				t.Errorf("json %s = %v, want 1500", c.totalField, payload[c.totalField])
+			}
+			if n := len(payload["matches"].([]interface{})); n != 1500 {
+				t.Errorf("json listed %d matches, want all 1500", n)
+			}
+			if _, ok := payload["truncated"]; ok {
+				t.Errorf("json carries truncated with nothing cut: %v", payload["truncated"])
+			}
+
+			text, _, _ := runCLI(t, append(c.args, "--format", "text")...)
+			if !strings.Contains(firstLines(text, 1), "1500") || strings.Contains(firstLines(text, 1), "showing") {
+				t.Errorf("text header does not report all 1500 without a showing marker: %q", firstLines(text, 1))
+			}
+		})
+	}
+}
+
+// T1 also asks for the flag help to say what -1 does. An undiscoverable
+// sentinel is the trap --max-size's help already avoids ("0 = default 70000,
+// -1 = no limit"); --max-results must name its own.
+func TestSearchMaxResultsHelpStatesNoLimit(t *testing.T) {
+	for _, cmd := range []string{"search-files", "search-code"} {
+		out, _, _ := runCLI(t, cmd, "--help")
+		if !strings.Contains(out, "-1 = no limit") {
+			t.Errorf("%s --help does not say -1 means no limit:\n%s", cmd, out)
+		}
+	}
+}
+
 // helpNames reports whether a line of the trailing help block mentions s.
 func helpNames(out, s string) bool {
 	i := strings.LastIndex(out, "\nhelp[")

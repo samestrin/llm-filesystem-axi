@@ -180,6 +180,73 @@ func TestSearchCodeUnderTheCapHasNoMarker(t *testing.T) {
 	}
 }
 
+// Epic 14 T1, the task's "done when". --max-results -1 listed nothing:
+// maxResults was defaulted only when 0, so a negative cap stored no match and
+// reported matches[0] with truncated: true — success with an empty list.
+// --max-size uses -1 for no limit, and an agent expects the same here: a
+// negative cap must return every match, with no marker, in both searches.
+func TestSearchNegativeMaxResultsReturnsEveryMatch(t *testing.T) {
+	dir := manyMatchesFixture(t, 3, 500) // 1,500 matches, past the default cap
+
+	for _, max := range []int{-1, -100} {
+		code, err := SearchCode(SearchCodeOptions{Path: dir, Pattern: "needle", MaxResults: max})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if code.TotalMatches != 1500 || len(code.Matches) != 1500 || code.TotalFiles != 3 || code.Truncated || code.Shown != 0 {
+			t.Errorf("max %d: total_matches %d, stored %d, total_files %d, truncated %v, shown %d; want 1500, 1500, 3, false, 0",
+				max, code.TotalMatches, len(code.Matches), code.TotalFiles, code.Truncated, code.Shown)
+		}
+
+		files, err := SearchFiles(SearchFilesOptions{Path: dir, Pattern: "*.hit", Recursive: true, MaxResults: max})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if files.Total != 1500 || len(files.Matches) != 1500 || files.Truncated || files.Shown != 0 {
+			t.Errorf("max %d: total %d, stored %d, truncated %v, shown %d; want 1500, 1500, false, 0",
+				max, files.Total, len(files.Matches), files.Truncated, files.Shown)
+		}
+	}
+
+	// Context mode reads each file whole and keeps matches on a different
+	// branch of searchInFile; no limit must hold there too, with the context
+	// still attached.
+	code, err := SearchCode(SearchCodeOptions{Path: dir, Pattern: "needle", MaxResults: -1, ContextLines: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(code.Matches) != 1500 || code.Truncated {
+		t.Errorf("context mode: stored %d, truncated %v; want 1500, false", len(code.Matches), code.Truncated)
+	}
+	if len(code.Matches) > 0 && len(code.Matches[0].Context) == 0 {
+		t.Error("context mode with no limit dropped the context lines")
+	}
+}
+
+// The other half of T1: 0 keeps the default cap of 1000. Treating every
+// non-positive value as no limit would silently uncap callers that pass 0.
+func TestSearchZeroMaxResultsKeepsTheDefaultCap(t *testing.T) {
+	dir := manyMatchesFixture(t, 3, 500)
+
+	code, err := SearchCode(SearchCodeOptions{Path: dir, Pattern: "needle", MaxResults: 0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code.TotalMatches != 1500 || len(code.Matches) != 1000 || !code.Truncated {
+		t.Errorf("total_matches %d, stored %d, truncated %v; want 1500, 1000, true",
+			code.TotalMatches, len(code.Matches), code.Truncated)
+	}
+
+	files, err := SearchFiles(SearchFilesOptions{Path: dir, Pattern: "*.hit", Recursive: true, MaxResults: 0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if files.Total != 1500 || len(files.Matches) != 1000 || !files.Truncated {
+		t.Errorf("total %d, stored %d, truncated %v; want 1500, 1000, true",
+			files.Total, len(files.Matches), files.Truncated)
+	}
+}
+
 // search-files had the same bug: total was len(matches), capped.
 func TestSearchFilesCountsPastTheCap(t *testing.T) {
 	dir := manyMatchesFixture(t, 3, 500)
