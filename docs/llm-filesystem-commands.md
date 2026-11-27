@@ -60,12 +60,14 @@ A read larger than the size budget is **truncated, not refused**. The result car
 
 | Command | Description | Example |
 |---------|-------------|---------|
-| `edit-block` | Replace text block | `llm-filesystem edit-block --path file.txt --old "foo" --new "bar"` |
-| `edit-blocks` | Multiple replacements | `llm-filesystem edit-blocks --path file.txt --edits '[{"old_string":"a","new_string":"b"}]'` |
-| `edit-multiple-blocks` | Edit several parts with modes | `llm-filesystem edit-multiple-blocks --path file.txt --edits '[{"old_text":"a","new_text":"b"},{"mode":"insert_after","line_number":3,"new_text":"c"}]'` |
-| `safe-edit` | Edit with backup | `llm-filesystem safe-edit --path file.txt --old "x" --new "y" --backup` |
+| `edit-block` | Replace text block | `llm-filesystem edit-block --path file.txt --old "foo" --new "bar" --replace-all` |
+| `edit-blocks` | Multiple replacements | `llm-filesystem edit-blocks --path file.txt --edits '[{"old_string":"a","new_string":"b"}]' --replace-all` |
+| `edit-multiple-blocks` | Edit several parts with modes | `llm-filesystem edit-multiple-blocks --path file.txt --edits '[{"old_text":"a","new_text":"b"},{"mode":"insert_after","line_number":3,"new_text":"c"}]' --replace-all` |
+| `safe-edit` | Edit with backup | `llm-filesystem safe-edit --path file.txt --old "x" --new "y" --backup --replace-all` |
 | `edit-file` | Line-based editing | `llm-filesystem edit-file --path file.txt --operation insert --line 5 --content "new line"` |
 | `search-and-replace` | Regex replace across files | `llm-filesystem search-and-replace --path ./src --pattern "old" --replacement "new"` |
+
+By default, a text replacement must match exactly once; an ambiguous match refuses the edit. Pass `--replace-all` to `edit-block`, `safe-edit`, `edit-blocks` or `edit-multiple-blocks` to replace every occurrence instead.
 
 `edit-block` and `safe-edit` require `--new`, and `edit-file --operation insert` or `replace` requires `--content`; left out, each used to read as empty text and delete the match or blank the line. Pass `--new ""` or `--content ""` to mean empty. `search-and-replace` skips `.git` directories.
 

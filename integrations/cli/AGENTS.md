@@ -41,6 +41,8 @@ Every command takes `--help`. Run `llm-filesystem` with no arguments to see the 
 | `safe-edit` | Edit with a backup, and `--dry-run` to preview |
 | `search-and-replace` | Regex replace across many files |
 
+`edit-block`, `safe-edit`, `edit-blocks` and `edit-multiple-blocks` require their old text to match exactly once by default. Use `--replace-all` to replace every occurrence; without it, an ambiguous match refuses the edit. For example: `llm-filesystem edit-block --path file.txt --old "foo" --new "bar" --replace-all`.
+
 **Directories**
 
 | Command | Use it for |
@@ -76,6 +78,8 @@ Search totals are exact: `--max-results` caps the list, not the count. A capped 
 | `extract-archive` | Extract a zip or tar.gz |
 | `sync-directories` | Copy a tree to a destination, with `--dry-run` to preview |
 | `list-allowed-directories` | Show the sandbox, if one is set |
+
+`extract-archive` limits decompression bombs with `--max-bytes` (default 1 GiB total) and `--max-entries` (default 100,000); either accepts `-1` for no limit. For example: `llm-filesystem extract-archive --archive file.zip --dest extracted --max-bytes 1048576 --max-entries 1000`.
 
 **Project setup**
 
