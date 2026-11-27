@@ -167,6 +167,37 @@ func TestSearchDocsStateExactTotals(t *testing.T) {
 	}
 }
 
+// searchReportingProblems guards Epic 14 T4's agent-facing search guidance:
+// unlimited results must be reachable, and unreadable inputs must not read as
+// successfully searched. Each missing claim is reported separately.
+func searchReportingProblems(body string) []string {
+	var out []string
+	for _, want := range []string{"`--max-results -1`", "`skipped`", "16 MiB"} {
+		if !strings.Contains(body, want) {
+			out = append(out, "missing "+want+" from the search reporting statement")
+		}
+	}
+	return out
+}
+
+// Defends the Epic 14 search contract in both docs this task owns. Without it,
+// the reference can omit the very output that distinguishes a partial search
+// from a complete one.
+func TestSearchDocsDescribeUnlimitedResultsAndSkippedInputs(t *testing.T) {
+	for _, doc := range []string{
+		"../../../docs/llm-filesystem-commands.md",
+		"../../../integrations/cli/AGENTS.md",
+	} {
+		body, err := os.ReadFile(doc)
+		if err != nil {
+			t.Fatalf("reading %s: %v", doc, err)
+		}
+		for _, msg := range searchReportingProblems(string(body)) {
+			t.Errorf("%s: %s", doc, msg)
+		}
+	}
+}
+
 // Proves both doc guards can fail: the pre-T5 / pre-T4 sentences must be
 // flagged, and the full statements must pass.
 func TestDocTruthGuardsFlagStaleClaims(t *testing.T) {
@@ -185,5 +216,13 @@ func TestDocTruthGuardsFlagStaleClaims(t *testing.T) {
 	fullTotals := "Search totals are exact past `--max-results`; a capped result adds `truncated: true`."
 	if p := exactTotalsProblems(fullTotals); len(p) != 0 {
 		t.Errorf("the full totals statement was flagged: %v", p)
+	}
+	staleReporting := "Search totals are exact past `--max-results`."
+	if p := searchReportingProblems(staleReporting); len(p) != 3 {
+		t.Errorf("the incomplete reporting statement produced %v, want all three findings", p)
+	}
+	fullReporting := "Use `--max-results -1` for no limit; `skipped` reports unreadable files and lines over 16 MiB."
+	if p := searchReportingProblems(fullReporting); len(p) != 0 {
+		t.Errorf("the full reporting statement was flagged: %v", p)
 	}
 }

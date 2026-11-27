@@ -23,6 +23,15 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Search reports inputs it could not read and handles long lines.**
+  `--max-results -1` now means no limit for both `search-code` and
+  `search-files`, while `0` still selects the default of 1000. Both commands
+  report unreadable files or directories under `skipped`, with a count and
+  `path: reason` entries, instead of silently dropping them. `search-code`
+  reads lines up to 16 MiB rather than stopping at bufio's 64 KiB scanner
+  limit. A longer line no longer drops the file's earlier matches: they remain
+  listed and counted, and the file is reported under `skipped`. A clean search
+  has no `skipped` field.
 - **The benchmark script no longer claims llm-filesystem has no MCP server.**
   `benchmarks/benchmark.sh` said the CLI "has no MCP server" in its header and
   in the handshake benchmark's banner; since epic 09 the server

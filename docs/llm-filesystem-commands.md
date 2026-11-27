@@ -93,7 +93,9 @@ A search with no matches says so explicitly and suggests how to widen it, rather
 
 A search path that does not exist, or that is a file rather than a directory, is a **failure** — not an empty result. "I searched and found nothing" and "that directory is not there" are different answers, and an agent has to be able to tell them apart.
 
-Search totals are exact. `--max-results` (default 1000) caps what a search lists, not what it counts: past the cap, `total_matches` and `total_files` (or `total` for `search-files`) still count every match (`total_files` counts the files that matched), and the result adds `shown`, `truncated: true` and a help line naming `--max-results`. A search the cap did not cut carries no marker and no hint.
+Search totals are exact for the input the search could read. `--max-results` (default 1000, selected by `0`) caps what a search lists, not what it counts: past the cap, `total_matches` and `total_files` (or `total` for `search-files`) still count every match (`total_files` counts the files that matched), and the result adds `shown`, `truncated: true` and a help line naming `--max-results`. Use `--max-results -1` for no limit. A search the cap did not cut carries no truncation marker and no hint.
+
+Both searches report files or directories they could not read under `skipped`, which contains a count and `path: reason` entries; a clean search has no `skipped` field. `search-code` reads lines up to 16 MiB instead of stopping at the previous 64 KiB scanner limit. A longer line no longer drops the whole file: matches found before that line remain listed and counted, and the file appears under `skipped`.
 
 ### File Operations
 
