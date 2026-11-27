@@ -23,6 +23,13 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **The benchmark script no longer claims llm-filesystem has no MCP server.**
+  `benchmarks/benchmark.sh` said the CLI "has no MCP server" in its header and
+  in the handshake benchmark's banner; since epic 09 the server
+  `llm-filesystem-mcp` ships beside the CLI. Both now say the CLI needs no
+  handshake and `llm-filesystem-mcp` is not measured here, matching
+  `benchmarks/README.md`, and a docs test guards the script against the stale
+  claim returning.
 - **`large-write-file` keeps the file it replaces.** An overwrite reset the
   file to `0644`, so a `0600` file became world-readable and a `0755` script
   lost its execute bits; it now keeps the original's mode, and a new file gets
