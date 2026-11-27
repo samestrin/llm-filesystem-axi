@@ -2,7 +2,10 @@ package core
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
+	"io"
+	"io/fs"
 	"math"
 	"os"
 	"path/filepath"
@@ -40,6 +43,43 @@ type SearchFilesResult struct {
 	Total     int  `json:"total"`
 	Shown     int  `json:"shown,omitempty"`
 	Truncated bool `json:"truncated,omitempty"`
+	// Skipped lists the directories the walk could not read. It is nil when
+	// nothing was skipped, so a clean search carries no marker.
+	Skipped *SkipReport `json:"skipped,omitempty"`
+}
+
+// SkipReport is what a search could not read. A walk error and an unopenable
+// file were each dropped with no trace, so a search over a tree it could not
+// fully read answered as if it had (epic 14 T2). Count is exact; Paths is a
+// sample of at most maxPlannedPaths "path: reason" lines, as failures is.
+type SkipReport struct {
+	Count int      `json:"count"`
+	Paths []string `json:"paths"`
+}
+
+func (s *SkipReport) add(path string, err error) {
+	s.Count++
+	if len(s.Paths) < maxPlannedPaths {
+		s.Paths = append(s.Paths, path+": "+skipReason(err))
+	}
+}
+
+// report is s when anything was skipped and nil otherwise.
+func (s *SkipReport) report() *SkipReport {
+	if s.Count == 0 {
+		return nil
+	}
+	return s
+}
+
+// skipReason drops the path a *PathError repeats, so an entry reads
+// "dir: open: permission denied", not "dir: open dir: permission denied".
+func skipReason(err error) string {
+	var pe *fs.PathError
+	if errors.As(err, &pe) {
+		return pe.Op + ": " + pe.Err.Error()
+	}
+	return err.Error()
 }
 
 // searchCap resolves MaxResults for both searches: 0 keeps the default cap of
@@ -92,10 +132,14 @@ func SearchFiles(opts SearchFilesOptions) (*SearchFilesResult, error) {
 	// Empty, not nil: no match renders as matches[0]: / [], not null.
 	matches := []FileSearchResult{}
 	total := 0
+	var skipped SkipReport
 
 	walkFn := func(filePath string, info os.FileInfo, err error) error {
 		if err != nil {
-			return nil // Skip files with errors
+			// Walk passes the error for an entry it could not lstat or a
+			// directory it could not list, then carries on past it.
+			skipped.add(filePath, err)
+			return nil
 		}
 
 		name := info.Name()
@@ -146,6 +190,7 @@ func SearchFiles(opts SearchFilesOptions) (*SearchFilesResult, error) {
 		Path:    normalizedPath,
 		Matches: matches,
 		Total:   total,
+		Skipped: skipped.report(),
 	}
 	if total > len(matches) {
 		result.Shown = len(matches)
@@ -187,6 +232,9 @@ type SearchCodeResult struct {
 	TotalMatches int  `json:"total_matches"`
 	Shown        int  `json:"shown,omitempty"`
 	Truncated    bool `json:"truncated,omitempty"`
+	// Skipped lists the files and directories the search could not read; nil
+	// when it read everything.
+	Skipped *SkipReport `json:"skipped,omitempty"`
 }
 
 // SearchCode searches for patterns in file contents
@@ -252,9 +300,14 @@ func SearchCode(opts SearchCodeOptions) (*SearchCodeResult, error) {
 	// Empty, not nil: no match renders as matches[0]: / [], not null.
 	matches := []CodeMatch{}
 	totalMatches, totalFiles := 0, 0
+	var skipped SkipReport
 
 	walkFn := func(filePath string, info os.FileInfo, err error) error {
-		if err != nil || info.IsDir() {
+		if err != nil {
+			skipped.add(filePath, err)
+			return nil
+		}
+		if info.IsDir() {
 			return nil
 		}
 
@@ -280,8 +333,21 @@ func SearchCode(opts SearchCodeOptions) (*SearchCodeResult, error) {
 			}
 		}
 
+		// Walk does not follow a symlink to a directory. Opening one fails to
+		// read, and that is the walk's policy, not a file it could not read.
+		if info.Mode()&os.ModeSymlink != 0 {
+			if target, statErr := os.Stat(filePath); statErr == nil && target.IsDir() {
+				return nil
+			}
+		}
+
 		// Skip binary files (simple heuristic)
-		if isBinaryFile(filePath) {
+		binary, err := isBinaryFile(filePath)
+		if err != nil {
+			skipped.add(filePath, err)
+			return nil
+		}
+		if binary {
 			return nil
 		}
 
@@ -290,7 +356,8 @@ func SearchCode(opts SearchCodeOptions) (*SearchCodeResult, error) {
 		// 10 T4), so files past it are still read, only to count.
 		fileMatches, count, err := searchInFile(filePath, searchFn, opts.ContextLines, maxResults-len(matches))
 		if err != nil {
-			return nil // Skip files that can't be read
+			skipped.add(filePath, err)
+			return nil
 		}
 
 		for _, m := range fileMatches {
@@ -315,6 +382,7 @@ func SearchCode(opts SearchCodeOptions) (*SearchCodeResult, error) {
 		Matches:      matches,
 		TotalFiles:   totalFiles,
 		TotalMatches: totalMatches,
+		Skipped:      skipped.report(),
 	}
 	if totalMatches > len(matches) {
 		result.Shown = len(matches)
@@ -391,7 +459,10 @@ func searchInFile(filePath string, matchFn func(string) bool, contextLines int, 
 	return matches, count, nil
 }
 
-func isBinaryFile(path string) bool {
+// isBinaryFile reports whether path looks binary. A file it cannot open or read
+// is an error, not binary: assuming binary dropped every unreadable file as if
+// it had been looked at (epic 14 T2).
+func isBinaryFile(path string) (bool, error) {
 	// Check common binary extensions
 	ext := strings.ToLower(filepath.Ext(path))
 	binaryExts := map[string]bool{
@@ -403,28 +474,32 @@ func isBinaryFile(path string) bool {
 		".mp3": true, ".mp4": true, ".avi": true, ".mov": true,
 	}
 	if binaryExts[ext] {
-		return true
+		return true, nil
 	}
 
 	// Quick check of file content (first 512 bytes)
 	file, err := os.Open(path)
 	if err != nil {
-		return true // Assume binary if can't read
+		return false, err
 	}
 	defer file.Close()
 
 	buf := make([]byte, 512)
 	n, err := file.Read(buf)
-	if err != nil || n == 0 {
-		return true
+	if err != nil && err != io.EOF {
+		return false, err
+	}
+	// An empty file has nothing to match.
+	if n == 0 {
+		return true, nil
 	}
 
 	// Check for null bytes (common in binary files)
 	for i := 0; i < n; i++ {
 		if buf[i] == 0 {
-			return true
+			return true, nil
 		}
 	}
 
-	return false
+	return false, nil
 }

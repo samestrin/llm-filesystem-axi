@@ -38,15 +38,17 @@ func searchFilesCmd() *cobra.Command {
 			OutputResultAXI(result,
 				map[string][]string{"matches": {"path", "name", "size"}},
 				func() []string {
+					// What was not read leads, ahead of every other step: with
+					// nothing matched it is the likeliest reason why.
+					steps := skippedHint(result.Skipped)
 					// No match means there is nothing to read, so offer the ways
 					// to widen instead of naming a file that is not there.
 					if result.Total == 0 {
-						return []string{
+						return append(steps,
 							"Widen the search: drop terms from --pattern, or add --show-hidden",
-							"Search contents instead of names: llm-filesystem search-code --path " + result.Path + " --pattern <text>",
-						}
+							"Search contents instead of names: llm-filesystem search-code --path "+result.Path+" --pattern <text>",
+						)
 					}
-					var steps []string
 					if result.Truncated {
 						steps = append(steps, capHint(result.Shown, result.Total))
 					}
@@ -57,8 +59,8 @@ func searchFilesCmd() *cobra.Command {
 				},
 				func() string {
 					var sb strings.Builder
-					sb.WriteString(fmt.Sprintf("Found %d files matching '%s' in %s%s\n\n",
-						result.Total, result.Pattern, result.Path, showing(result.Truncated, result.Shown)))
+					sb.WriteString(fmt.Sprintf("Found %d files matching '%s' in %s%s%s\n\n",
+						result.Total, result.Pattern, result.Path, showing(result.Truncated, result.Shown), skippedNote(result.Skipped)))
 					for _, m := range result.Matches {
 						typeIndicator := ""
 						if m.IsDir {
@@ -122,15 +124,15 @@ func searchCodeCmd() *cobra.Command {
 			OutputResultAXI(result,
 				map[string][]string{"matches": matchFields},
 				func() []string {
+					steps := skippedHint(result.Skipped)
 					// No match means there is nothing to open, so offer the ways
 					// to widen instead of naming a file that is not there.
 					if result.TotalMatches == 0 {
-						return []string{
+						return append(steps,
 							"Widen the search: add --ignore-case, or --regex to treat the pattern as an expression",
-							"Search file names instead of contents: llm-filesystem search-files --path " + result.Path + " --pattern <name>",
-						}
+							"Search file names instead of contents: llm-filesystem search-files --path "+result.Path+" --pattern <name>",
+						)
 					}
-					var steps []string
 					if result.Truncated {
 						steps = append(steps, capHint(result.Shown, result.TotalMatches))
 					}
@@ -146,8 +148,8 @@ func searchCodeCmd() *cobra.Command {
 				},
 				func() string {
 					var sb strings.Builder
-					sb.WriteString(fmt.Sprintf("Found %d matches in %d files for '%s'%s\n\n",
-						result.TotalMatches, result.TotalFiles, result.Pattern, showing(result.Truncated, result.Shown)))
+					sb.WriteString(fmt.Sprintf("Found %d matches in %d files for '%s'%s%s\n\n",
+						result.TotalMatches, result.TotalFiles, result.Pattern, showing(result.Truncated, result.Shown), skippedNote(result.Skipped)))
 					for _, m := range result.Matches {
 						sb.WriteString(fmt.Sprintf("%s:%d: %s\n", m.File, m.Line, m.Content))
 						if len(m.Context) > 0 {
@@ -190,4 +192,27 @@ func showing(truncated bool, shown int) string {
 		return ""
 	}
 	return fmt.Sprintf(" (showing %d)", shown)
+}
+
+// skippedHint is the help line for what a search could not read, in the form
+// the archive commands use for failures. It is empty when nothing was skipped,
+// so a clean search carries no marker (epic 14 T2).
+func skippedHint(s *core.SkipReport) []string {
+	if s == nil {
+		return nil
+	}
+	step := fmt.Sprintf("Not read (%d): %s", s.Count, strings.Join(s.Paths, "; "))
+	if more := s.Count - len(s.Paths); more > 0 {
+		step += fmt.Sprintf("; and %d more", more)
+	}
+	return []string{step}
+}
+
+// skippedNote is the text-format header counterpart of skipped. The paths
+// themselves reach text through the help line, which text prints as a step.
+func skippedNote(s *core.SkipReport) string {
+	if s == nil {
+		return ""
+	}
+	return fmt.Sprintf(" (%d skipped: could not be read)", s.Count)
 }

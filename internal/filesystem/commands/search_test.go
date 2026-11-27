@@ -339,3 +339,107 @@ func tail(s string, n int) string {
 	lines := strings.Split(s, "\n")
 	return strings.Join(lines[max(0, len(lines)-n):], "\n")
 }
+
+// Epic 14 T2 at the CLI. Both searches dropped an unreadable file or directory
+// with no trace and exited 0, so "1 match" read as the whole answer for a tree
+// holding three. What was skipped must reach the caller in every format: the
+// skipped field in TOON and JSON, a help line naming each path, and the text
+// header. search-files never opens a file, so only the directory is skipped.
+func TestSearchReportsWhatItSkipped(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("running as root; permission bits would not be enforced")
+	}
+	dir := t.TempDir()
+	lockedFile := filepath.Join(dir, "locked.txt")
+	lockedDir := filepath.Join(dir, "lockeddir")
+	for _, p := range []string{filepath.Join(dir, "ok.txt"), lockedFile, filepath.Join(lockedDir, "inner.txt")} {
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte("needle\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, p := range []string{lockedFile, lockedDir} {
+		if err := os.Chmod(p, 0o000); err != nil {
+			t.Skip("cannot remove permissions")
+		}
+		t.Cleanup(func() { _ = os.Chmod(p, 0o755) })
+	}
+
+	for _, c := range []struct {
+		name string
+		args []string
+		want []string
+	}{
+		{"search-code", []string{"search-code", "--path", dir, "--pattern", "needle"}, []string{lockedFile, lockedDir}},
+		{"search-code no match", []string{"search-code", "--path", dir, "--pattern", "absent"}, []string{lockedFile, lockedDir}},
+		{"search-files", []string{"search-files", "--path", dir, "--pattern", "*.txt"}, []string{lockedDir}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			out, _, code := runCLI(t, c.args...)
+			if code != int(goaxi.ExitOK) && code != -1 {
+				t.Fatalf("exit = %d\n%s", code, out)
+			}
+			if !hasTOONField(out, "skipped") || !hasTOONLine(out, "  count: "+fmt.Sprint(len(c.want))) {
+				t.Errorf("TOON has no skipped field with count %d:\n%s", len(c.want), out)
+			}
+			for _, p := range c.want {
+				if !helpNames(out, p+": ") {
+					t.Errorf("no help line names %s:\n%s", p, tail(out, 3))
+				}
+			}
+
+			js, _, _ := runCLI(t, append(c.args, "--format", "json")...)
+			var payload struct {
+				Skipped *struct {
+					Count int      `json:"count"`
+					Paths []string `json:"paths"`
+				} `json:"skipped"`
+				NextSteps []string `json:"next_steps"`
+			}
+			if err := json.Unmarshal([]byte(js), &payload); err != nil {
+				t.Fatalf("json: %v\n%s", err, js)
+			}
+			if payload.Skipped == nil || payload.Skipped.Count != len(c.want) || len(payload.Skipped.Paths) != len(c.want) {
+				t.Fatalf("json skipped = %+v, want %d entries", payload.Skipped, len(c.want))
+			}
+			for i, p := range c.want {
+				if !strings.HasPrefix(payload.Skipped.Paths[i], p+": ") {
+					t.Errorf("json skipped entry %d = %q, want %s: <reason>", i, payload.Skipped.Paths[i], p)
+				}
+			}
+
+			text, _, _ := runCLI(t, append(c.args, "--format", "text")...)
+			if !strings.Contains(firstLines(text, 1), fmt.Sprintf("%d skipped", len(c.want))) {
+				t.Errorf("text header does not say %d skipped: %q", len(c.want), firstLines(text, 1))
+			}
+			for _, p := range c.want {
+				if !strings.Contains(text, p+": ") {
+					t.Errorf("text output does not name %s:\n%s", p, text)
+				}
+			}
+		})
+	}
+}
+
+// The other half: a search that read everything carries no skipped field, no
+// help line and no text note, in any format.
+func TestSearchCleanTreeHasNoSkippedMarker(t *testing.T) {
+	dir := capFixture(t, 3)
+
+	for _, args := range [][]string{
+		{"search-code", "--path", dir, "--pattern", "needle"},
+		{"search-code", "--path", dir, "--pattern", "absent"},
+		{"search-files", "--path", dir, "--pattern", "*.hit"},
+	} {
+		for _, format := range []string{"toon", "json", "text"} {
+			out, _, _ := runCLI(t, append(args, "--format", format)...)
+			// Lowercase "skipped" never occurs in the temp path, which carries
+			// the test name with a capital S.
+			if strings.Contains(out, "skipped") || strings.Contains(out, "Not read") {
+				t.Errorf("%v --format %s mentions skipped with nothing skipped:\n%s", args, format, out)
+			}
+		}
+	}
+}
