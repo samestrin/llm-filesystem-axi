@@ -483,3 +483,22 @@ func TestSearchCodeListsAFileWithALineOverTheCap(t *testing.T) {
 		}
 	}
 }
+
+// The cap is inclusive: a line of exactly 16 MiB is read and searched. An
+// off-by-one in the Scanner's token limit (which counts the newline) would
+// skip it.
+func TestSearchCodeReadsALineOfExactlyTheCap(t *testing.T) {
+	dir := t.TempDir()
+	line := "needle" + strings.Repeat("z", 16<<20-len("needle"))
+	if err := os.WriteFile(filepath.Join(dir, "edge.txt"), []byte(line+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := SearchCode(SearchCodeOptions{Path: dir, Pattern: "needle"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.TotalMatches != 1 || res.Skipped != nil {
+		t.Errorf("total %d, skipped %+v; want the 16 MiB line read", res.TotalMatches, res.Skipped)
+	}
+}
