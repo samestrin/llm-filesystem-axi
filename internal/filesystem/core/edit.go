@@ -621,6 +621,17 @@ type SearchReplaceResult struct {
 	TotalChanges  int          `json:"total_changes"`
 	Results       []EditResult `json:"results"`
 	DryRun        bool         `json:"dry_run,omitempty"`
+	// Skipped lists every file the pattern matched that was not written: a
+	// hard link under AllowedDirs, or a write that failed. Each was dropped
+	// with no trace, so "1 file modified" read as every match replaced (epic
+	// 16 T1). It is nil when nothing was skipped.
+	Skipped []SkippedFile `json:"skipped,omitempty"`
+}
+
+// SkippedFile is a matched file search-and-replace left unchanged, and why.
+type SkippedFile struct {
+	Path   string `json:"path"`
+	Reason string `json:"reason"`
 }
 
 // SearchAndReplace performs search and replace across files
@@ -659,6 +670,7 @@ func SearchAndReplace(opts SearchReplaceOptions) (*SearchReplaceResult, error) {
 	}
 
 	var results []EditResult
+	var skipped []SkippedFile
 	totalChanges := 0
 
 	walkFn := func(filePath string, info os.FileInfo, err error) error {
@@ -694,12 +706,6 @@ func SearchAndReplace(opts SearchReplaceOptions) (*SearchReplaceResult, error) {
 			return nil
 		}
 
-		// A file with another name, which may be outside the allowed
-		// directories, is skipped like any file it cannot write (EST-8805).
-		if refuseEditThroughHardLinks(filePath, filePath, opts.AllowedDirs) != nil {
-			return nil
-		}
-
 		// Read file
 		content, err := os.ReadFile(filePath)
 		if err != nil {
@@ -713,8 +719,16 @@ func SearchAndReplace(opts SearchReplaceOptions) (*SearchReplaceResult, error) {
 			return nil // No changes
 		}
 
-		changes := countChanges(contentStr, newContent, opts.Pattern, opts.Regex)
-		totalChanges += changes
+		// A file with another name, which may be outside the allowed
+		// directories, is skipped like any file it cannot write (EST-8805).
+		// Checked after the match, so only a file it would have changed is
+		// listed.
+		if err := refuseEditThroughHardLinks(filePath, filePath, opts.AllowedDirs); err != nil {
+			// The entry already names the file; the refusal names it again.
+			reason := strings.TrimPrefix(err.Error(), fmt.Sprintf("path %q ", filePath))
+			skipped = append(skipped, SkippedFile{Path: filePath, Reason: reason})
+			return nil
+		}
 
 		inPlace := ""
 		if !opts.DryRun {
@@ -722,9 +736,15 @@ func SearchAndReplace(opts SearchReplaceOptions) (*SearchReplaceResult, error) {
 			// own Lstat (mode 0777), and keeping that mode chmodded the
 			// target behind the link to rwxrwxrwx.
 			if inPlace, err = replaceFile(filePath, []byte(newContent)); err != nil {
+				skipped = append(skipped, SkippedFile{Path: filePath, Reason: skipReason(err)})
 				return nil
 			}
 		}
+
+		// Counted once written: the matches in a skipped file were never
+		// replaced.
+		changes := countChanges(contentStr, newContent, opts.Pattern, opts.Regex)
+		totalChanges += changes
 
 		// A dry run writes nothing, so its per-file prose must not claim a write
 		// happened. "Modified" under --dry-run is exactly the failure this repo
@@ -758,6 +778,7 @@ func SearchAndReplace(opts SearchReplaceOptions) (*SearchReplaceResult, error) {
 		TotalChanges:  totalChanges,
 		Results:       results,
 		DryRun:        opts.DryRun,
+		Skipped:       skipped,
 	}, nil
 }
 

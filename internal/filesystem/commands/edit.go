@@ -3,6 +3,7 @@ package commands
 import (
 	"errors"
 	"fmt"
+	"strings"
 
 	goaxi "github.com/samestrin/go-axi"
 	"github.com/samestrin/llm-filesystem-axi/internal/filesystem/core"
@@ -376,14 +377,28 @@ func searchAndReplaceCmd() *cobra.Command {
 				OutputError(err)
 				return
 			}
-			OutputResult(result, func() string {
+			OutputResultAXI(result, nil, func() []string {
+				return notWrittenSteps(result.Skipped)
+			}, func() string {
 				msg := fmt.Sprintf("Modified %d files, %d total changes",
 					result.FilesModified, result.TotalChanges)
 				if dryRun {
 					msg = "[DRY RUN] " + msg
 				}
+				// The paths and reasons reach text through the help line, as
+				// search's skipped does.
+				if n := len(result.Skipped); n > 0 {
+					msg += fmt.Sprintf(" (%d skipped)", n)
+				}
 				return msg
 			})
+
+			// Files matched and none was written: the replacement did not
+			// happen, whatever was printed above (epic 16 T1).
+			if result.FilesModified == 0 && len(result.Skipped) > 0 {
+				exitFunc(int(goaxi.ExitError))
+				return
+			}
 		},
 	}
 
@@ -398,4 +413,26 @@ func searchAndReplaceCmd() *cobra.Command {
 	cmd.MarkFlagRequired("replacement")
 
 	return cmd
+}
+
+// notWrittenSteps is the help line for the matched files search-and-replace
+// left unchanged, in the form the archive commands use for failures, capped
+// at maxFailedListed reasons. It is empty when nothing was skipped.
+func notWrittenSteps(skipped []core.SkippedFile) []string {
+	if len(skipped) == 0 {
+		return nil
+	}
+	shown := skipped
+	if len(shown) > maxFailedListed {
+		shown = shown[:maxFailedListed]
+	}
+	details := make([]string, len(shown))
+	for i, s := range shown {
+		details[i] = s.Path + ": " + s.Reason
+	}
+	step := fmt.Sprintf("Not written (%d): %s", len(skipped), strings.Join(details, "; "))
+	if more := len(skipped) - len(shown); more > 0 {
+		step += fmt.Sprintf("; and %d more", more)
+	}
+	return []string{step}
 }
