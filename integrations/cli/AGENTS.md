@@ -43,6 +43,8 @@ Every command takes `--help`. Run `llm-filesystem` with no arguments to see the 
 
 `edit-block`, `safe-edit`, `edit-blocks` and `edit-multiple-blocks` require their old text to match exactly once by default. Use `--replace-all` to replace every occurrence; without it, an ambiguous match refuses the edit. For example: `llm-filesystem edit-block --path file.txt --old "foo" --new "bar" --replace-all`.
 
+`search-and-replace` lists every matched file it leaves unchanged under `skipped`, with a path and reason; if all matched files are skipped, it exits `1`.
+
 **Directories**
 
 | Command | Use it for |
