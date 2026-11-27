@@ -400,3 +400,28 @@ func TestSearchSkippedIsCappedButCountedExactly(t *testing.T) {
 		t.Errorf("count %d, entries %d; want %d, %d", s.Count, len(s.Paths), maxPlannedPaths+5, maxPlannedPaths)
 	}
 }
+
+// Walk does not follow a symlink to a directory, and isBinaryFile opens it and
+// fails to read a directory. That is the walk's policy, not something the
+// search could not read, so it must not be listed under skipped: every linked
+// tree in a checkout would otherwise read as unreadable.
+func TestSearchCodeDoesNotSkipADirectorySymlink(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, "real"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "real", "a.txt"), []byte("needle\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("real", filepath.Join(dir, "link")); err != nil {
+		t.Skip("cannot create a symlink")
+	}
+
+	res, err := SearchCode(SearchCodeOptions{Path: dir, Pattern: "needle"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Skipped != nil {
+		t.Errorf("a directory symlink was reported as skipped: %+v", res.Skipped)
+	}
+}
