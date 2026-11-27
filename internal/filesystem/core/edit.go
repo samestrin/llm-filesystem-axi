@@ -689,8 +689,8 @@ func SearchAndReplace(opts SearchReplaceOptions) (*SearchReplaceResult, error) {
 			}
 		}
 
-		// Skip binary files
-		if isBinaryFile(filePath) {
+		// Skip binary files, and files it cannot open, as before
+		if binary, err := isBinaryFile(filePath); binary || err != nil {
 			return nil
 		}
 
