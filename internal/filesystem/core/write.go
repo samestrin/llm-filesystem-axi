@@ -248,9 +248,11 @@ func LargeWriteFile(opts LargeWriteFileOptions) (*WriteFileResult, error) {
 	}
 
 	// A requested backup that cannot be written refuses the write: writing
-	// anyway left the caller without the copy they asked for.
+	// anyway left the caller without the copy they asked for. An append
+	// rewrites the whole file too, so it is backed up the same way; it used
+	// to skip the backup and report none (EST-9125).
 	var backupPath string
-	if fileExists && opts.Backup && !opts.Append {
+	if fileExists && opts.Backup {
 		backupPath, err = createEditBackup(normalizedPath)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create backup: %w", err)

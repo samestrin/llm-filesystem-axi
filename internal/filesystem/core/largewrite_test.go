@@ -59,6 +59,26 @@ func TestLargeWriteFileAppendKeepsTheExistingBytes(t *testing.T) {
 	}
 }
 
+// --backup --append wrote no backup and reported none: the backup was guarded
+// by !opts.Append, so the caller asked for a copy and silently got nothing.
+// An append rewrites the whole file through a temp file like an overwrite, so
+// the old bytes are backed up the same way (EST-9125).
+func TestLargeWriteFileBackupWithAppendBacksUpTheOldBytes(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "log")
+	if err := os.WriteFile(p, []byte("first\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	result, err := LargeWriteFile(LargeWriteFileOptions{Path: p, Content: "second\n", Append: true, Backup: true, VerifyWrite: true})
+	if err != nil {
+		t.Fatalf("LargeWriteFile() error = %v", err)
+	}
+	assertContent(t, p, "first\nsecond\n")
+	if result.Backup == "" {
+		t.Fatal("--backup --append reported no backup")
+	}
+	assertContent(t, result.Backup, "first\n")
+}
+
 // Every call used the one temp name path+".tmp", so two writers to one path
 // truncated and renamed each other's temp file, and one failed or left a mix.
 func TestLargeWriteFileConcurrentWritesDoNotShareATempName(t *testing.T) {
