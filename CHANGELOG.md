@@ -23,6 +23,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **`large-write-file --backup --append` now makes and reports the backup.**
+  Appending used to skip the requested backup and report none; it now saves the
+  existing bytes and returns their path in `backup`. A backup that cannot be
+  written still refuses the append and leaves the file unchanged.
 - **`search-and-replace` reports files it leaves unchanged.** Every matched
   file it cannot write is now listed under `skipped` with its path and reason,
   while writable files are still replaced. A run that skips every matched file
