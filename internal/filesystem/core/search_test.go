@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 )
 
@@ -268,5 +269,134 @@ func TestSearchFilesCountsPastTheCap(t *testing.T) {
 	if res.Total != 10 || len(res.Matches) != 10 || res.Truncated || res.Shown != 0 {
 		t.Errorf("total %d, stored %d, truncated %v, shown %d; want 10, 10, false, 0",
 			res.Total, len(res.Matches), res.Truncated, res.Shown)
+	}
+}
+
+// unreadableFixture builds a tree with one readable match, one unreadable file
+// and one unreadable directory, each holding the same match. It skips the test
+// as root, where permission bits are not enforced and nothing is unreadable.
+func unreadableFixture(t *testing.T) (dir, lockedFile, lockedDir string) {
+	t.Helper()
+	if os.Getuid() == 0 {
+		t.Skip("running as root; permission bits would not be enforced")
+	}
+	dir = t.TempDir()
+	lockedFile = filepath.Join(dir, "locked.txt")
+	lockedDir = filepath.Join(dir, "lockeddir")
+	for path, body := range map[string]string{
+		filepath.Join(dir, "ok.txt"):          "needle\n",
+		lockedFile:                            "needle\n",
+		filepath.Join(lockedDir, "inner.txt"): "needle\n",
+	} {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, p := range []string{lockedFile, lockedDir} {
+		if err := os.Chmod(p, 0o000); err != nil {
+			t.Skip("cannot remove permissions")
+		}
+		t.Cleanup(func() { _ = os.Chmod(p, 0o755) })
+	}
+	return dir, lockedFile, lockedDir
+}
+
+// missingSkips returns each want path that has no entry in s in the
+// "path: reason" form, with a reason after it.
+func missingSkips(s *SkipReport, want ...string) []string {
+	var missing []string
+	for _, w := range want {
+		found := false
+		if s != nil {
+			for _, e := range s.Paths {
+				if strings.HasPrefix(e, w+": ") && len(e) > len(w)+2 {
+					found = true
+				}
+			}
+		}
+		if !found {
+			missing = append(missing, w)
+		}
+	}
+	return missing
+}
+
+// Epic 14 T2, the task's "done when". An unreadable file was counted as binary
+// (isBinaryFile assumed binary when it could not open the file) and an
+// unreadable directory was a walk error the visitor swallowed, so search-code
+// answered "1 match" for a tree holding 3, exit 0, with nothing to say two
+// places were never looked at. Both must be listed under skipped.
+func TestSearchCodeListsWhatItCouldNotRead(t *testing.T) {
+	dir, lockedFile, lockedDir := unreadableFixture(t)
+
+	res, err := SearchCode(SearchCodeOptions{Path: dir, Pattern: "needle"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.TotalMatches != 1 {
+		t.Errorf("total_matches = %d, want the 1 readable match", res.TotalMatches)
+	}
+	if res.Skipped == nil || res.Skipped.Count != 2 || len(res.Skipped.Paths) != 2 {
+		t.Fatalf("skipped = %+v, want 2 entries", res.Skipped)
+	}
+	if missing := missingSkips(res.Skipped, lockedFile, lockedDir); len(missing) > 0 {
+		t.Errorf("not listed under skipped: %v (got %v)", missing, res.Skipped.Paths)
+	}
+}
+
+// search-files never opens a file, so an unreadable file is still found by
+// name; an unreadable directory cannot be listed and must be reported.
+func TestSearchFilesListsADirectoryItCouldNotRead(t *testing.T) {
+	dir, _, lockedDir := unreadableFixture(t)
+
+	res, err := SearchFiles(SearchFilesOptions{Path: dir, Pattern: "*.txt", Recursive: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Total != 2 {
+		t.Errorf("total = %d, want ok.txt and locked.txt", res.Total)
+	}
+	if res.Skipped == nil || res.Skipped.Count != 1 {
+		t.Fatalf("skipped = %+v, want the one directory", res.Skipped)
+	}
+	if missing := missingSkips(res.Skipped, lockedDir); len(missing) > 0 {
+		t.Errorf("not listed under skipped: %v (got %v)", missing, res.Skipped.Paths)
+	}
+}
+
+// A clean tree carries no skipped marker at all: a skipped: 0 on every search
+// would be noise that teaches an agent to ignore the real one.
+func TestSearchCleanTreeHasNoSkipped(t *testing.T) {
+	dir := manyMatchesFixture(t, 2, 3)
+
+	code, err := SearchCode(SearchCodeOptions{Path: dir, Pattern: "needle"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code.Skipped != nil {
+		t.Errorf("search-code on a clean tree reported skipped: %+v", code.Skipped)
+	}
+	files, err := SearchFiles(SearchFilesOptions{Path: dir, Pattern: "*", Recursive: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if files.Skipped != nil {
+		t.Errorf("search-files on a clean tree reported skipped: %+v", files.Skipped)
+	}
+}
+
+// The entries are a sample capped at maxPlannedPaths, like failures; the count
+// is exact. A tree of thousands of unreadable files must not print thousands of
+// lines, and must not report the cap as the count either.
+func TestSearchSkippedIsCappedButCountedExactly(t *testing.T) {
+	var s SkipReport
+	for i := 0; i < maxPlannedPaths+5; i++ {
+		s.add("p"+strconv.Itoa(i), os.ErrPermission)
+	}
+	if s.Count != maxPlannedPaths+5 || len(s.Paths) != maxPlannedPaths {
+		t.Errorf("count %d, entries %d; want %d, %d", s.Count, len(s.Paths), maxPlannedPaths+5, maxPlannedPaths)
 	}
 }

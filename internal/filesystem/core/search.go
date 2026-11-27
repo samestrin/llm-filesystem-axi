@@ -2,7 +2,9 @@ package core
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
+	"io/fs"
 	"math"
 	"os"
 	"path/filepath"
@@ -40,6 +42,43 @@ type SearchFilesResult struct {
 	Total     int  `json:"total"`
 	Shown     int  `json:"shown,omitempty"`
 	Truncated bool `json:"truncated,omitempty"`
+	// Skipped lists the directories the walk could not read. It is nil when
+	// nothing was skipped, so a clean search carries no marker.
+	Skipped *SkipReport `json:"skipped,omitempty"`
+}
+
+// SkipReport is what a search could not read. A walk error and an unopenable
+// file were each dropped with no trace, so a search over a tree it could not
+// fully read answered as if it had (epic 14 T2). Count is exact; Paths is a
+// sample of at most maxPlannedPaths "path: reason" lines, as failures is.
+type SkipReport struct {
+	Count int      `json:"count"`
+	Paths []string `json:"paths"`
+}
+
+func (s *SkipReport) add(path string, err error) {
+	s.Count++
+	if len(s.Paths) < maxPlannedPaths {
+		s.Paths = append(s.Paths, path+": "+skipReason(err))
+	}
+}
+
+// report is s when anything was skipped and nil otherwise.
+func (s *SkipReport) report() *SkipReport {
+	if s.Count == 0 {
+		return nil
+	}
+	return s
+}
+
+// skipReason drops the path a *PathError repeats, so an entry reads
+// "dir: open: permission denied", not "dir: open dir: permission denied".
+func skipReason(err error) string {
+	var pe *fs.PathError
+	if errors.As(err, &pe) {
+		return pe.Op + ": " + pe.Err.Error()
+	}
+	return err.Error()
 }
 
 // searchCap resolves MaxResults for both searches: 0 keeps the default cap of
@@ -187,6 +226,9 @@ type SearchCodeResult struct {
 	TotalMatches int  `json:"total_matches"`
 	Shown        int  `json:"shown,omitempty"`
 	Truncated    bool `json:"truncated,omitempty"`
+	// Skipped lists the files and directories the search could not read; nil
+	// when it read everything.
+	Skipped *SkipReport `json:"skipped,omitempty"`
 }
 
 // SearchCode searches for patterns in file contents
