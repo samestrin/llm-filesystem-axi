@@ -354,10 +354,12 @@ func SearchCode(opts SearchCodeOptions) (*SearchCodeResult, error) {
 		// Search in file. The cap limits what is stored, not what is counted:
 		// stopping at it once reported the cap itself as total_matches (epic
 		// 10 T4), so files past it are still read, only to count.
+		// A file searchInFile could not finish still returns the matches it
+		// found before the error; they are kept and counted, and the file is
+		// listed under skipped for the part it never read.
 		fileMatches, count, err := searchInFile(filePath, searchFn, opts.ContextLines, maxResults-len(matches))
 		if err != nil {
 			skipped.add(filePath, err)
-			return nil
 		}
 
 		for _, m := range fileMatches {
@@ -391,9 +393,16 @@ func SearchCode(opts SearchCodeOptions) (*SearchCodeResult, error) {
 	return result, nil
 }
 
+// maxSearchLine is the longest line searchInFile reads. The default Scanner
+// stopped at 64 KB, so one minified bundle or one-line JSON dump dropped its
+// whole file; no cap at all would read a multi-GB single-line file into memory
+// (epic 14 T3, board decision 2026-11-26).
+const maxSearchLine = 16 << 20
+
 // searchInFile returns at most keep matches and the count of every match in the
 // file. Matches past keep are counted but never built, so a search past its cap
-// costs a scan, not memory.
+// costs a scan, not memory. On a read error, including a line over
+// maxSearchLine, it returns the matches found before it along with the error.
 func searchInFile(filePath string, matchFn func(string) bool, contextLines int, keep int) ([]CodeMatch, int, error) {
 	file, err := os.Open(filePath)
 	if err != nil {
@@ -404,16 +413,26 @@ func searchInFile(filePath string, matchFn func(string) bool, contextLines int, 
 	var matches []CodeMatch
 	count := 0
 	scanner := bufio.NewScanner(file)
+	// The token limit includes the newline, so +1 lets a line of exactly
+	// maxSearchLine bytes through.
+	scanner.Buffer(make([]byte, 0, 64<<10), maxSearchLine+1)
+	lineNum := 0
+	scanErr := func() error {
+		err := scanner.Err()
+		if errors.Is(err, bufio.ErrTooLong) {
+			return fmt.Errorf("line %d is longer than %d MiB; matches before it are counted", lineNum+1, maxSearchLine>>20)
+		}
+		return err
+	}
 
 	// Read all lines only if context is needed for a match that will be kept
 	if contextLines > 0 && keep > 0 {
 		var lines []string
 		for scanner.Scan() {
+			lineNum++
 			lines = append(lines, scanner.Text())
 		}
-		if err := scanner.Err(); err != nil {
-			return nil, 0, err
-		}
+		err := scanErr()
 
 		for i, line := range lines {
 			if !matchFn(line) {
@@ -435,8 +454,10 @@ func searchInFile(filePath string, matchFn func(string) bool, contextLines int, 
 				Context: context,
 			})
 		}
+		if err != nil {
+			return matches, count, err
+		}
 	} else {
-		lineNum := 0
 		for scanner.Scan() {
 			lineNum++
 			line := scanner.Text()
@@ -451,8 +472,8 @@ func searchInFile(filePath string, matchFn func(string) bool, contextLines int, 
 				})
 			}
 		}
-		if err := scanner.Err(); err != nil {
-			return nil, 0, err
+		if err := scanErr(); err != nil {
+			return matches, count, err
 		}
 	}
 

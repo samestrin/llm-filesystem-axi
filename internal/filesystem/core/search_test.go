@@ -425,3 +425,80 @@ func TestSearchCodeDoesNotSkipADirectorySymlink(t *testing.T) {
 		t.Errorf("a directory symlink was reported as skipped: %+v", res.Skipped)
 	}
 }
+
+// Epic 14 T3, the task's "done when". searchInFile used a default bufio.Scanner,
+// whose 64 KB line limit made Scan stop with an error on a minified bundle or a
+// one-line JSON dump; the caller dropped the whole file, so a match on that line
+// read as "no match here". A 200 KB line is well inside the 16 MiB cap.
+func TestSearchCodeFindsAMatchOnALongLine(t *testing.T) {
+	dir := t.TempDir()
+	line := strings.Repeat("x", 100<<10) + "needle" + strings.Repeat("y", 100<<10)
+	if err := os.WriteFile(filepath.Join(dir, "min.js"), []byte(line+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, ctx := range []int{0, 1} {
+		res, err := SearchCode(SearchCodeOptions{Path: dir, Pattern: "needle", ContextLines: ctx})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if res.TotalMatches != 1 || len(res.Matches) != 1 || res.Matches[0].Content != line {
+			t.Errorf("context %d: total %d, matches %d; want the one 200 KB line", ctx, res.TotalMatches, len(res.Matches))
+		}
+		if res.Skipped != nil {
+			t.Errorf("context %d: a 200 KB line was skipped: %+v", ctx, res.Skipped)
+		}
+	}
+}
+
+// A line past the 16 MiB cap is not read into memory, so the file is listed
+// under skipped with the reason. The matches before that line were found and
+// must still be returned and counted, not thrown away with the file; matches
+// after it were never looked at, which is what the skipped entry says.
+func TestSearchCodeListsAFileWithALineOverTheCap(t *testing.T) {
+	dir := t.TempDir()
+	long := filepath.Join(dir, "dump.json")
+	body := "needle one\nneedle two\n" + strings.Repeat("z", 16<<20+1) + "\nneedle after\n"
+	if err := os.WriteFile(long, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, ctx := range []int{0, 1} {
+		res, err := SearchCode(SearchCodeOptions{Path: dir, Pattern: "needle", ContextLines: ctx})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if res.TotalMatches != 2 || len(res.Matches) != 2 || res.TotalFiles != 1 {
+			t.Errorf("context %d: total %d, matches %d, files %d; want the 2 matches before the long line",
+				ctx, res.TotalMatches, len(res.Matches), res.TotalFiles)
+		}
+		if res.Skipped == nil || res.Skipped.Count != 1 {
+			t.Fatalf("context %d: skipped = %+v, want the file", ctx, res.Skipped)
+		}
+		if missing := missingSkips(res.Skipped, long); len(missing) > 0 {
+			t.Errorf("context %d: not listed under skipped: %v (got %v)", ctx, missing, res.Skipped.Paths)
+		}
+		if !strings.Contains(res.Skipped.Paths[0], "line 3") {
+			t.Errorf("context %d: reason does not name the line: %q", ctx, res.Skipped.Paths[0])
+		}
+	}
+}
+
+// The cap is inclusive: a line of exactly 16 MiB is read and searched. An
+// off-by-one in the Scanner's token limit (which counts the newline) would
+// skip it.
+func TestSearchCodeReadsALineOfExactlyTheCap(t *testing.T) {
+	dir := t.TempDir()
+	line := "needle" + strings.Repeat("z", 16<<20-len("needle"))
+	if err := os.WriteFile(filepath.Join(dir, "edge.txt"), []byte(line+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := SearchCode(SearchCodeOptions{Path: dir, Pattern: "needle"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.TotalMatches != 1 || res.Skipped != nil {
+		t.Errorf("total %d, skipped %+v; want the 16 MiB line read", res.TotalMatches, res.Skipped)
+	}
+}
