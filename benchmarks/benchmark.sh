@@ -7,9 +7,10 @@
 # 3. File read operation
 # 4. Directory tree operation
 #
-# llm-filesystem is a CLI, so each operation is one process invocation, and it
-# has no MCP server to hand-shake with. fast-filesystem-mcp is only reachable
-# over MCP, so each of its operations is a server start, an initialize and one
+# llm-filesystem is a CLI, so each operation is one process invocation and
+# needs no handshake; its own MCP server, llm-filesystem-mcp, is not measured
+# here. fast-filesystem-mcp is only reachable over MCP, so each of its
+# operations is a server start, an initialize and one
 # request, driven by mcp_client.py. That is what an agent pays per operation
 # with each tool.
 #
@@ -87,7 +88,7 @@ echo ""
 # Benchmark 2: MCP Handshake
 # ============================================================================
 echo -e "${GREEN}Benchmark 2: MCP Initialize + Tools List${NC}"
-echo "Measures a server start, initialize and tools/list (llm-filesystem has no MCP server)."
+echo "Measures a server start, initialize and tools/list (the CLI needs no handshake; llm-filesystem-mcp is not measured here)."
 echo ""
 
 hyperfine \
