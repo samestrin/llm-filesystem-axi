@@ -65,6 +65,11 @@ var setupExecutable = os.Executable
 // which no real filesystem does on demand.
 var renameFile = os.Rename
 
+// beforeFinalMove runs between writing the temporary file and the final move,
+// so a test can swap a directory for a symlink exactly there; it does nothing
+// otherwise.
+var beforeFinalMove = func() {}
+
 // Statuses a file can be reported with.
 const (
 	setupWritten    = "written"
@@ -401,6 +406,9 @@ func writeFileByRename(dir, path string, content []byte, mode fs.FileMode) error
 	}
 	if cerr := tmp.Close(); err == nil {
 		err = cerr
+	}
+	if err == nil {
+		beforeFinalMove()
 	}
 	if err == nil {
 		err = renameFile(name, path)
