@@ -8,6 +8,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Documented replacement and archive extraction limits.** The editing commands'
+  `--replace-all` flag and `extract-archive`'s `--max-bytes` and `--max-entries`
+  flags are now covered in the agent-facing command guidance and reference.
 - **AXI catalog entry and audit re-pinned to v1.1.2.** The catalog entry's
   `reviewed_revision` now names the commit tag v1.1.2 points at, every
   `file:line` it cites is moved to where that code sits at the tag, and it
