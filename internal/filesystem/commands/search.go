@@ -75,7 +75,7 @@ func searchFilesCmd() *cobra.Command {
 	cmd.Flags().StringVar(&pattern, "pattern", "", "Search pattern (required)")
 	cmd.Flags().BoolVar(&recursive, "recursive", true, "Search recursively")
 	cmd.Flags().BoolVar(&showHidden, "show-hidden", false, "Include hidden files")
-	cmd.Flags().IntVar(&maxResults, "max-results", 1000, "Maximum results to list; the total still counts every match")
+	cmd.Flags().IntVar(&maxResults, "max-results", 1000, "Maximum results to list; the total still counts every match (0 = default 1000, -1 = no limit)")
 	cmd.MarkFlagRequired("path")
 	cmd.MarkFlagRequired("pattern")
 
@@ -168,7 +168,7 @@ func searchCodeCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&regex, "regex", false, "Use regex pattern")
 	cmd.Flags().IntVar(&contextLines, "context", 0, "Lines of context around matches")
 	cmd.Flags().StringSliceVar(&fileTypes, "file-types", nil, "File extensions to include")
-	cmd.Flags().IntVar(&maxResults, "max-results", 1000, "Maximum results to list; the total still counts every match")
+	cmd.Flags().IntVar(&maxResults, "max-results", 1000, "Maximum results to list; the total still counts every match (0 = default 1000, -1 = no limit)")
 	cmd.Flags().BoolVar(&showHidden, "show-hidden", false, "Include hidden files")
 	cmd.MarkFlagRequired("path")
 	cmd.MarkFlagRequired("pattern")
