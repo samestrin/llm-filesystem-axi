@@ -333,6 +333,14 @@ func SearchCode(opts SearchCodeOptions) (*SearchCodeResult, error) {
 			}
 		}
 
+		// Walk does not follow a symlink to a directory. Opening one fails to
+		// read, and that is the walk's policy, not a file it could not read.
+		if info.Mode()&os.ModeSymlink != 0 {
+			if target, statErr := os.Stat(filePath); statErr == nil && target.IsDir() {
+				return nil
+			}
+		}
+
 		// Skip binary files (simple heuristic)
 		binary, err := isBinaryFile(filePath)
 		if err != nil {
