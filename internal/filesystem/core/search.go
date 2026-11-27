@@ -3,6 +3,7 @@ package core
 import (
 	"bufio"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -41,6 +42,22 @@ type SearchFilesResult struct {
 	Truncated bool `json:"truncated,omitempty"`
 }
 
+// searchCap resolves MaxResults for both searches: 0 keeps the default cap of
+// 1000, a negative value means no limit (the sentinel --max-size uses), and
+// anything else is the caller's cap. No limit is MaxInt rather than a special
+// case so the cap comparisons below and searchInFile's keep budget stay plain
+// arithmetic. A negative cap used to store nothing and report matches[0] with
+// truncated: true — success with an empty list (epic 14 T1).
+func searchCap(maxResults int) int {
+	if maxResults == 0 {
+		return 1000
+	}
+	if maxResults < 0 {
+		return math.MaxInt
+	}
+	return maxResults
+}
+
 // SearchFiles searches for files by name pattern
 func SearchFiles(opts SearchFilesOptions) (*SearchFilesResult, error) {
 	if opts.Path == "" {
@@ -70,10 +87,7 @@ func SearchFiles(opts SearchFilesOptions) (*SearchFilesResult, error) {
 		return nil, fmt.Errorf("search path is not a directory: %s", normalizedPath)
 	}
 
-	maxResults := opts.MaxResults
-	if maxResults == 0 {
-		maxResults = 1000
-	}
+	maxResults := searchCap(opts.MaxResults)
 
 	// Empty, not nil: no match renders as matches[0]: / [], not null.
 	matches := []FileSearchResult{}
@@ -204,10 +218,7 @@ func SearchCode(opts SearchCodeOptions) (*SearchCodeResult, error) {
 		return nil, fmt.Errorf("search path is not a directory: %s", normalizedPath)
 	}
 
-	maxResults := opts.MaxResults
-	if maxResults == 0 {
-		maxResults = 1000
-	}
+	maxResults := searchCap(opts.MaxResults)
 
 	// Prepare search pattern
 	var searchFn func(line string) bool
