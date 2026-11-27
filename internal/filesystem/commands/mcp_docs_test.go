@@ -48,7 +48,10 @@ func readmeOutsidePerformance(body string) string {
 // docs/axi-catalog-entry.yaml finds nothing, and the README has no such
 // sentence outside its dated benchmark table. docs/background.md is
 // included because the EST-6459 review note found the same stale sentence
-// there.
+// there. benchmarks/benchmark.sh is included because epic 15 T2 found the
+// same false claim in its header comment and its handshake-benchmark echo,
+// while benchmarks/README.md and performance.py already said the server is
+// simply not measured here.
 func TestNamedDocsNoLongerDenyTheMCPServer(t *testing.T) {
 	for _, doc := range []string{
 		"../../../VISION.md",
@@ -56,6 +59,7 @@ func TestNamedDocsNoLongerDenyTheMCPServer(t *testing.T) {
 		"../../../docs/axi-audit.md",
 		"../../../docs/axi-catalog-entry.yaml",
 		"../../../docs/background.md",
+		"../../../benchmarks/benchmark.sh",
 	} {
 		body, err := os.ReadFile(doc)
 		if err != nil {
