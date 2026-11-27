@@ -776,3 +776,44 @@ func TestSetupRechecksTheWriteDirectoryAfterCreatingTheTempFile(t *testing.T) {
 	}
 	assertNothingWritten(t, outside) // includes the temporary file
 }
+
+// Debt 88b33e5b, the window the re-check above left: after CreateTemp, the
+// temporary file is written, synced and closed before the final move, and a
+// directory in the path could be swapped for a symlink out of the project in
+// that time. This schedules the race through the beforeFinalMove seam: .claude
+// (with the temporary file in it) is moved outside and replaced by a symlink to
+// where it went, so a plain move would follow the link and put settings.json
+// outside. The guard re-verifies the directory immediately before the move; it
+// must refuse, name the escape, and leave nothing behind outside — neither
+// settings.json nor the temporary file.
+func TestSetupRefusesADirectorySwappedForASymlinkBeforeTheFinalMove(t *testing.T) {
+	dir, _ := setupProject(t)
+	real, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	outside := t.TempDir()
+	moved := filepath.Join(outside, "moved")
+	claude := filepath.Join(real, ".claude")
+
+	prev := beforeFinalMove
+	beforeFinalMove = func() {
+		if err := os.Rename(claude, moved); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(moved, claude); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Cleanup(func() { beforeFinalMove = prev })
+
+	err = writeFileByRename(real, filepath.Join(claude, "settings.json"), []byte("{}"), 0o644)
+	if err == nil {
+		t.Fatal("the write succeeded although .claude had been swapped for a symlink out of the project before the final move")
+	}
+	if !strings.Contains(err.Error(), "outside the working directory") {
+		t.Errorf("error = %q, want it to name the escape", err.Error())
+	}
+	assertNothingWritten(t, moved) // neither settings.json nor the temporary file
+	assertNothingWritten(t, outside, "moved")
+}

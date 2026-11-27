@@ -65,6 +65,11 @@ var setupExecutable = os.Executable
 // which no real filesystem does on demand.
 var renameFile = os.Rename
 
+// beforeFinalMove runs between writing the temporary file and the final move,
+// so a test can swap a directory for a symlink exactly there; it does nothing
+// otherwise.
+var beforeFinalMove = func() {}
+
 // Statuses a file can be reported with.
 const (
 	setupWritten    = "written"
@@ -374,6 +379,10 @@ func applySetup(dir string, plans []setupPlan, dryRun bool) setupResult {
 // stopped a directory in the path being swapped for a symlink in between — the
 // check-to-use race (debt 88b33e5b). The temporary file's directory is where
 // the rename would land, so checking it there closes the window the plan left.
+// Writing the temporary file opens a second window before the rename, so the
+// directory is verified once more immediately before it. What remains is the
+// gap between that check and the rename call itself; closing it needs a move
+// relative to a held directory handle (os.Root.Rename, Go 1.25).
 func writeFileByRename(dir, path string, content []byte, mode fs.FileMode) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return fmt.Errorf("write %s: %w", path, err)
@@ -401,6 +410,14 @@ func writeFileByRename(dir, path string, content []byte, mode fs.FileMode) error
 	}
 	if cerr := tmp.Close(); err == nil {
 		err = cerr
+	}
+	if err == nil {
+		beforeFinalMove()
+		// The guard: writing, syncing and closing the temporary file took time
+		// in which a directory could have been swapped for a symlink, so verify
+		// again immediately before the move. On a refusal, os.Remove below
+		// follows the same link to the temporary file and takes it away.
+		err = checkInsideProject(dir, filepath.Dir(path))
 	}
 	if err == nil {
 		err = renameFile(name, path)
