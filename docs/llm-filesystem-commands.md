@@ -69,7 +69,7 @@ A read larger than the size budget is **truncated, not refused**. The result car
 
 By default, a text replacement must match exactly once; an ambiguous match refuses the edit. Pass `--replace-all` to `edit-block`, `safe-edit`, `edit-blocks` or `edit-multiple-blocks` to replace every occurrence instead.
 
-`edit-block` and `safe-edit` require `--new`, and `edit-file --operation insert` or `replace` requires `--content`; left out, each used to read as empty text and delete the match or blank the line. Pass `--new ""` or `--content ""` to mean empty. `search-and-replace` skips `.git` directories.
+`edit-block` and `safe-edit` require `--new`, and `edit-file --operation insert` or `replace` requires `--content`; left out, each used to read as empty text and delete the match or blank the line. Pass `--new ""` or `--content ""` to mean empty. `search-and-replace` skips `.git` directories. Every matched file it leaves unchanged is listed under `skipped` with its path and reason; if all matched files are skipped, it exits `1`.
 
 `safe-edit --dry-run` and `search-and-replace --dry-run` write nothing, and their output carries `dry_run: true` in every format, not only in the human text. A real run omits the field.
 

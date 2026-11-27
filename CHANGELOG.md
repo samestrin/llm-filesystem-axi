@@ -23,6 +23,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **`search-and-replace` reports files it leaves unchanged.** Every matched
+  file it cannot write is now listed under `skipped` with its path and reason,
+  while writable files are still replaced. A run that skips every matched file
+  exits `1` instead of reporting success.
 - **Search reports inputs it could not read and handles long lines.**
   `--max-results -1` now means no limit for both `search-code` and
   `search-files`, while `0` still selects the default of 1000. Both commands
